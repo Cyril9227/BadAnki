@@ -1,0 +1,74 @@
+{% extends "layout.html" %}
+
+{% block title %}Create New Card - Anki Clone{% endblock %}
+
+{% block content %}
+<h1 class="mb-4 text-center">Create a New Card</h1>
+<form action="/new" method="post">
+    <div class="row g-4">
+        <!-- Question Editor -->
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header">
+                    <h3>Question</h3>
+                </div>
+                <div class="card-body">
+                    <textarea name="question" id="question-input" class="form-control" style="height: 200px;" oninput="updatePreview('question')"></textarea>
+                </div>
+            </div>
+        </div>
+        <!-- Question Preview -->
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header">
+                    <h3>Question Preview</h3>
+                </div>
+                <div class="card-body" id="question-preview">
+                    <!-- Preview will be rendered here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Answer Editor -->
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header">
+                    <h3>Answer</h3>
+                </div>
+                <div class="card-body">
+                    <textarea name="answer" id="answer-input" class="form-control" style="height: 200px;" oninput="updatePreview('answer')"></textarea>
+                </div>
+            </div>
+        </div>
+        <!-- Answer Preview -->
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header">
+                    <h3>Answer Preview</h3>
+                </div>
+                <div class="card-body" id="answer-preview">
+                    <!-- Preview will be rendered here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="d-grid gap-2 col-6 mx-auto mt-4">
+        <button type="submit" class="btn btn-primary btn-lg">Save Card</button>
+    </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function updatePreview(field) {
+        const input = document.getElementById(`${field}-input`).value;
+        const preview = document.getElementById(`${field}-preview`);
+        preview.innerHTML = marked.parse(input);
+        MathJax.typesetPromise([preview]);
+    }
+    // Initial preview update for both fields
+    updatePreview('question');
+    updatePreview('answer');
+</script>
+{% endblock %}

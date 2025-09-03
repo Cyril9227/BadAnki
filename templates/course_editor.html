@@ -1,0 +1,378 @@
+{% extends "layout.html" %}
+
+{% block title %}Course Editor{% endblock %}
+
+{% block head %}
+{{ super() }}
+<style>
+    .file-tree-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.5rem 0.75rem;
+    }
+    .file-tree-item .item-name {
+        cursor: pointer;
+    }
+    .file-tree-item .item-actions {
+        display: none;
+    }
+    .file-tree-item:hover .item-actions {
+        display: block;
+    }
+    .item-actions .btn {
+        padding: 0.1rem 0.4rem;
+        font-size: 0.8rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <div class="row">
+        <!-- File Tree Column -->
+        <div class="col-md-4">
+            <h4>
+                Courses
+                <button class="btn btn-sm btn-outline-success ms-2 new-folder-btn" data-path="">
+                    <i class="fas fa-plus"></i> New Folder
+                </button>
+            </h4>
+            <div id="file-tree">
+                <!-- File tree will be loaded here by JavaScript -->
+            </div>
+        </div>
+
+        <!-- Editor Column -->
+        <div class="col-md-8">
+            <div id="editor-container" style="display: none;">
+                <h4 id="editing-filename"></h4>
+                <form id="editor-form">
+                    <input type="hidden" id="current-file-path" name="path">
+                    <div class="form-group mb-2">
+                        <textarea id="markdown-editor" name="content" class="form-control" rows="15"></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                    <button type="button" id="generate-cards-btn" class="btn btn-secondary">Generate Cards (Gemini)</button>
+                    <button type="button" id="generate-cards-ollama-btn" class="btn btn-info">Generate Cards (Ollama)</button>
+                </form>
+                <hr>
+                <h5>Live Preview</h5>
+                <div id="live-preview" class="border p-3"></div>
+            </div>
+            <div id="no-file-selected" class="text-center text-muted pt-5">
+                <p>Select a file to start editing or create a new one.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Card Generation Modal -->
+<div class="modal fade" id="cards-modal" tabindex="-1" aria-labelledby="cardsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="cardsModalLabel">Generated Cards</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="cards-modal-body-content"></div>
+                <div id="loading-spinner" class="text-center" style="display: none;">
+                    <div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div>
+                    <p>Generating cards, please wait...</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="save-cards-btn">Save Cards</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const fileTreeContainer = document.getElementById('file-tree');
+    const editorContainer = document.getElementById('editor-container');
+    const noFileSelected = document.getElementById('no-file-selected');
+    const markdownEditor = document.getElementById('markdown-editor');
+    const livePreview = document.getElementById('live-preview');
+    const editorForm = document.getElementById('editor-form');
+    const editingFilename = document.getElementById('editing-filename');
+    const currentFilePathInput = document.getElementById('current-file-path');
+    const generateCardsBtn = document.getElementById('generate-cards-btn');
+    const generateCardsOllamaBtn = document.getElementById('generate-cards-ollama-btn');
+    const cardsModal = new bootstrap.Modal(document.getElementById('cards-modal'));
+    const cardsModalBody = document.getElementById('cards-modal-body-content');
+    const saveCardsBtn = document.getElementById('save-cards-btn');
+    const loadingSpinner = document.getElementById('loading-spinner');
+
+    let generatedCardsData = [];
+
+    function loadFileTree() {
+        fetch('/api/courses-tree')
+            .then(response => response.json())
+            .then(data => {
+                const tree = buildTree(data);
+                fileTreeContainer.innerHTML = generateTreeHTML(tree);
+                attachTreeEventListeners();
+            });
+    }
+
+    function buildTree(items) {
+        const tree = [];
+        const lookup = {};
+        items.forEach(item => {
+            lookup[item.path] = { ...item, children: [] };
+        });
+
+        items.forEach(item => {
+            const parentPath = item.path.substring(0, item.path.lastIndexOf('/'));
+            if (parentPath && lookup[parentPath]) {
+                lookup[parentPath].children.push(lookup[item.path]);
+            } else {
+                tree.push(lookup[item.path]);
+            }
+        });
+        return tree;
+    }
+
+    function generateTreeHTML(nodes) {
+        let html = '<div class="list-group">';
+        nodes.forEach(node => {
+            const padding = (node.path.split('/').length - 1) * 20;
+            if (node.type === 'directory') {
+                html += `
+                    <div style="padding-left: ${padding}px;">
+                        <div class="list-group-item file-tree-item">
+                            <span class="item-name" data-path="${node.path}">
+                                <i class="fas fa-folder"></i> ${node.name}
+                            </span>
+                            <span class="item-actions">
+                                <button class="btn btn-outline-success new-file-btn" data-path="${node.path}" title="New File"><i class="fas fa-plus"></i></button>
+                                <button class="btn btn-outline-success new-folder-btn" data-path="${node.path}" title="New Folder"><i class="fas fa-folder-plus"></i></button>
+                                <button class="btn btn-outline-danger delete-item-btn" data-path="${node.path}" data-type="folder" title="Delete Folder"><i class="fas fa-trash-alt"></i></button>
+                            </span>
+                        </div>
+                        ${generateTreeHTML(node.children)}
+                    </div>
+                `;
+            } else {
+                html += `
+                    <div class="list-group-item file-tree-item" style="padding-left: ${padding}px;">
+                        <span class="item-name file-item" data-path="${node.path}">
+                            <i class="fas fa-file-alt"></i> ${node.name}
+                        </span>
+                        <span class="item-actions">
+                            <button class="btn btn-outline-danger delete-item-btn" data-path="${node.path}" data-type="file" title="Delete File"><i class="fas fa-trash-alt"></i></button>
+                        </span>
+                    </div>
+                `;
+            }
+        });
+        html += '</div>';
+        return html;
+    }
+
+    function attachTreeEventListeners() {
+        fileTreeContainer.addEventListener('click', function(e) {
+            const target = e.target.closest('button, .file-item');
+            if (!target) return;
+
+            const path = target.dataset.path;
+
+            if (target.classList.contains('file-item')) {
+                loadEditorContent(path);
+            } else if (target.classList.contains('new-file-btn')) {
+                createNewItem('file', path);
+            } else if (target.classList.contains('new-folder-btn')) {
+                createNewItem('folder', path);
+            } else if (target.classList.contains('delete-item-btn')) {
+                const type = target.dataset.type;
+                deleteItem(path, type);
+            }
+        });
+    }
+
+    function createNewItem(type, parentPath) {
+        const name = prompt(`Enter the name for the new ${type}:`);
+        if (!name) return;
+
+        const newPath = parentPath ? `${parentPath}/${name}` : name;
+        const finalPath = type === 'file' && !newPath.endsWith('.md') ? `${newPath}.md` : newPath;
+
+        fetch(`/api/course-item`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: finalPath, type: type })
+        })
+        .then(handleResponse)
+        .then(() => {
+            loadFileTree();
+            if (type === 'file') {
+                loadEditorContent(finalPath);
+            }
+        })
+        .catch(handleError);
+    }
+
+    function deleteItem(path, type) {
+        if (!confirm(`Are you sure you want to delete this ${type}: ${path}? This action cannot be undone.`)) {
+            return;
+        }
+
+        fetch(`/api/course-item`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: path, type: type })
+        })
+        .then(handleResponse)
+        .then(() => {
+            loadFileTree();
+            // If the deleted item was the one being edited, clear the editor
+            if (currentFilePathInput.value === path) {
+                editorContainer.style.display = 'none';
+                noFileSelected.style.display = 'block';
+                currentFilePathInput.value = '';
+                markdownEditor.value = '';
+            }
+        })
+        .catch(handleError);
+    }
+
+    function loadEditorContent(path) {
+        fetch(`/api/course-content/${path}`)
+            .then(handleResponse)
+            .then(content => {
+                editorContainer.style.display = 'block';
+                noFileSelected.style.display = 'none';
+                editingFilename.textContent = `Editing: ${path}`;
+                currentFilePathInput.value = path;
+                markdownEditor.value = content;
+                updatePreview();
+            })
+            .catch(handleError);
+    }
+
+    editorForm.addEventListener('submit', function (e) {
+        e.preventDefault();
+        const path = currentFilePathInput.value;
+        const content = markdownEditor.value;
+
+        fetch(`/api/course-content`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: path, content: content })
+        })
+        .then(handleResponse)
+        .then(() => alert('File saved successfully!'))
+        .catch(handleError);
+    });
+
+    function generateCards(apiUrl) {
+        const content = markdownEditor.value;
+        if (!content.trim()) {
+            alert('Editor is empty. Please add some content before generating cards.');
+            return;
+        }
+
+        cardsModalBody.innerHTML = '';
+        loadingSpinner.style.display = 'block';
+        saveCardsBtn.disabled = true;
+        cardsModal.show();
+
+        fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: content })
+        })
+        .then(handleResponse)
+        .then(data => {
+            loadingSpinner.style.display = 'none';
+            generatedCardsData = data.cards || [];
+            if (generatedCardsData.length > 0) {
+                displayGeneratedCards(generatedCardsData);
+                saveCardsBtn.disabled = false;
+            } else {
+                cardsModalBody.innerHTML = '<p>No cards were generated. Try refining your course content.</p>';
+            }
+        })
+        .catch(error => {
+            loadingSpinner.style.display = 'none';
+            cardsModalBody.innerHTML = `<p class="text-danger">Error: ${error.message}</p>`;
+            console.error('Error generating cards:', error);
+        });
+    }
+
+    generateCardsBtn.addEventListener('click', () => generateCards('/api/generate-cards'));
+    generateCardsOllamaBtn.addEventListener('click', () => generateCards('/api/generate-cards-ollama'));
+
+    saveCardsBtn.addEventListener('click', function() {
+        if (generatedCardsData.length === 0) return;
+        fetch('/api/save-cards', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cards: generatedCardsData })
+        })
+        .then(handleResponse)
+        .then(data => {
+            alert(data.message);
+            cardsModal.hide();
+        })
+        .catch(handleError);
+    });
+
+    function displayGeneratedCards(cards) {
+        let html = '<div class="accordion" id="cards-accordion">';
+        cards.forEach((card, index) => {
+            // Use marked to render markdown in question and answer
+            const questionHTML = marked.parse(card.question);
+            const answerHTML = marked.parse(card.answer);
+
+            html += `
+                <div class="accordion-item">
+                    <h2 class="accordion-header" id="heading-${index}">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-${index}">
+                            <strong>Q:</strong>&nbsp;${questionHTML}
+                        </button>
+                    </h2>
+                    <div id="collapse-${index}" class="accordion-collapse collapse" data-bs-parent="#cards-accordion">
+                        <div class="accordion-body"><strong>A:</strong> ${answerHTML}</div>
+                    </div>
+                </div>`;
+        });
+        html += '</div>';
+        cardsModalBody.innerHTML = html;
+        // Retypeset MathJax for the new content in the modal
+        MathJax.typeset([cardsModalBody]);
+    }
+
+    function handleResponse(response) {
+        if (!response.ok) {
+            return response.json().then(err => { throw new Error(err.detail || `HTTP error! status: ${response.status}`) });
+        }
+        return response.json();
+    }
+
+    function handleError(error) {
+        alert(`An error occurred: ${error.message}`);
+        console.error(error);
+    }
+
+    markdownEditor.addEventListener('input', updatePreview);
+    function updatePreview() {
+        livePreview.innerHTML = marked.parse(markdownEditor.value);
+        MathJax.typesetPromise([livePreview]);
+    }
+
+    // --- Initial Load ---
+    loadFileTree();
+    const initialPath = "{{ course_path|default('') }}";
+    if (initialPath && initialPath !== 'home') {
+        loadEditorContent(initialPath);
+    }
+});
+</script>
+{% endblock %}

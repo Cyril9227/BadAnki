@@ -1,0 +1,19 @@
+
+{% extends "layout.html" %}
+
+{% block title %}Home - Anki Clone{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-5">
+    <div class="card p-5 text-center">
+        <h1 class="display-5 fw-bold">Personal Learning App</h1>
+        <div class="col-lg-8 mx-auto">
+            <p class="lead mb-4">Welcome to your personal spaced repetition learning application. Create new cards with Markdown and LaTeX, then review them to commit them to memory.</p>
+            <div class="d-grid gap-2 d-sm-flex justify-content-sm-center">
+                <a href="/review" class="btn btn-primary btn-lg px-4 gap-3">Start Reviewing</a>
+                <a href="/new" class="btn btn-outline-secondary btn-lg px-4">Create a New Card</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

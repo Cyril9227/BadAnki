@@ -1,0 +1,51 @@
+{% extends "layout.html" %}
+
+{% block title %}Courses{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-12">
+            <h2 class="mb-4">All Courses</h2>
+            <div id="course-list" class="list-group">
+                <!-- Course list will be loaded here by JavaScript -->
+                <p class="text-muted">Loading courses...</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const courseList = document.getElementById('course-list');
+
+    fetch('/api/courses-tree')
+        .then(response => response.json())
+        .then(data => {
+            let html = '';
+            if (data.length === 0) {
+                html = '<p>No courses found. You can create one in the editor.</p>';
+            } else {
+                data.forEach(item => {
+                    if (item.type === 'file') {
+                        // Use the title from metadata if available, otherwise use the file name
+                        const displayName = item.title || item.name.replace('.md', '');
+                        html += `<a href="/courses/${item.path}" class="list-group-item list-group-item-action">
+                                    <strong>${displayName}</strong>
+                                    <br>
+                                    <small class="text-muted">${item.path}</small>
+                                 </a>`;
+                    }
+                });
+            }
+            courseList.innerHTML = html;
+        })
+        .catch(error => {
+            courseList.innerHTML = '<p class="text-danger">Error loading courses.</p>';
+            console.error('Error fetching course tree:', error);
+        });
+});
+</script>
+{% endblock %}

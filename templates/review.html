@@ -1,0 +1,94 @@
+
+{% extends "layout.html" %}
+
+{% block title %}Review Card - Anki Clone{% endblock %}
+
+{% block content %}
+<div class="card text-center mx-auto" style="max-width: 40rem;">
+    <div class="card-header">
+        Review Card
+    </div>
+    <div class="card-body">
+        <div class="question">
+            <h5 class="card-title">Question</h5>
+            <div class="card-text fs-4">{{ card.question | safe }}</div>
+        </div>
+        <hr>
+        <div class="answer" id="answer" style="display: none;">
+             <h5 class="card-title">Answer</h5>
+            <div class="card-text fs-4">{{ card.answer | safe }}</div>
+        </div>
+    </div>
+    <div class="card-footer text-muted">
+        <button class="btn btn-primary" onclick="showAnswer()">Show Answer</button>
+
+        <form id="review-form" action="/review/{{ card.id }}" method="post" class="mt-3" style="display: none;">
+            <button type="submit" name="status" value="remembered" class="btn btn-success">Remembered</button>
+            <button type="submit" name="status" value="forgot" class="btn btn-danger">Forgot</button>
+        </form>
+    </div>
+</div>
+
+<div class="card mt-4 mx-auto" style="max-width: 40rem;">
+    <div class="card-header">
+        Deck Status
+    </div>
+    <ul class="list-group list-group-flush">
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+            Total Cards
+            <span class="badge bg-primary rounded-pill">{{ total_cards }}</span>
+        </li>
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+            Due Today
+            <span class="badge bg-warning text-dark rounded-pill">{{ due_today_count }}</span>
+        </li>
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+            New Cards
+            <span class="badge bg-info text-dark rounded-pill">{{ new_cards_count }}</span>
+        </li>
+    </ul>
+</div>
+
+{% if learning_cards %}
+<div class="card mt-4 mx-auto" style="max-width: 40rem;">
+    <div class="card-header">
+        Cards in Learning
+    </div>
+    <ul class="list-group list-group-flush">
+        {% for card in learning_cards %}
+        <li class="list-group-item">
+            {{ card.question | safe }}
+        </li>
+        {% endfor %}
+    </ul>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', (event) => {
+        // Select both question and answer text containers
+        const questionText = document.querySelector('.question .card-text');
+        const answerText = document.querySelector('.answer .card-text');
+
+        // Parse their content with marked.js
+        if (questionText) {
+            questionText.innerHTML = marked.parse(questionText.innerHTML);
+        }
+        if (answerText) {
+            answerText.innerHTML = marked.parse(answerText.innerHTML);
+        }
+
+        // After parsing, tell MathJax to typeset the new content
+        MathJax.typesetPromise();
+    });
+
+    function showAnswer() {
+        document.getElementById('answer').style.display = 'block';
+        document.getElementById('review-form').style.display = 'block';
+        document.querySelector('button[onclick="showAnswer()"]').style.display = 'none';
+    }
+</script>
+{% endblock %}

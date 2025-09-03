@@ -1,0 +1,96 @@
+
+{% extends "layout.html" %}
+
+{% block title %}{{ metadata.get('title', 'Course') }}{% endblock %}
+
+{% block head %}
+{{ super() }}
+<style>
+    .course-header {
+        margin-bottom: 2rem;
+    }
+    .course-title {
+        font-size: 2.5rem;
+        font-weight: bold;
+        margin-bottom: 0.5rem;
+    }
+    .card-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 1rem;
+    }
+    .card-tag {
+        display: inline-block;
+        padding: 4px 14px;
+        font-size: 0.9rem;
+        border-radius: 16px;
+        background: #e9ecef;
+        color: #495057;
+        text-decoration: none;
+        transition: background-color 0.2s, color 0.2s;
+    }
+    .card-tag:hover {
+        background: #0d6efd;
+        color: #fff;
+    }
+    .course-meta {
+        font-size: 0.9rem;
+        color: #6c757d;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div class="course-header">
+            <!-- Course Title -->
+            <h1 class="course-title">{{ metadata.get('title', 'Untitled Course') }}</h1>
+        </div>
+        <a href="/edit/{{ request.path_params.course_path }}" class="btn btn-primary">Edit Course</a>
+    </div>
+
+    <!-- Tags as stylized buttons -->
+    {% if metadata.get('tags') %}
+        <div class="card-tags mb-3">
+            {% for tag in metadata.get('tags') %}
+                <a href="/tags/{{ tag }}" class="card-tag">{{ tag }}</a>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <!-- Other metadata -->
+    <div class="course-meta mb-4">
+        {% if metadata.get('created') %}
+            <span>Created: {{ metadata.get('created') }}</span>
+        {% endif %}
+        {% if metadata.get('updated') %}
+            <span class="ms-3">Updated: {{ metadata.get('updated') }}</span>
+        {% endif %}
+    </div>
+
+    <hr>
+
+    <!-- Rendered Markdown Content -->
+    <div id="course-content" class="mt-4">
+        <!-- The actual markdown content will be placed here by the script -->
+    </div>
+
+    <!-- Hidden div to store the raw content for the script -->
+    <div id="raw-content" style="display: none;">{{ content | e }}</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const courseContentDiv = document.getElementById('course-content');
+        const rawContent = document.getElementById('raw-content').textContent;
+
+        // Render Markdown and then typeset with MathJax
+        courseContentDiv.innerHTML = marked.parse(rawContent);
+        MathJax.typesetPromise([courseContentDiv]);
+    });
+</script>
+{% endblock %}

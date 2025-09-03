@@ -1,0 +1,34 @@
+
+{% extends "layout.html" %}
+
+{% block title %}Courses tagged with '{{ tag }}' - Anki Clone{% endblock %}
+
+{% block content %}
+<h1 class="mb-4">Courses tagged with '{{ tag }}'</h1>
+<div class="list-group">
+    {% for item in courses %}
+        <a href="/courses/{{ item.path }}" class="list-group-item list-group-item-action">
+            <div class="d-flex w-100 justify-content-between">
+                <h5 class="mb-1" style="padding-left: {{ item.depth * 20 }}px;">
+                    {% if item.type == 'directory' %}
+                        📁
+                    {% else %}
+                        📄
+                    {% endif %}
+                    {{ item.name }}
+                </h5>
+            </div>
+            {% if item.title %}
+                <p class="mb-1">{{ item.title }}</p>
+            {% endif %}
+            {% if item.tags %}
+                <small>
+                    {% for tag in item.tags %}
+                        <span class="badge bg-secondary">{{ tag }}</span>
+                    {% endfor %}
+                </small>
+            {% endif %}
+        </a>
+    {% endfor %}
+</div>
+{% endblock %}
