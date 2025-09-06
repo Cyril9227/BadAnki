@@ -44,19 +44,19 @@ def create_database():
         sample_cards = [
             (
                 'What is the Pythagorean theorem?',
-                'For a right-angled triangle, the square of the hypotenuse is equal to the sum of the squares of the other two sides: $a^2 + b^2 = c^2
+                'For a right-angled triangle, the square of the hypotenuse is equal to the sum of the squares of the other two sides: $a^2 + b^2 = c^2'
 ,
                 datetime.now()
             ),
             (
                 'What is the formula for the area of a circle?',
-                'The area of a circle with radius `r` is given by the formula: $A = \pi r^2
+                'The area of a circle with radius `r` is given by the formula: $A = \pi r^2'
 ,
                 datetime.now()
             ),
             (
                 'What is the integral of $ \frac{1}{x} $?',
-                'The integral of $ \frac{1}{x} $ with respect to `x` is $ \ln|x| + C 
+                'The integral of $ \frac{1}{x} $ with respect to `x` is $ \ln|x| + C'
 ,
                 datetime.now()
             )
