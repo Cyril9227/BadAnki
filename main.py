@@ -16,11 +16,6 @@ import google.generativeai as genai
 import json
 import ollama
 
-# --- Database Initialization ---
-# This will run when the application starts up.
-@app.on_event("startup")
-async def startup_event():
-    create_database()
 
 # --- Gemini API Configuration ---
 # Ensure your API key is set as an environment variable
