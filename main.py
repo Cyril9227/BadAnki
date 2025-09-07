@@ -8,21 +8,21 @@ load_dotenv()
 from fastapi import FastAPI, Request, Form, Depends, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
-from datetime import datetime, timedelta
+from datetime import datetime
 import psycopg2
 from psycopg2 import extras
 import os
-import shutil
 import frontmatter
-from database import get_db_connection, create_database
+from database import get_db_connection
+import crud
 from pydantic import BaseModel
 import google.generativeai as genai
 import json
 import ollama
-
+import secrets
+from scheduler import run_scheduler
 
 # --- Gemini API Configuration ---
-# Ensure your API key is set as an environment variable
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
 generation_config = {
   "temperature": 0.5,
@@ -61,99 +61,17 @@ class CourseContentForGeneration(BaseModel):
 class GeneratedCards(BaseModel):
     cards: list[GeneratedCard]
 
-# --- Helper Functions ---
-def get_courses_tree_from_db():
+# --- Database Dependency ---
+def get_db():
     """
-    Builds a hierarchical tree of courses from the 'courses' table in the database.
-    This function simulates a file system structure based on the 'path' column.
+    FastAPI dependency to manage database connections.
+    Yields a connection for each request and closes it afterwards.
     """
     conn = get_db_connection()
-    cursor = conn.cursor(cursor_factory=extras.DictCursor)
-    cursor.execute("SELECT path, content FROM courses ORDER BY path")
-    courses = cursor.fetchall()
-    cursor.close()
-    conn.close()
-
-    root = {}
-
-    for course in courses:
-        path = course['path']
-        
-        is_placeholder = os.path.basename(path) == '.placeholder'
-        if is_placeholder:
-            path = os.path.dirname(path)
-            if not path:
-                continue
-
-        path_parts = path.split(os.sep)
-        current_level = root
-        
-        for i, part in enumerate(path_parts):
-            if part not in current_level:
-                current_level[part] = {}
-            
-            if i == len(path_parts) - 1:
-                if is_placeholder:
-                    if '__data' not in current_level[part]:
-                        current_level[part]['__data'] = {
-                            "name": part, "path": path, "type": "directory", "depth": i, "children": []
-                        }
-                else:
-                    try:
-                        post = frontmatter.loads(course['content'])
-                        title = post.metadata.get('title', part)
-                    except Exception:
-                        title = part
-                    
-                    current_level[part]['__data'] = {
-                        "name": part, "path": path, "type": "file", "depth": i, "title": title
-                    }
-            else:
-                if '__data' not in current_level[part]:
-                    dir_path = os.path.join(*path_parts[:i+1])
-                    current_level[part]['__data'] = {
-                        "name": part, "path": dir_path, "type": "directory", "depth": i, "children": []
-                    }
-                if '__children' not in current_level[part]:
-                    current_level[part]['__children'] = {}
-                current_level = current_level[part]['__children']
-
-    def build_final_tree(tree_dict):
-        final_list = []
-        for key, value in sorted(tree_dict.items()):
-            if '__data' in value:
-                node_data = value['__data']
-                if '__children' in value:
-                    node_data['children'] = build_final_tree(value['__children'])
-                final_list.append(node_data)
-        return final_list
-
-    return build_final_tree(root)
-
-# --- Spaced Repetition Logic ---
-def update_card(card_id: int, remembered: bool):
-    conn = get_db_connection()
-    cursor = conn.cursor(cursor_factory=extras.DictCursor)
-    cursor.execute("SELECT * FROM cards WHERE id = %s", (card_id,))
-    card = cursor.fetchone()
-    if not card: 
-        cursor.close()
+    try:
+        yield conn
+    finally:
         conn.close()
-        return
-
-    ease_factor, interval = card['ease_factor'], card['interval']
-    if remembered:
-        interval = int(interval * ease_factor)
-        ease_factor += 0.1
-    else:
-        interval = 1
-        ease_factor = max(1.3, ease_factor - 0.2)
-    
-    next_due_date = datetime.now() + timedelta(days=interval)
-    cursor.execute("UPDATE cards SET due_date = %s, ease_factor = %s, interval = %s WHERE id = %s", (next_due_date, ease_factor, interval, card_id))
-    conn.commit()
-    cursor.close()
-    conn.close()
 
 # --- LLM & Card Generation ---
 def generate_cards(text: str, mode="gemini") -> list[dict]:
@@ -182,9 +100,6 @@ def generate_cards(text: str, mode="gemini") -> list[dict]:
     except Exception as e:
         print(f"An error occurred during {mode} API call: {e}")
         return []
-   
-
-from scheduler import run_scheduler
 
 # --- FastAPI Routes ---
 @app.get("/api/trigger-scheduler")
@@ -194,7 +109,7 @@ async def trigger_scheduler(secret: str):
     Requires a secret key passed as a query parameter.
     """
     SCHEDULER_SECRET = os.environ.get("SCHEDULER_SECRET")
-    if not SCHEDULER_SECRET or secret != SCHEDULER_SECRET:
+    if not SCHEDULER_SECRET or not secrets.compare_digest(secret, SCHEDULER_SECRET):
         raise HTTPException(status_code=403, detail="Invalid secret key")
     
     result = await run_scheduler()
@@ -208,18 +123,16 @@ async def root(request: Request):
 async def list_courses(request: Request):
     return templates.TemplateResponse("courses_list.html", {"request": request})
 
-@app.get("/edit/{course_path:path}", response_class=HTMLResponse)
+@app.get("/edit-course/{course_path:path}", response_class=HTMLResponse)
 async def edit_course(request: Request, course_path: str):
     return templates.TemplateResponse("course_editor.html", {"request": request, "course_path": course_path})
 
 @app.get("/courses/{course_path:path}", response_class=HTMLResponse)
-async def view_course(request: Request, course_path: str):
-    conn = get_db_connection()
+async def view_course(request: Request, course_path: str, conn: psycopg2.extensions.connection = Depends(get_db)):
     cursor = conn.cursor(cursor_factory=extras.DictCursor)
     cursor.execute("SELECT content FROM courses WHERE path = %s", (course_path,))
     course = cursor.fetchone()
     cursor.close()
-    conn.close()
 
     if not course or not course['content']:
         raise HTTPException(status_code=404, detail="Course not found")
@@ -237,34 +150,27 @@ async def view_course(request: Request, course_path: str):
 
 @app.get("/tags/{tag_name}", response_class=HTMLResponse)
 async def view_tag_courses(request: Request, tag_name: str):
-    """
-    Renders a page showing all courses associated with a given tag.
-    """
     return templates.TemplateResponse("tag_courses.html", {"request": request, "tag_name": tag_name})
 
 # --- API for Courses ---
 @app.get("/api/courses-tree")
-async def api_get_courses_tree():
-    return get_courses_tree_from_db()
+async def api_get_courses_tree(conn: psycopg2.extensions.connection = Depends(get_db)):
+    return crud.get_courses_tree_from_db(conn)
 
 @app.get("/api/course-content/{course_path:path}", response_class=JSONResponse)
-async def api_get_course_content(course_path: str):
-    conn = get_db_connection()
+async def api_get_course_content(course_path: str, conn: psycopg2.extensions.connection = Depends(get_db)):
     cursor = conn.cursor(cursor_factory=extras.DictCursor)
     cursor.execute("SELECT content FROM courses WHERE path = %s", (course_path,))
     course = cursor.fetchone()
     cursor.close()
-    conn.close()
     if not course:
         raise HTTPException(status_code=404, detail="File not found")
     return JSONResponse(content=course['content'])
 
 @app.post("/api/course-content")
-async def api_save_course_content(item: CourseContent):
-    conn = get_db_connection()
+async def api_save_course_content(item: CourseContent, conn: psycopg2.extensions.connection = Depends(get_db)):
     cursor = conn.cursor()
     try:
-        # Use INSERT ... ON CONFLICT to either create a new course or update an existing one
         cursor.execute(
             """
             INSERT INTO courses (path, content, updated_at)
@@ -282,18 +188,15 @@ async def api_save_course_content(item: CourseContent):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         cursor.close()
-        conn.close()
 
 @app.api_route("/api/course-item", methods=["POST", "DELETE"])
-async def api_manage_course_item(item: CourseItem, request: Request):
-    conn = get_db_connection()
+async def api_manage_course_item(item: CourseItem, request: Request, conn: psycopg2.extensions.connection = Depends(get_db)):
     cursor = conn.cursor()
     try:
         if request.method == "POST":
             if item.type == 'file':
                 if not item.path.endswith('.md'):
                     raise HTTPException(status_code=400, detail="File must have a .md extension")
-                # Create a new file with default content if it doesn't exist
                 cursor.execute(
                     "INSERT INTO courses (path, content) VALUES (%s, %s) ON CONFLICT (path) DO NOTHING",
                     (item.path, "---\ntitle: New Course\ntags: \n---\n\n")
@@ -301,7 +204,6 @@ async def api_manage_course_item(item: CourseItem, request: Request):
             elif item.type == 'folder':
                 if not item.path:
                     raise HTTPException(status_code=400, detail="Folder path cannot be empty.")
-                # Create a placeholder file to make the folder appear in the tree
                 placeholder_path = os.path.join(item.path, ".placeholder")
                 cursor.execute(
                     "INSERT INTO courses (path, content) VALUES (%s, %s) ON CONFLICT (path) DO NOTHING",
@@ -316,20 +218,17 @@ async def api_manage_course_item(item: CourseItem, request: Request):
             if item.type == 'file':
                 cursor.execute("DELETE FROM courses WHERE path = %s", (item.path,))
             elif item.type == 'folder':
-                # Delete the folder's placeholder and all courses/subfolders within it
                 placeholder_path = os.path.join(item.path, ".placeholder")
                 cursor.execute("DELETE FROM courses WHERE path = %s OR path LIKE %s", (placeholder_path, f"{item.path}/%"))
             else:
                 raise HTTPException(status_code=404, detail="Item not found")
             conn.commit()
             return {"success": True}
-
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         cursor.close()
-        conn.close()
 
 @app.post("/api/generate-cards")
 async def api_generate_cards(data: CourseContentForGeneration):
@@ -350,8 +249,7 @@ async def api_generate_cards_ollama(data: CourseContentForGeneration):
     return {"cards": generated_cards}
 
 @app.post("/api/save-cards")
-async def api_save_cards(data: GeneratedCards):
-    conn = get_db_connection()
+async def api_save_cards(data: GeneratedCards, conn: psycopg2.extensions.connection = Depends(get_db)):
     cursor = conn.cursor()
     try:
         card_data = [(card.question, card.answer, datetime.now()) for card in data.cards]
@@ -366,20 +264,14 @@ async def api_save_cards(data: GeneratedCards):
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
     finally:
         cursor.close()
-        conn.close()
     return {"success": True, "message": f"{len(data.cards)} cards saved successfully."}
 
 @app.get("/api/download-course/{course_path:path}")
-async def download_course(course_path: str):
-    """
-    Provides the course content as a downloadable Markdown file.
-    """
-    conn = get_db_connection()
+async def download_course(course_path: str, conn: psycopg2.extensions.connection = Depends(get_db)):
     cursor = conn.cursor(cursor_factory=extras.DictCursor)
     cursor.execute("SELECT content FROM courses WHERE path = %s", (course_path,))
     course = cursor.fetchone()
     cursor.close()
-    conn.close()
 
     if not course or not course['content']:
         raise HTTPException(status_code=404, detail="Course not found")
@@ -391,24 +283,15 @@ async def download_course(course_path: str):
     return HTMLResponse(content=course['content'], media_type='text/markdown', headers=headers)
 
 @app.get("/api/tags")
-async def api_get_all_tags():
-    """
-    Retrieves all unique tags from the database.
-    """
-    conn = get_db_connection()
+async def api_get_all_tags(conn: psycopg2.extensions.connection = Depends(get_db)):
     cursor = conn.cursor(cursor_factory=extras.DictCursor)
     cursor.execute("SELECT name FROM tags ORDER BY name")
     tags = [row["name"] for row in cursor.fetchall()]
     cursor.close()
-    conn.close()
     return tags
 
 @app.get("/api/courses-by-tag/{tag_name}")
-async def api_get_courses_by_tag(tag_name: str):
-    """
-    Retrieves all courses associated with a specific tag.
-    """
-    conn = get_db_connection()
+async def api_get_courses_by_tag(tag_name: str, conn: psycopg2.extensions.connection = Depends(get_db)):
     cursor = conn.cursor(cursor_factory=extras.DictCursor)
     cursor.execute("""
         SELECT c.path, c.content
@@ -420,7 +303,6 @@ async def api_get_courses_by_tag(tag_name: str):
     """, (tag_name,))
     courses = cursor.fetchall()
     cursor.close()
-    conn.close()
     
     results = []
     for course in courses:
@@ -437,8 +319,7 @@ async def api_get_courses_by_tag(tag_name: str):
 
 # --- Card Management Routes ---
 @app.get("/review", response_class=HTMLResponse)
-async def review(request: Request):
-    conn = get_db_connection()
+async def review(request: Request, conn: psycopg2.extensions.connection = Depends(get_db)):
     cursor = conn.cursor(cursor_factory=extras.DictCursor)
     
     cursor.execute("SELECT * FROM cards WHERE due_date <= %s ORDER BY due_date LIMIT 1", (datetime.now(),))
@@ -448,7 +329,6 @@ async def review(request: Request):
     all_cards = cursor.fetchall()
     
     cursor.close()
-    conn.close()
     
     now = datetime.now()
     due_today_count = sum(1 for c in all_cards if c['due_date'] <= now)
@@ -460,18 +340,16 @@ async def review(request: Request):
     return templates.TemplateResponse("review.html", {"request": request, "card": card, "due_today_count": due_today_count, "new_cards_count": new_cards_count, "total_cards": len(all_cards)})
 
 @app.post("/review/{card_id}")
-async def update_review(card_id: int, status: str = Form(...)):
-    update_card(card_id, status == "remembered")
+async def update_review(card_id: int, status: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db)):
+    crud.update_card(conn, card_id, status == "remembered")
     return RedirectResponse(url="/review", status_code=303)
 
 @app.get("/manage", response_class=HTMLResponse)
-async def manage_cards(request: Request):
-    conn = get_db_connection()
+async def manage_cards(request: Request, conn: psycopg2.extensions.connection = Depends(get_db)):
     cursor = conn.cursor(cursor_factory=extras.DictCursor)
     cursor.execute("SELECT * FROM cards ORDER BY due_date")
     cards = cursor.fetchall()
     cursor.close()
-    conn.close()
 
     return templates.TemplateResponse("manage_cards.html", {"request": request, "cards": cards})
 
@@ -480,8 +358,7 @@ async def new_card_form(request: Request):
     return templates.TemplateResponse("new_card.html", {"request": request})
 
 @app.post("/new")
-async def create_new_card(question: str = Form(...), answer: str = Form(...)):
-    conn = get_db_connection()
+async def create_new_card(question: str = Form(...), answer: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db)):
     cursor = conn.cursor()
     cursor.execute(
         "INSERT INTO cards (question, answer, due_date) VALUES (%s, %s, %s)",
@@ -489,37 +366,30 @@ async def create_new_card(question: str = Form(...), answer: str = Form(...)):
     )
     conn.commit()
     cursor.close()
-    conn.close()
     return RedirectResponse(url="/", status_code=303)
 
 @app.get("/edit-card/{card_id}", response_class=HTMLResponse)
-async def edit_card_form(request: Request, card_id: int):
-    conn = get_db_connection()
+async def edit_card_form(request: Request, card_id: int, conn: psycopg2.extensions.connection = Depends(get_db)):
     cursor = conn.cursor(cursor_factory=extras.DictCursor)
     cursor.execute("SELECT * FROM cards WHERE id = %s", (card_id,))
     card = cursor.fetchone()
     cursor.close()
-    conn.close()
     if card is None:
         raise HTTPException(status_code=404, detail="Card not found")
     return templates.TemplateResponse("edit_card.html", {"request": request, "card": card})
 
 @app.post("/edit-card/{card_id}")
-async def update_existing_card(card_id: int, question: str = Form(...), answer: str = Form(...)):
-    conn = get_db_connection()
+async def update_existing_card(card_id: int, question: str = Form(...), answer: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db)):
     cursor = conn.cursor()
     cursor.execute("UPDATE cards SET question = %s, answer = %s WHERE id = %s", (question, answer, card_id))
     conn.commit()
     cursor.close()
-    conn.close()
     return RedirectResponse(url="/manage", status_code=303)
 
 @app.post("/delete/{card_id}")
-async def delete_card(card_id: int):
-    conn = get_db_connection()
+async def delete_card(card_id: int, conn: psycopg2.extensions.connection = Depends(get_db)):
     cursor = conn.cursor()
     cursor.execute("DELETE FROM cards WHERE id = %s", (card_id,))
     conn.commit()
     cursor.close()
-    conn.close()
     return RedirectResponse(url="/manage", status_code=303)

@@ -21,13 +21,13 @@
             <tbody>
                 {% for card in cards %}
                 <tr>
-                    <td class="ps-4">{{ card.question | safe }}</td>
-                    <td>{{ card.answer | safe }}</td>
+                    <td class="ps-4">{{ card.question }}</td>
+                    <td>{{ card.answer }}</td>
                     <td>{{ card.due_date.strftime('%Y-%m-%d') if card.due_date else 'N/A' }}</td>
                     <td>{{ "%.2f"|format(card.ease_factor) }}</td>
                     <td>{{ card.interval }}</td>
                     <td class="pe-4">
-                        <a href="/edit/{{ card.id }}" class="btn btn-sm btn-outline-primary">Edit</a>
+                        <a href="/edit-card/{{ card.id }}" class="btn btn-sm btn-outline-primary">Edit</a>
                         <form action="/delete/{{ card.id }}" method="post" style="display:inline;">
                             <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Are you sure you want to delete this card?');">Delete</button>
                         </form>

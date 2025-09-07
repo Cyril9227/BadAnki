@@ -27,17 +27,7 @@ def get_due_cards_count():
     
     conn = None
     try:
-        # --- Prepare the PostgreSQL connection URL with SSL for Render ---
-        parsed_url = urlparse(DATABASE_URL)
-        query_params = parse_qs(parsed_url.query)
-        if 'sslmode' not in query_params:
-            query_params['sslmode'] = ['require']
-            new_query = urlencode(query_params, doseq=True)
-            final_db_url = urlunparse(parsed_url._replace(query=new_query))
-        else:
-            final_db_url = DATABASE_URL
-
-        conn = psycopg2.connect(final_db_url)
+        conn = psycopg2.connect(DATABASE_URL)
         cursor = conn.cursor()
         # Query for cards where the due_date is in the past or today
         cursor.execute("SELECT COUNT(*) FROM cards WHERE due_date <= %s", (datetime.now(),))
