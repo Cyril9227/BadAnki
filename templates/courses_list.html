@@ -50,7 +50,23 @@ document.addEventListener('DOMContentLoaded', function () {
         .then(response => response.json())
         .then(data => {
             let html = '';
-            const files = data.filter(item => item.type === 'file');
+            
+            // Recursive function to find all files in the tree
+            function findFiles(nodes) {
+                let files = [];
+                for (const node of nodes) {
+                    if (node.type === 'file') {
+                        files.push(node);
+                    }
+                    if (node.children) {
+                        files = files.concat(findFiles(node.children));
+                    }
+                }
+                return files;
+            }
+
+            const files = findFiles(data);
+
             if (files.length === 0) {
                 html = '<p>No courses found. You can create one in the editor.</p>';
             } else {

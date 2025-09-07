@@ -74,46 +74,61 @@ def get_courses_tree_from_db():
     cursor.close()
     conn.close()
 
-    tree = []
-    nodes = {}
+    root = {}
 
     for course in courses:
-        if os.path.basename(course['path']) == '.placeholder':
-            continue
+        path = course['path']
+        
+        is_placeholder = os.path.basename(path) == '.placeholder'
+        if is_placeholder:
+            path = os.path.dirname(path)
+            if not path:
+                continue
 
-        path_parts = course['path'].split(os.sep)
-        current_path = ""
+        path_parts = path.split(os.sep)
+        current_level = root
         
         for i, part in enumerate(path_parts):
-            parent_path = current_path
-            current_path = os.path.join(current_path, part)
-
-            if current_path not in nodes:
-                is_dir = i < len(path_parts) - 1
-                
-                node = {
-                    "name": part,
-                    "path": current_path,
-                    "type": "directory" if is_dir else "file",
-                    "depth": i,
-                    "children": [] if is_dir else None
-                }
-
-                if not is_dir:
+            if part not in current_level:
+                current_level[part] = {}
+            
+            if i == len(path_parts) - 1:
+                if is_placeholder:
+                    if '__data' not in current_level[part]:
+                        current_level[part]['__data'] = {
+                            "name": part, "path": path, "type": "directory", "depth": i, "children": []
+                        }
+                else:
                     try:
                         post = frontmatter.loads(course['content'])
-                        node["title"] = post.metadata.get('title', part)
+                        title = post.metadata.get('title', part)
                     except Exception:
-                        node["title"] = part
+                        title = part
+                    
+                    current_level[part]['__data'] = {
+                        "name": part, "path": path, "type": "file", "depth": i, "title": title
+                    }
+            else:
+                if '__data' not in current_level[part]:
+                    dir_path = os.path.join(*path_parts[:i+1])
+                    current_level[part]['__data'] = {
+                        "name": part, "path": dir_path, "type": "directory", "depth": i, "children": []
+                    }
+                if '__children' not in current_level[part]:
+                    current_level[part]['__children'] = {}
+                current_level = current_level[part]['__children']
 
-                nodes[current_path] = node
+    def build_final_tree(tree_dict):
+        final_list = []
+        for key, value in sorted(tree_dict.items()):
+            if '__data' in value:
+                node_data = value['__data']
+                if '__children' in value:
+                    node_data['children'] = build_final_tree(value['__children'])
+                final_list.append(node_data)
+        return final_list
 
-                if parent_path in nodes:
-                    nodes[parent_path]["children"].append(node)
-                elif i == 0:
-                    tree.append(node)
-
-    return tree
+    return build_final_tree(root)
 
 # --- Spaced Repetition Logic ---
 def update_card(card_id: int, remembered: bool):
@@ -169,7 +184,22 @@ def generate_cards(text: str, mode="gemini") -> list[dict]:
         return []
    
 
+from scheduler import run_scheduler
+
 # --- FastAPI Routes ---
+@app.get("/api/trigger-scheduler")
+async def trigger_scheduler(secret: str):
+    """
+    A secure endpoint to trigger the daily scheduler.
+    Requires a secret key passed as a query parameter.
+    """
+    SCHEDULER_SECRET = os.environ.get("SCHEDULER_SECRET")
+    if not SCHEDULER_SECRET or secret != SCHEDULER_SECRET:
+        raise HTTPException(status_code=403, detail="Invalid secret key")
+    
+    result = await run_scheduler()
+    return {"status": "success", "message": result}
+
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     return templates.TemplateResponse("home.html", {"request": request})

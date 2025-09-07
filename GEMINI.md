@@ -89,7 +89,7 @@ The application consists of two main components that must be run separately in t
     python bot.py
     ```
 
-## 5. Agent Session Summary (As of 2025-08-22)
+## 5. Agent Session Summary (As of 2025-09-06)
 
 This documentation is kept current with the latest agentic coding session. Key actions performed recently include:
 
@@ -103,13 +103,21 @@ This documentation is kept current with the latest agentic coding session. Key a
     - Added a new `/api/generate-cards-ollama` endpoint to the backend to handle requests.
     - Added a "Generate with Ollama" button to the course editor UI for a seamless user experience.
 
-3.  **Daily Review Notifications & Deployment Preparation:**
+3.  **Deployment Preparation:**
     - Implemented a `scheduler.py` script that checks for due cards and sends a daily review reminder via Telegram.
     - Added a `/myid` command to the Telegram bot (`bot.py`) for users to easily retrieve their chat ID.
     - Prepared the application for production deployment by adding `gunicorn`, externalizing all secrets and configurations to use environment variables.
     - Created a `Procfile` to define the web and worker processes for the hosting platform.
     - Created a `render.yaml` file to enable "Infrastructure as Code" deployment on the Render platform, defining the web server, bot, persistent disk, and cron job.
     - Modified the database connection logic (`database.py`, `scheduler.py`) to use a persistent disk path when deployed, ensuring data is not lost on restarts.
+
+4.  **Live Deployment and Data Management:**
+    - Successfully deployed the entire application stack (web app, bot, cron job) to the Render platform.
+    - Resolved database connection issues by enforcing SSL and correcting table creation sequences.
+    - Created robust data management scripts:
+        - `migrate_db.py`: For migrating data from a local SQLite DB to the production PostgreSQL DB.
+        - `backup_db.py`: For creating a local CSV backup of the production database.
+        - `restore_db.py`: For restoring data from a CSV backup to a new database instance, ensuring data persistence beyond the limits of free hosting plans.
 
 ## 6. Local Card Generation with Ollama
 
@@ -133,32 +141,23 @@ This command will download the model (if you don't have it already) and start th
 
 With the Ollama server running, you can now use the "Generate with Ollama" button in the course editor to generate cards locally.
 
-## 7. Next Steps
+## 7. Next Steps & Known Issues
 
-The immediate next step is to deploy the application to a live environment.
+The application is live, but there are several areas for improvement and features to address.
 
-### 1. Deployment to Render
+### 1. Priority: Activate Telegram Cron Job
+The highest priority is to ensure the daily review notification cron job, defined in `render.yaml` and `scheduler.py`, is running correctly on the live server and sending messages via Telegram. This is a core feature of the application's feedback loop.
 
-The project is now fully configured for deployment on Render using the `render.yaml` file.
+### 2. Fix Card Management Bugs
+- **Edit Functionality:** The "Edit" button in the "Manage Cards" menu is currently not working. This needs to be fixed to allow users to correct or update their flashcards.
 
-1.  **Push to GitHub**:
-    *   Ensure you have a GitHub repository for this project.
-    *   Commit and push all the latest changes (`render.yaml`, `Procfile`, `database.py`, `scheduler.py`, `requirements.txt`, `bot.py`, etc.) to the `main` branch.
+### 3. Rework the Course Editor
+- **Filesystem Dependency:** The current course editor is designed to work with the local filesystem (the `courses/` directory), which does not work on a stateless hosting platform like Render.
+- **Future Work:** This entire feature needs to be re-architected. A potential solution is to store course content in the database instead of in Markdown files. This is a larger project for a future session.
 
-2.  **Deploy on Render**:
-    *   Sign up for a Render account.
-    *   On the Render Dashboard, click **New +** and select **Blueprint**.
-    *   Connect your GitHub account and select the project repository.
-    *   Render will automatically detect and parse `render.yaml`.
-    *   Click **Apply** to create the services.
+### 4. Future UI Enhancements
+- A new, more modern frontend built with Next.js and TypeScript has been proposed as a long-term goal to replace the current Jinja2 templates.
 
-3.  **Set Environment Variables**:
-    *   The first deployment will fail. Go to the **Environment** tab for your new application group.
-    *   Under "Secret Files", create a `.env` file and add your secrets:
-        *   `GEMINI_API_KEY=your_gemini_key_here`
-        *   `TELEGRAM_BOT_TOKEN=your_telegram_token_here`
-        *   `TELEGRAM_CHAT_ID=your_chat_id_here`
-    *   Click **Save Changes**.
+## 8. Next Steps
 
-4.  **Final Deployment**:
-    *   Go to the "Dashboard" for your web service and click **Deploy** -> **Deploy latest commit**.
+Progress has been made towards fixing the folders / tree stucture in deployment scenarios. Issues are still present. Once it's fixed, need to setup cronjob on https://cron-job.org/en/ and refactor code to use Next.js and TypeScript

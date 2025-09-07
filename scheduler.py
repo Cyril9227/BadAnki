@@ -50,14 +50,15 @@ def get_due_cards_count():
         if conn:
             conn.close()
 
-async def main():
+async def run_scheduler():
     """The main function to check cards and send a notification."""
     print("Scheduler started: Checking for due cards...")
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         print("Error: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID environment variables must be set.")
-        return
+        return "Missing environment variables."
 
     due_count = get_due_cards_count()
+    message_to_return = ""
 
     if due_count > 0:
         print(f"Found {due_count} card(s) due for review. Sending notification...")
@@ -70,13 +71,24 @@ async def main():
         
         try:
             await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
-            print("Notification sent successfully.")
+            result = "Notification sent successfully."
+            print(result)
+            message_to_return = result
         except Exception as e:
-            print(f"Failed to send Telegram message: {e}")
+            result = f"Failed to send Telegram message: {e}"
+            print(result)
+            message_to_return = result
     else:
-        print("No cards due for review today.")
+        result = "No cards due for review today."
+        print(result)
+        message_to_return = result
     
     print("Scheduler finished.")
+    return message_to_return
+
+async def main():
+    """Runs the scheduler directly."""
+    await run_scheduler()
 
 if __name__ == "__main__":
     # The python-telegram-bot library is asynchronous.
