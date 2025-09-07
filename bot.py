@@ -1,6 +1,10 @@
 # bot.py
 # This file contains the Telegram bot application.
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 import os
 import logging
 from telegram import Update

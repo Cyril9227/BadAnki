@@ -1,11 +1,16 @@
 # scheduler.py
 # This script checks for due cards and sends a notification to a specified Telegram chat.
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 import os
 import psycopg2
 import asyncio
 from datetime import datetime
 from telegram import Bot
+from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
 
 # --- Configuration ---
 # Load environment variables
@@ -19,21 +24,35 @@ def get_due_cards_count():
     if not DATABASE_URL:
         print("Error: DATABASE_URL environment variable is not set.")
         return 0
+    
+    conn = None
     try:
-        conn = psycopg2.connect(DATABASE_URL)
+        # --- Prepare the PostgreSQL connection URL with SSL for Render ---
+        parsed_url = urlparse(DATABASE_URL)
+        query_params = parse_qs(parsed_url.query)
+        if 'sslmode' not in query_params:
+            query_params['sslmode'] = ['require']
+            new_query = urlencode(query_params, doseq=True)
+            final_db_url = urlunparse(parsed_url._replace(query=new_query))
+        else:
+            final_db_url = DATABASE_URL
+
+        conn = psycopg2.connect(final_db_url)
         cursor = conn.cursor()
         # Query for cards where the due_date is in the past or today
         cursor.execute("SELECT COUNT(*) FROM cards WHERE due_date <= %s", (datetime.now(),))
         count = cursor.fetchone()[0]
-        cursor.close()
-        conn.close()
         return count
     except psycopg2.Error as e:
         print(f"Database error: {e}")
         return 0
+    finally:
+        if conn:
+            conn.close()
 
 async def main():
     """The main function to check cards and send a notification."""
+    print("Scheduler started: Checking for due cards...")
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         print("Error: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID environment variables must be set.")
         return
@@ -56,6 +75,8 @@ async def main():
             print(f"Failed to send Telegram message: {e}")
     else:
         print("No cards due for review today.")
+    
+    print("Scheduler finished.")
 
 if __name__ == "__main__":
     # The python-telegram-bot library is asynchronous.

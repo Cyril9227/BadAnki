@@ -55,6 +55,7 @@
                     <button type="submit" class="btn btn-primary">Save</button>
                     <button type="button" id="generate-cards-btn" class="btn btn-secondary">Generate Cards (Gemini)</button>
                     <button type="button" id="generate-cards-ollama-btn" class="btn btn-info">Generate Cards (Ollama)</button>
+                    <button type="button" id="download-btn" class="btn btn-success">Download</button>
                 </form>
                 <hr>
                 <h5>Live Preview</h5>
@@ -104,6 +105,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const currentFilePathInput = document.getElementById('current-file-path');
     const generateCardsBtn = document.getElementById('generate-cards-btn');
     const generateCardsOllamaBtn = document.getElementById('generate-cards-ollama-btn');
+    const downloadBtn = document.getElementById('download-btn');
     const cardsModal = new bootstrap.Modal(document.getElementById('cards-modal'));
     const cardsModalBody = document.getElementById('cards-modal-body-content');
     const saveCardsBtn = document.getElementById('save-cards-btn');
@@ -115,34 +117,14 @@ document.addEventListener('DOMContentLoaded', function () {
         fetch('/api/courses-tree')
             .then(response => response.json())
             .then(data => {
-                const tree = buildTree(data);
-                fileTreeContainer.innerHTML = generateTreeHTML(tree);
-                attachTreeEventListeners();
+                fileTreeContainer.innerHTML = buildTreeHTML(data);
             });
     }
 
-    function buildTree(items) {
-        const tree = [];
-        const lookup = {};
-        items.forEach(item => {
-            lookup[item.path] = { ...item, children: [] };
-        });
-
-        items.forEach(item => {
-            const parentPath = item.path.substring(0, item.path.lastIndexOf('/'));
-            if (parentPath && lookup[parentPath]) {
-                lookup[parentPath].children.push(lookup[item.path]);
-            } else {
-                tree.push(lookup[item.path]);
-            }
-        });
-        return tree;
-    }
-
-    function generateTreeHTML(nodes) {
+    function buildTreeHTML(nodes) {
         let html = '<div class="list-group">';
         nodes.forEach(node => {
-            const padding = (node.path.split('/').length - 1) * 20;
+            const padding = (node.depth || 0) * 20;
             if (node.type === 'directory') {
                 html += `
                     <div style="padding-left: ${padding}px;">
@@ -152,18 +134,17 @@ document.addEventListener('DOMContentLoaded', function () {
                             </span>
                             <span class="item-actions">
                                 <button class="btn btn-outline-success new-file-btn" data-path="${node.path}" title="New File"><i class="fas fa-plus"></i></button>
-                                <button class="btn btn-outline-success new-folder-btn" data-path="${node.path}" title="New Folder"><i class="fas fa-folder-plus"></i></button>
                                 <button class="btn btn-outline-danger delete-item-btn" data-path="${node.path}" data-type="folder" title="Delete Folder"><i class="fas fa-trash-alt"></i></button>
                             </span>
                         </div>
-                        ${generateTreeHTML(node.children)}
+                        ${node.children ? buildTreeHTML(node.children) : ''}
                     </div>
                 `;
             } else {
                 html += `
                     <div class="list-group-item file-tree-item" style="padding-left: ${padding}px;">
                         <span class="item-name file-item" data-path="${node.path}">
-                            <i class="fas fa-file-alt"></i> ${node.name}
+                            <i class="fas fa-file-alt"></i> ${node.title || node.name}
                         </span>
                         <span class="item-actions">
                             <button class="btn btn-outline-danger delete-item-btn" data-path="${node.path}" data-type="file" title="Delete File"><i class="fas fa-trash-alt"></i></button>
@@ -174,26 +155,6 @@ document.addEventListener('DOMContentLoaded', function () {
         });
         html += '</div>';
         return html;
-    }
-
-    function attachTreeEventListeners() {
-        fileTreeContainer.addEventListener('click', function(e) {
-            const target = e.target.closest('button, .file-item');
-            if (!target) return;
-
-            const path = target.dataset.path;
-
-            if (target.classList.contains('file-item')) {
-                loadEditorContent(path);
-            } else if (target.classList.contains('new-file-btn')) {
-                createNewItem('file', path);
-            } else if (target.classList.contains('new-folder-btn')) {
-                createNewItem('folder', path);
-            } else if (target.classList.contains('delete-item-btn')) {
-                const type = target.dataset.type;
-                deleteItem(path, type);
-            }
-        });
     }
 
     function createNewItem(type, parentPath) {
@@ -231,7 +192,6 @@ document.addEventListener('DOMContentLoaded', function () {
         .then(handleResponse)
         .then(() => {
             loadFileTree();
-            // If the deleted item was the one being edited, clear the editor
             if (currentFilePathInput.value === path) {
                 editorContainer.style.display = 'none';
                 noFileSelected.style.display = 'block';
@@ -256,6 +216,25 @@ document.addEventListener('DOMContentLoaded', function () {
             .catch(handleError);
     }
 
+    // --- Single, Delegated Event Listener ---
+    document.body.addEventListener('click', function(e) {
+        const target = e.target.closest('button, .file-item');
+        if (!target) return;
+
+        const path = target.dataset.path;
+
+        if (target.classList.contains('file-item')) {
+            loadEditorContent(path);
+        } else if (target.classList.contains('new-file-btn')) {
+            createNewItem('file', path);
+        } else if (target.classList.contains('new-folder-btn')) {
+            createNewItem('folder', path);
+        } else if (target.classList.contains('delete-item-btn')) {
+            const type = target.dataset.type;
+            deleteItem(path, type);
+        }
+    });
+
     editorForm.addEventListener('submit', function (e) {
         e.preventDefault();
         const path = currentFilePathInput.value;
@@ -269,6 +248,15 @@ document.addEventListener('DOMContentLoaded', function () {
         .then(handleResponse)
         .then(() => alert('File saved successfully!'))
         .catch(handleError);
+    });
+
+    downloadBtn.addEventListener('click', function() {
+        const path = currentFilePathInput.value;
+        if (path) {
+            window.location.href = `/api/download-course/${path}`;
+        } else {
+            alert('Please select a file to download.');
+        }
     });
 
     function generateCards(apiUrl) {
@@ -327,10 +315,8 @@ document.addEventListener('DOMContentLoaded', function () {
     function displayGeneratedCards(cards) {
         let html = '<div class="accordion" id="cards-accordion">';
         cards.forEach((card, index) => {
-            // Use marked to render markdown in question and answer
             const questionHTML = marked.parse(card.question);
             const answerHTML = marked.parse(card.answer);
-
             html += `
                 <div class="accordion-item">
                     <h2 class="accordion-header" id="heading-${index}">
@@ -345,7 +331,6 @@ document.addEventListener('DOMContentLoaded', function () {
         });
         html += '</div>';
         cardsModalBody.innerHTML = html;
-        // Retypeset MathJax for the new content in the modal
         MathJax.typeset([cardsModalBody]);
     }
 
@@ -353,7 +338,12 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!response.ok) {
             return response.json().then(err => { throw new Error(err.detail || `HTTP error! status: ${response.status}`) });
         }
-        return response.json();
+        // Handle empty JSON responses for success cases like DELETE
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.indexOf("application/json") !== -1) {
+            return response.json();
+        }
+        return {}; 
     }
 
     function handleError(error) {

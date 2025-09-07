@@ -1,18 +1,18 @@
+from dotenv import load_dotenv
+
+load_dotenv()
+
 import psycopg2
 from psycopg2 import extras
 import os
 from datetime import datetime, timedelta
 
 # --- Database Configuration ---
-# The application will connect to the PostgreSQL database using the DATABASE_URL environment variable.
-# For local development, you can set this to a local PostgreSQL instance.
-# For production on Render, this will be provided by the PostgreSQL service.
-DATABASE_URL = os.environ.get("DATABASE_URL")
-
 # This file handles all database operations
 
 def get_db_connection():
     """Creates a connection to the PostgreSQL database."""
+    DATABASE_URL = os.environ.get("DATABASE_URL")
     if not DATABASE_URL:
         raise ValueError("DATABASE_URL environment variable is not set.")
     conn = psycopg2.connect(DATABASE_URL)
@@ -34,6 +34,32 @@ def create_database():
             due_date TIMESTAMP NOT NULL,
             ease_factor REAL NOT NULL DEFAULT 2.5,
             interval INTEGER NOT NULL DEFAULT 1
+        )
+    ''')
+
+    # --- New Tables for Storing Courses in DB ---
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS courses (
+            id SERIAL PRIMARY KEY,
+            path TEXT NOT NULL UNIQUE,
+            content TEXT,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS tags (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS course_tags (
+            course_id INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+            tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+            PRIMARY KEY (course_id, tag_id)
         )
     ''')
 

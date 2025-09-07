@@ -1,34 +1,71 @@
-
 {% extends "layout.html" %}
 
-{% block title %}Courses tagged with '{{ tag }}' - Anki Clone{% endblock %}
+{% block title %}Courses Tagged: {{ tag_name }}{% endblock %}
 
 {% block content %}
-<h1 class="mb-4">Courses tagged with '{{ tag }}'</h1>
-<div class="list-group">
-    {% for item in courses %}
-        <a href="/courses/{{ item.path }}" class="list-group-item list-group-item-action">
-            <div class="d-flex w-100 justify-content-between">
-                <h5 class="mb-1" style="padding-left: {{ item.depth * 20 }}px;">
-                    {% if item.type == 'directory' %}
-                        📁
-                    {% else %}
-                        📄
-                    {% endif %}
-                    {{ item.name }}
-                </h5>
-            </div>
-            {% if item.title %}
-                <p class="mb-1">{{ item.title }}</p>
-            {% endif %}
-            {% if item.tags %}
-                <small>
-                    {% for tag in item.tags %}
-                        <span class="badge bg-secondary">{{ tag }}</span>
-                    {% endfor %}
-                </small>
-            {% endif %}
-        </a>
-    {% endfor %}
+<div class="container mt-4">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="/courses">Courses</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Tag: {{ tag_name }}</li>
+        </ol>
+    </nav>
+
+    <h1 class="mb-4">Courses Tagged: <span class="badge bg-primary">{{ tag_name }}</span></h1>
+
+    <div id="courses-list" class="list-group">
+        <!-- Course list will be loaded here by JavaScript -->
+    </div>
+    <div id="loading-spinner" class="text-center mt-5">
+        <div class="spinner-border" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+    <div id="no-courses-found" class="alert alert-info mt-4" style="display: none;">
+        No courses found with this tag.
+    </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const tagName = "{{ tag_name }}";
+    const coursesList = document.getElementById('courses-list');
+    const loadingSpinner = document.getElementById('loading-spinner');
+    const noCoursesFound = document.getElementById('no-courses-found');
+
+    fetch(`/api/courses-by-tag/${tagName}`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(courses => {
+            loadingSpinner.style.display = 'none';
+            if (courses.length > 0) {
+                let html = '';
+                courses.forEach(course => {
+                    html += `
+                        <a href="/courses/${course.path}" class="list-group-item list-group-item-action">
+                            <div class="d-flex w-100 justify-content-between">
+                                <h5 class="mb-1">${course.title}</h5>
+                            </div>
+                            <p class="mb-1 text-muted"><small>${course.path}</small></p>
+                        </a>
+                    `;
+                });
+                coursesList.innerHTML = html;
+            } else {
+                noCoursesFound.style.display = 'block';
+            }
+        })
+        .catch(error => {
+            loadingSpinner.style.display = 'none';
+            coursesList.innerHTML = `<div class="alert alert-danger">Error loading courses: ${error.message}</div>`;
+            console.error('Error fetching courses:', error);
+        });
+});
+</script>
 {% endblock %}

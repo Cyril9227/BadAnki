@@ -6,6 +6,11 @@
 <div class="container mt-4">
     <div class="row">
         <div class="col-md-12">
+            <h2 class="mb-3">Tags</h2>
+            <div id="tags-list" class="d-flex flex-wrap gap-2 mb-4">
+                <!-- Tags will be loaded here -->
+            </div>
+
             <h2 class="mb-4">All Courses</h2>
             <div id="course-list" class="list-group">
                 <!-- Course list will be loaded here by JavaScript -->
@@ -20,24 +25,42 @@
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     const courseList = document.getElementById('course-list');
+    const tagsList = document.getElementById('tags-list');
 
+    // Fetch and display all tags
+    fetch('/api/tags')
+        .then(response => response.json())
+        .then(tags => {
+            if (tags.length > 0) {
+                const tagsHtml = tags.map(tag => 
+                    `<a href="/tags/${tag}" class="btn btn-sm btn-outline-primary">${tag}</a>`
+                ).join('');
+                tagsList.innerHTML = tagsHtml;
+            } else {
+                tagsList.innerHTML = '<p class="text-muted">No tags found.</p>';
+            }
+        })
+        .catch(error => {
+            tagsList.innerHTML = '<p class="text-danger">Error loading tags.</p>';
+            console.error('Error fetching tags:', error);
+        });
+
+    // Fetch and display all courses
     fetch('/api/courses-tree')
         .then(response => response.json())
         .then(data => {
             let html = '';
-            if (data.length === 0) {
+            const files = data.filter(item => item.type === 'file');
+            if (files.length === 0) {
                 html = '<p>No courses found. You can create one in the editor.</p>';
             } else {
-                data.forEach(item => {
-                    if (item.type === 'file') {
-                        // Use the title from metadata if available, otherwise use the file name
-                        const displayName = item.title || item.name.replace('.md', '');
-                        html += `<a href="/courses/${item.path}" class="list-group-item list-group-item-action">
-                                    <strong>${displayName}</strong>
-                                    <br>
-                                    <small class="text-muted">${item.path}</small>
-                                 </a>`;
-                    }
+                files.forEach(item => {
+                    const displayName = item.title || item.name.replace('.md', '');
+                    html += `<a href="/courses/${item.path}" class="list-group-item list-group-item-action">
+                                <strong>${displayName}</strong>
+                                <br>
+                                <small class="text-muted">${item.path}</small>
+                             </a>`;
                 });
             }
             courseList.innerHTML = html;
