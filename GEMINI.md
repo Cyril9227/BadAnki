@@ -10,154 +10,58 @@ This project is a web-based, simplified clone of the Anki flashcard application.
 
 - **Backend:** Python 3.10+ with FastAPI
 - **Frontend:** Jinja2 Templates with Bootstrap 5 CSS
-- **Database:** SQLite
+- **Database:** PostgreSQL (production), SQLite (local)
 - **Telegram Bot:** `python-telegram-bot` library
-- **Markdown Parsing:** `frontmatter` library for reading course files.
+- **Markdown Parsing:** `frontmatter` library for course content.
 - **LLM Integration:** `google-generativeai` for card generation, `ollama` for local card generation.
+- **Deployment:** Render.com
 
 ## 3. Project Structure
 
+The project is organized into a main FastAPI application (`main.py`), a Telegram bot (`bot.py`), database scripts, and Jinja2 templates. Course content, previously stored in local Markdown files, is now managed in a PostgreSQL database to support a stateless deployment environment.
+
 ```
 /
-├── anki.db             # The SQLite database file.
-├── bot.py              # Contains the logic for the Telegram bot.
-├── database.py         # Script to initialize the database schema.
 ├── main.py             # The main FastAPI application file.
-├── gemini.md           # This documentation file.
-├── courses/            # Directory containing course notes in Markdown.
-│   └── ...
+├── bot.py              # Contains the logic for the Telegram bot.
+├── crud.py             # Contains database create, read, update, and delete operations.
+├── database.py         # Script to initialize the database schema.
+├── scheduler.py        # Logic for sending daily review notifications.
+├── GEMINI.md           # This documentation file.
+├── requirements.txt    # Python dependencies.
+├── render.yaml         # Infrastructure as Code for deployment on Render.
 └── templates/          # Directory for all Jinja2 HTML templates.
-    ├── layout.html         # Base template with navigation.
-    ├── home.html           # The home page.
-    ├── courses_list.html   # Page to list all courses.
-    ├── course_viewer.html  # Page to display a single course.
-    ├── course_editor.html  # The interactive course editor.
-    ├── review.html         # The main card review interface.
-    ├── new_card.html       # Form to create a new card.
-    ├── manage_cards.html   # Page to view, edit, and delete all cards.
-    ├── edit_card.html      # Form to edit an existing card.
     └── ...
 ```
 
 ## 4. Setup and Running the Application
 
-### 1. Environment Setup with `uv`
+(Instructions for local setup with `uv` and environment variables remain the same and can be found in previous versions if needed.)
 
-It is recommended to use a virtual environment to manage project dependencies. This project uses `uv`, a fast Python package installer and resolver.
+## 5. Current Status (As of 2025-09-07)
 
-1.  **Create a Virtual Environment:**
-    ```bash
-    uv venv
-    ```
+The application is live and core features are fully functional. The recent development sessions have focused on stabilizing the application, migrating to a database-driven architecture, and fixing bugs.
 
-2.  **Activate the Virtual Environment:**
-    - On macOS and Linux: `source .venv/bin/activate`
-    - On Windows (Git Bash): `source .venv/Scripts/activate`
+### Key Accomplishments:
+- **Database-driven Courses:** The application now stores and manages all course content and flashcards directly in the production PostgreSQL database, removing the dependency on the local filesystem. This was a critical step for successful deployment.
+- **Functional Core Components:**
+    - **Card & Course Management:** Users can successfully create, view, edit, and delete courses and their associated flashcards.
+    - **Review System:** The spaced repetition logic for reviewing cards is operational.
+    - **Telegram Cron Job:** The daily scheduler is active and correctly sends review notifications to users via Telegram.
+    - **LaTeX Rendering:** Mathematical formulas written in LaTeX are correctly rendered on the frontend.
+- **Bug Fixes:** Resolved a critical routing bug that prevented the "Edit Course" functionality from working correctly.
+- **Deployment:** The application, including the web server, Telegram bot, and cron job, is successfully deployed and running on Render.
 
-3.  **Install Dependencies:**
-    ```bash
-    uv pip install -r requirements.txt
-    ```
+## 6. Next Steps & Future Vision
 
-### 2. Running the Application
+With the core functionality now stable, the next development phase will focus on enhancing the application's security, performance, and user experience.
 
-The application consists of two main components that must be run separately in two different terminals (after activating the virtual environment in each).
+### Immediate Priorities for the Next Session:
+1.  **Implement Authentication:** Introduce a robust authentication module to protect the application. Currently, all endpoints are public, allowing anyone with the URL to modify data. This is the highest priority.
+2.  **Code Quality & Security Audit:**
+    - Review the codebase to implement best practices for security (e.g., input validation, preventing SQL injection, securing endpoints).
+    - Refactor and clean up the code to improve readability and maintainability.
+3.  **Performance Optimization:** Analyze and address performance bottlenecks to improve the application's "snapiness" and overall user experience.
 
-**Terminal 1: Run the FastAPI Web Server**
-
-1.  **Set the Environment Variable:**
-    You must set your Gemini API key as an environment variable.
-    ```bash
-    export GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
-    ```
-2.  **Run the Server:**
-    This command starts the web application. The `--reload` flag automatically restarts the server when code changes are detected.
-    ```bash
-    uvicorn main:app --reload
-    ```
-    The application will be available at `http://127.0.0.1:8000`.
-
-**Terminal 2: Run the Telegram Bot**
-
-1.  **Set the Environment Variable:**
-    You must set your Telegram bot token as an environment variable.
-    ```bash
-    export TELEGRAM_BOT_TOKEN="YOUR_TELEGRAM_TOKEN"
-    ```
-2.  **Run the Bot Script:**
-    ```bash
-    python bot.py
-    ```
-
-## 5. Agent Session Summary (As of 2025-09-06)
-
-This documentation is kept current with the latest agentic coding session. Key actions performed recently include:
-
-1.  **UI Overhaul:**
-    - Replaced the old Bootstrap navigation with a modern, animated menu inspired by the `animated-menu` components.
-    - Implemented a new color scheme with support for both light and dark modes, including a theme toggle switch.
-    - Updated the home page and other components to use a consistent, modern card-based design.
-
-2.  **Local Card Generation with Ollama:**
-    - Integrated the `ollama` library to enable local, private card generation as an alternative to the Gemini API.
-    - Added a new `/api/generate-cards-ollama` endpoint to the backend to handle requests.
-    - Added a "Generate with Ollama" button to the course editor UI for a seamless user experience.
-
-3.  **Deployment Preparation:**
-    - Implemented a `scheduler.py` script that checks for due cards and sends a daily review reminder via Telegram.
-    - Added a `/myid` command to the Telegram bot (`bot.py`) for users to easily retrieve their chat ID.
-    - Prepared the application for production deployment by adding `gunicorn`, externalizing all secrets and configurations to use environment variables.
-    - Created a `Procfile` to define the web and worker processes for the hosting platform.
-    - Created a `render.yaml` file to enable "Infrastructure as Code" deployment on the Render platform, defining the web server, bot, persistent disk, and cron job.
-    - Modified the database connection logic (`database.py`, `scheduler.py`) to use a persistent disk path when deployed, ensuring data is not lost on restarts.
-
-4.  **Live Deployment and Data Management:**
-    - Successfully deployed the entire application stack (web app, bot, cron job) to the Render platform.
-    - Resolved database connection issues by enforcing SSL and correcting table creation sequences.
-    - Created robust data management scripts:
-        - `migrate_db.py`: For migrating data from a local SQLite DB to the production PostgreSQL DB.
-        - `backup_db.py`: For creating a local CSV backup of the production database.
-        - `restore_db.py`: For restoring data from a CSV backup to a new database instance, ensuring data persistence beyond the limits of free hosting plans.
-
-## 6. Local Card Generation with Ollama
-
-To use a local model for card generation, you need to have Ollama installed and running on your machine.
-
-### 1. Install Ollama
-
-Follow the official instructions to download and install Ollama for your operating system: [https://ollama.ai/](https://ollama.ai/)
-
-### 2. Run a Model
-
-Once Ollama is installed, you need to pull and run a model. We recommend `llama2` for this application.
-
-```bash
-ollama run llama2
-```
-
-This command will download the model (if you don't have it already) and start the Ollama server. You must keep this terminal window open while using the local generation feature.
-
-### 3. Generate Cards
-
-With the Ollama server running, you can now use the "Generate with Ollama" button in the course editor to generate cards locally.
-
-## 7. Next Steps & Known Issues
-
-The application is live, but there are several areas for improvement and features to address.
-
-### 1. Priority: Activate Telegram Cron Job
-The highest priority is to ensure the daily review notification cron job, defined in `render.yaml` and `scheduler.py`, is running correctly on the live server and sending messages via Telegram. This is a core feature of the application's feedback loop.
-
-### 2. Fix Card Management Bugs
-- **Edit Functionality:** The "Edit" button in the "Manage Cards" menu is currently not working. This needs to be fixed to allow users to correct or update their flashcards.
-
-### 3. Rework the Course Editor
-- **Filesystem Dependency:** The current course editor is designed to work with the local filesystem (the `courses/` directory), which does not work on a stateless hosting platform like Render.
-- **Future Work:** This entire feature needs to be re-architected. A potential solution is to store course content in the database instead of in Markdown files. This is a larger project for a future session.
-
-### 4. Future UI Enhancements
-- A new, more modern frontend built with Next.js and TypeScript has been proposed as a long-term goal to replace the current Jinja2 templates.
-
-## 8. Next Steps
-
-Progress has been made towards fixing the folders / tree stucture in deployment scenarios. Issues are still present. Once it's fixed, need to setup cronjob on https://cron-job.org/en/ and refactor code to use Next.js and TypeScript
+### Long-Term Vision:
+- **Modern Frontend with Next.js:** Plan and execute a complete rewrite of the frontend using Next.js and TypeScript. The goal is to create a beautiful, modern, and highly interactive user interface, moving away from the current server-side rendered Jinja2 templates.
