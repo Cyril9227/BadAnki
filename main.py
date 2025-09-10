@@ -20,6 +20,8 @@ import google.generativeai as genai
 import json
 import ollama
 import secrets
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+import secrets
 from scheduler import run_scheduler
 
 # --- Gemini API Configuration ---
@@ -41,11 +43,30 @@ safety_settings = [
 # --- FastAPI App ---
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
+security = HTTPBasic()
+
+# --- Authentication ---
+def get_current_user(credentials: HTTPBasicCredentials = Depends(security)):
+    """Dependency to verify basic auth credentials."""
+    correct_username = secrets.compare_digest(
+        credentials.username, os.environ.get("ADMIN_USERNAME", "admin")
+    )
+    correct_password = secrets.compare_digest(
+        credentials.password, os.environ.get("ADMIN_PASSWORD", "password")
+    )
+    if not (correct_username and correct_password):
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
 
 # --- Pydantic Models ---
 class CourseContent(BaseModel):
     path: str
     content: str
+
 
 class CourseItem(BaseModel):
     path: str
@@ -124,7 +145,7 @@ async def list_courses(request: Request):
     return templates.TemplateResponse("courses_list.html", {"request": request})
 
 @app.get("/edit-course/{course_path:path}", response_class=HTMLResponse)
-async def edit_course(request: Request, course_path: str):
+async def edit_course(request: Request, course_path: str, user: str = Depends(get_current_user)):
     return templates.TemplateResponse("course_editor.html", {"request": request, "course_path": course_path})
 
 @app.get("/courses/{course_path:path}", response_class=HTMLResponse)
@@ -158,7 +179,7 @@ async def api_get_courses_tree(conn: psycopg2.extensions.connection = Depends(ge
     return crud.get_courses_tree_from_db(conn)
 
 @app.get("/api/course-content/{course_path:path}", response_class=JSONResponse)
-async def api_get_course_content(course_path: str, conn: psycopg2.extensions.connection = Depends(get_db)):
+async def api_get_course_content(course_path: str, conn: psycopg2.extensions.connection = Depends(get_db), user: str = Depends(get_current_user)):
     cursor = conn.cursor(cursor_factory=extras.DictCursor)
     cursor.execute("SELECT content FROM courses WHERE path = %s", (course_path,))
     course = cursor.fetchone()
@@ -168,7 +189,7 @@ async def api_get_course_content(course_path: str, conn: psycopg2.extensions.con
     return JSONResponse(content=course['content'])
 
 @app.post("/api/course-content")
-async def api_save_course_content(item: CourseContent, conn: psycopg2.extensions.connection = Depends(get_db)):
+async def api_save_course_content(item: CourseContent, conn: psycopg2.extensions.connection = Depends(get_db), user: str = Depends(get_current_user)):
     cursor = conn.cursor()
     try:
         cursor.execute(
@@ -190,7 +211,7 @@ async def api_save_course_content(item: CourseContent, conn: psycopg2.extensions
         cursor.close()
 
 @app.api_route("/api/course-item", methods=["POST", "DELETE"])
-async def api_manage_course_item(item: CourseItem, request: Request, conn: psycopg2.extensions.connection = Depends(get_db)):
+async def api_manage_course_item(item: CourseItem, request: Request, conn: psycopg2.extensions.connection = Depends(get_db), user: str = Depends(get_current_user)):
     cursor = conn.cursor()
     try:
         if request.method == "POST":
@@ -231,7 +252,7 @@ async def api_manage_course_item(item: CourseItem, request: Request, conn: psyco
         cursor.close()
 
 @app.post("/api/generate-cards")
-async def api_generate_cards(data: CourseContentForGeneration):
+async def api_generate_cards(data: CourseContentForGeneration, user: str = Depends(get_current_user)):
     if not data.content.strip():
         raise HTTPException(status_code=400, detail="Content cannot be empty.")
     generated_cards = generate_cards(data.content, mode="gemini")
@@ -240,7 +261,7 @@ async def api_generate_cards(data: CourseContentForGeneration):
     return {"cards": generated_cards}
 
 @app.post("/api/generate-cards-ollama")
-async def api_generate_cards_ollama(data: CourseContentForGeneration):
+async def api_generate_cards_ollama(data: CourseContentForGeneration, user: str = Depends(get_current_user)):
     if not data.content.strip():
         raise HTTPException(status_code=400, detail="Content cannot be empty.")
     generated_cards = generate_cards(data.content, mode="ollama")
@@ -249,7 +270,7 @@ async def api_generate_cards_ollama(data: CourseContentForGeneration):
     return {"cards": generated_cards}
 
 @app.post("/api/save-cards")
-async def api_save_cards(data: GeneratedCards, conn: psycopg2.extensions.connection = Depends(get_db)):
+async def api_save_cards(data: GeneratedCards, conn: psycopg2.extensions.connection = Depends(get_db), user: str = Depends(get_current_user)):
     cursor = conn.cursor()
     try:
         card_data = [(card.question, card.answer, datetime.now()) for card in data.cards]
@@ -267,7 +288,7 @@ async def api_save_cards(data: GeneratedCards, conn: psycopg2.extensions.connect
     return {"success": True, "message": f"{len(data.cards)} cards saved successfully."}
 
 @app.get("/api/download-course/{course_path:path}")
-async def download_course(course_path: str, conn: psycopg2.extensions.connection = Depends(get_db)):
+async def download_course(course_path: str, conn: psycopg2.extensions.connection = Depends(get_db), user: str = Depends(get_current_user)):
     cursor = conn.cursor(cursor_factory=extras.DictCursor)
     cursor.execute("SELECT content FROM courses WHERE path = %s", (course_path,))
     course = cursor.fetchone()
@@ -340,12 +361,12 @@ async def review(request: Request, conn: psycopg2.extensions.connection = Depend
     return templates.TemplateResponse("review.html", {"request": request, "card": card, "due_today_count": due_today_count, "new_cards_count": new_cards_count, "total_cards": len(all_cards)})
 
 @app.post("/review/{card_id}")
-async def update_review(card_id: int, status: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db)):
+async def update_review(card_id: int, status: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db), user: str = Depends(get_current_user)):
     crud.update_card(conn, card_id, status == "remembered")
     return RedirectResponse(url="/review", status_code=303)
 
 @app.get("/manage", response_class=HTMLResponse)
-async def manage_cards(request: Request, conn: psycopg2.extensions.connection = Depends(get_db)):
+async def manage_cards(request: Request, conn: psycopg2.extensions.connection = Depends(get_db), user: str = Depends(get_current_user)):
     cursor = conn.cursor(cursor_factory=extras.DictCursor)
     cursor.execute("SELECT * FROM cards ORDER BY due_date")
     cards = cursor.fetchall()
@@ -354,11 +375,11 @@ async def manage_cards(request: Request, conn: psycopg2.extensions.connection = 
     return templates.TemplateResponse("manage_cards.html", {"request": request, "cards": cards})
 
 @app.get("/new", response_class=HTMLResponse)
-async def new_card_form(request: Request):
+async def new_card_form(request: Request, user: str = Depends(get_current_user)):
     return templates.TemplateResponse("new_card.html", {"request": request})
 
 @app.post("/new")
-async def create_new_card(question: str = Form(...), answer: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db)):
+async def create_new_card(question: str = Form(...), answer: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db), user: str = Depends(get_current_user)):
     cursor = conn.cursor()
     cursor.execute(
         "INSERT INTO cards (question, answer, due_date) VALUES (%s, %s, %s)",
@@ -369,7 +390,7 @@ async def create_new_card(question: str = Form(...), answer: str = Form(...), co
     return RedirectResponse(url="/", status_code=303)
 
 @app.get("/edit-card/{card_id}", response_class=HTMLResponse)
-async def edit_card_form(request: Request, card_id: int, conn: psycopg2.extensions.connection = Depends(get_db)):
+async def edit_card_form(request: Request, card_id: int, conn: psycopg2.extensions.connection = Depends(get_db), user: str = Depends(get_current_user)):
     cursor = conn.cursor(cursor_factory=extras.DictCursor)
     cursor.execute("SELECT * FROM cards WHERE id = %s", (card_id,))
     card = cursor.fetchone()
@@ -379,7 +400,7 @@ async def edit_card_form(request: Request, card_id: int, conn: psycopg2.extensio
     return templates.TemplateResponse("edit_card.html", {"request": request, "card": card})
 
 @app.post("/edit-card/{card_id}")
-async def update_existing_card(card_id: int, question: str = Form(...), answer: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db)):
+async def update_existing_card(card_id: int, question: str = Form(...), answer: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db), user: str = Depends(get_current_user)):
     cursor = conn.cursor()
     cursor.execute("UPDATE cards SET question = %s, answer = %s WHERE id = %s", (question, answer, card_id))
     conn.commit()
@@ -387,7 +408,7 @@ async def update_existing_card(card_id: int, question: str = Form(...), answer: 
     return RedirectResponse(url="/manage", status_code=303)
 
 @app.post("/delete/{card_id}")
-async def delete_card(card_id: int, conn: psycopg2.extensions.connection = Depends(get_db)):
+async def delete_card(card_id: int, conn: psycopg2.extensions.connection = Depends(get_db), user: str = Depends(get_current_user)):
     cursor = conn.cursor()
     cursor.execute("DELETE FROM cards WHERE id = %s", (card_id,))
     conn.commit()

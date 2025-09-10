@@ -44,6 +44,7 @@ The application is live and core features are fully functional. The recent devel
 
 ### Key Accomplishments:
 - **Database-driven Courses:** The application now stores and manages all course content and flashcards directly in the production PostgreSQL database, removing the dependency on the local filesystem. This was a critical step for successful deployment.
+- **Basic Authentication:** Implemented a simple and secure username/password authentication system using FastAPI's `HTTPBasic` security module. All routes that involve creating, updating, or deleting data are now protected. Credentials are managed via `ADMIN_USERNAME` and `ADMIN_PASSWORD` environment variables.
 - **Functional Core Components:**
     - **Card & Course Management:** Users can successfully create, view, edit, and delete courses and their associated flashcards.
     - **Review System:** The spaced repetition logic for reviewing cards is operational.
@@ -57,11 +58,10 @@ The application is live and core features are fully functional. The recent devel
 With the core functionality now stable, the next development phase will focus on enhancing the application's security, performance, and user experience.
 
 ### Immediate Priorities for the Next Session:
-1.  **Implement Authentication:** Introduce a robust authentication module to protect the application. Currently, all endpoints are public, allowing anyone with the URL to modify data. This is the highest priority.
-2.  **Code Quality & Security Audit:**
+1.  **Code Quality & Security Audit:**
     - Review the codebase to implement best practices for security (e.g., input validation, preventing SQL injection, securing endpoints).
     - Refactor and clean up the code to improve readability and maintainability.
-3.  **Performance Optimization:** Analyze and address performance bottlenecks to improve the application's "snapiness" and overall user experience.
+2.  **Performance Optimization:** Analyze and address performance bottlenecks to improve the application's "snapiness" and overall user experience.
 
 ### Long-Term Vision:
 - **Modern Frontend with Next.js:** Plan and execute a complete rewrite of the frontend using Next.js and TypeScript. The goal is to create a beautiful, modern, and highly interactive user interface, moving away from the current server-side rendered Jinja2 templates.
