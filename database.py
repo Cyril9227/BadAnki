@@ -19,51 +19,15 @@ def get_db_connection():
     return conn
 
 def create_database():
-    """Creates the 'cards' table in the PostgreSQL database if it doesn't exist."""
+    """Creates and updates the database schema by executing the database.sql file."""
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # Create table if it doesn't exist
-    # - id: Auto-incrementing integer for PostgreSQL is SERIAL
-    # - due_date: Use TIMESTAMP for date and time
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS cards (
-            id SERIAL PRIMARY KEY,
-            question TEXT NOT NULL,
-            answer TEXT NOT NULL,
-            due_date TIMESTAMP NOT NULL,
-            ease_factor REAL NOT NULL DEFAULT 2.5,
-            interval INTEGER NOT NULL DEFAULT 1
-        )
-    ''')
+    # Read and execute the SQL file to create/update the schema
+    with open('database.sql', 'r') as f:
+        cursor.execute(f.read())
 
-    # --- New Tables for Storing Courses in DB ---
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS courses (
-            id SERIAL PRIMARY KEY,
-            path TEXT NOT NULL UNIQUE,
-            content TEXT,
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS tags (
-            id SERIAL PRIMARY KEY,
-            name TEXT NOT NULL UNIQUE
-        )
-    ''')
-
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS course_tags (
-            course_id INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
-            tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
-            PRIMARY KEY (course_id, tag_id)
-        )
-    ''')
-
-    # Check if the table is empty before inserting sample data
+    # Check if the cards table is empty before inserting sample data
     cursor.execute("SELECT COUNT(*) FROM cards")
     if cursor.fetchone()[0] == 0:
         # Add some sample cards with LaTeX

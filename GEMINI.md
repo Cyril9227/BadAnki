@@ -38,13 +38,13 @@ The project is organized into a main FastAPI application (`main.py`), a Telegram
 
 (Instructions for local setup with `uv` and environment variables remain the same and can be found in previous versions if needed.)
 
-## 5. Current Status (As of 2025-09-07)
+## 5. Current Status (As of 2025-09-10)
 
-The application is live and core features are fully functional. The recent development sessions have focused on stabilizing the application, migrating to a database-driven architecture, and fixing bugs.
+The application is live and core features are fully functional. The recent development sessions have focused on stabilizing the application, migrating to a database-driven architecture, and implementing a robust authentication system.
 
 ### Key Accomplishments:
+- **Multi-User Authentication:** Replaced the single-user basic auth with a secure, token-based (JWT) authentication system. Users can now register, log in, and manage their own isolated sets of courses and cards. All relevant API endpoints and data operations are protected and user-specific.
 - **Database-driven Courses:** The application now stores and manages all course content and flashcards directly in the production PostgreSQL database, removing the dependency on the local filesystem. This was a critical step for successful deployment.
-- **Basic Authentication:** Implemented a simple and secure username/password authentication system using FastAPI's `HTTPBasic` security module. All routes that involve creating, updating, or deleting data are now protected. Credentials are managed via `ADMIN_USERNAME` and `ADMIN_PASSWORD` environment variables.
 - **Functional Core Components:**
     - **Card & Course Management:** Users can successfully create, view, edit, and delete courses and their associated flashcards.
     - **Review System:** The spaced repetition logic for reviewing cards is operational.
