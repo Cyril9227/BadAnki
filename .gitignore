@@ -13,3 +13,4 @@ __pycache__/
 
 # Ignore Reference code
 reference_code/
+migrate_data.py

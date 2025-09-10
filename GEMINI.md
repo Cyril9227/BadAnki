@@ -50,18 +50,26 @@ The application is live and core features are fully functional. The recent devel
     - **Review System:** The spaced repetition logic for reviewing cards is operational.
     - **Telegram Cron Job:** The daily scheduler is active and correctly sends review notifications to users via Telegram.
     - **LaTeX Rendering:** Mathematical formulas written in LaTeX are correctly rendered on the frontend.
-- **Bug Fixes:** Resolved a critical routing bug that prevented the "Edit Course" functionality from working correctly.
+- **Bug Fixes:** 
+    - Resolved a critical routing bug that prevented the "Edit Course" functionality from working correctly.
+    - Fixed an authentication bug causing intermittent logouts by enforcing a persistent `SECRET_KEY` environment variable.
+- **UI Improvements:**
+    - Removed the redundant "New" card button from the main navigation menu.
 - **Deployment:** The application, including the web server, Telegram bot, and cron job, is successfully deployed and running on Render.
 
 ## 6. Next Steps & Future Vision
 
-With the core functionality now stable, the next development phase will focus on enhancing the application's security, performance, and user experience.
+With the core functionality now stable, the next development phase will focus on enhancing the application's features, UI, and maintainability.
 
 ### Immediate Priorities for the Next Session:
-1.  **Code Quality & Security Audit:**
-    - Review the codebase to implement best practices for security (e.g., input validation, preventing SQL injection, securing endpoints).
-    - Refactor and clean up the code to improve readability and maintainability.
-2.  **Performance Optimization:** Analyze and address performance bottlenecks to improve the application's "snapiness" and overall user experience.
+1.  **Generate README:** Create a comprehensive and professional `README.md` file for the GitHub repository.
+2.  **Refine `.gitignore`:** Identify and exclude unnecessary files from the repository.
+3.  **Telegram Bot Enhancement:** Implement a `/random` command to fetch and display a random card. Discuss and decide on the authentication/access strategy for mobile users.
+4.  **Resolve Ollama Issue:** Troubleshoot and fix the local model pulling issue with the Snap installation of Ollama.
 
 ### Long-Term Vision:
 - **Modern Frontend with Next.js:** Plan and execute a complete rewrite of the frontend using Next.js and TypeScript. The goal is to create a beautiful, modern, and highly interactive user interface, moving away from the current server-side rendered Jinja2 templates.
+- **Code Quality & Security Audit:**
+    - Review the codebase to implement best practices for security (e.g., input validation, preventing SQL injection, securing endpoints).
+    - Refactor and clean up the code to improve readability and maintainability.
+- **Performance Optimization:** Analyze and address performance bottlenecks to improve the application's "snapiness" and overall user experience.
