@@ -116,7 +116,6 @@
             <li class="nav-item"><a href="/courses" class="nav-link"><i class="fas fa-book"></i><span class="nav-text"> Courses</span></a></li>
             <li class="nav-item"><a href="/edit-course/home" class="nav-link"><i class="fas fa-edit"></i><span class="nav-text"> Editor</span></a></li>
             <li class="nav-item"><a href="/review" class="nav-link"><i class="fas fa-star"></i><span class="nav-text"> Review</span></a></li>
-            <li class="nav-item"><a href="/new" class="nav-link"><i class="fas fa-plus-circle"></i><span class="nav-text"> New</span></a></li>
             <li class="nav-item"><a href="/manage" class="nav-link"><i class="fas fa-cog"></i><span class="nav-text"> Manage</span></a></li>
             
             <!-- Auth Links -->
@@ -124,8 +123,9 @@
                 <li class="nav-item"><a href="#" class="nav-link"><i class="fas fa-user"></i><span class="nav-text"> {{ request.state.user.username }}</span></a></li>
                 <li class="nav-item"><a href="/logout" class="nav-link"><i class="fas fa-sign-out-alt"></i><span class="nav-text"> Logout</span></a></li>
             {% else %}
-                <li class="nav-item"><a href="/login" class="nav-link"><i class="fas fa-sign-in-alt"></i><span class="nav-text"> Login</span></a></li>
-                <li class="nav-item"><a href="/register" class="nav-link"><i class="fas fa-user-plus"></i><span class="nav-text"> Register</span></a></li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/login">Login</a>
+                    </li>
             {% endif %}
         </ul>
     </nav>

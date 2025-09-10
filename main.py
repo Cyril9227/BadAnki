@@ -1,6 +1,3 @@
-# main.py
-# This file contains the main FastAPI application.
-
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -23,7 +20,9 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 
 # --- JWT Configuration ---
-SECRET_KEY = os.environ.get("SECRET_KEY", secrets.token_urlsafe(32))
+SECRET_KEY = os.environ.get("SECRET_KEY")
+if not SECRET_KEY:
+    raise ValueError("No SECRET_KEY set for JWT. Please set this environment variable.")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
@@ -31,7 +30,20 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 # --- Gemini API Configuration ---
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
-# ... (rest of the Gemini config remains the same)
+
+generation_config = {
+  "temperature": 0.5,
+  "top_p": 0.95,
+  "top_k": 64,
+  "max_output_tokens": 8192,
+  "response_mime_type": "application/json",
+}
+safety_settings = [
+    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+]
 
 # --- FastAPI App ---
 app = FastAPI()
@@ -39,10 +51,20 @@ templates = Jinja2Templates(directory="templates")
 
 # --- Middleware ---
 @app.middleware("http")
-async def create_auth_header(request: Request, call_next):
-    # This middleware makes the user object available to all templates.
-    request.state.user = await get_current_user(request, next(get_db()))
-    response = await call_next(request)
+async def db_session_middleware(request: Request, call_next):
+    """
+    Manages the database connection lifecycle for each request and
+    attaches the user object to the request state.
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        request.state.db = conn
+        request.state.user = await get_current_user(request, conn)
+        response = await call_next(request)
+    finally:
+        if conn:
+            conn.close()
     return response
 
 # --- Pydantic Models ---
@@ -69,12 +91,12 @@ class GeneratedCards(BaseModel):
     cards: list[GeneratedCard]
 
 # --- Database Dependency ---
-def get_db():
-    conn = get_db_connection()
-    try:
-        yield conn
-    finally:
-        conn.close()
+def get_db(request: Request):
+    """
+    FastAPI dependency that retrieves the database connection
+    from the request state, managed by the middleware.
+    """
+    return request.state.db
 
 # --- Authentication ---
 
@@ -88,7 +110,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-async def get_current_user(request: Request, conn: psycopg2.extensions.connection = Depends(get_db)):
+async def get_current_user(request: Request, conn: psycopg2.extensions.connection):
     token = request.cookies.get("access_token")
     if not token:
         return None
@@ -102,15 +124,41 @@ async def get_current_user(request: Request, conn: psycopg2.extensions.connectio
     user = crud.get_user_by_username(conn, username=username)
     return user
 
-async def get_current_active_user(current_user: User = Depends(get_current_user)):
-    if not current_user:
-        raise HTTPException(status_code=302, headers={"Location": "/login"})
-    return current_user
+async def get_current_active_user(request: Request):
+    if not request.state.user:
+        # Redirect to login page if user is not authenticated
+        raise HTTPException(status_code=303, headers={"Location": "/login"})
+    return request.state.user
 
-# --- LLM & Card Generation (remains the same) ---
+# --- LLM & Card Generation ---
+
 def generate_cards(text: str, mode="gemini") -> list[dict]:
-    # ... (implementation is unchanged)
-    pass
+    prompt = f"""
+        Analyze the following text and generate a list of question-and-answer pairs for flashcards.
+        **Instructions:**
+        1.  **Language:** Generate the cards in the same language as the provided text.
+        2.  **Focus:** Concentrate on the core concepts, definitions, and key formulas. Avoid trivial details.
+        3.  **LaTeX:** Use LaTeX for all mathematical formulas. Enclose inline math with `$` and block math with `$$`.
+        4.  **Format:** Return a JSON object with a "cards" key, containing a list of objects, each with "question" and "answer" keys.
+        **Text to Analyze:**
+        ---
+        {text}
+        ---
+        """
+    try:
+        if mode == "gemini":
+            model = genai.GenerativeModel(model_name="gemini-1.5-flash", safety_settings=safety_settings, generation_config=generation_config)
+            response = model.generate_content(prompt)
+            response_text = response.text.strip().replace("```json", "").replace("```", "")
+            return json.loads(response_text).get("cards", [])
+        elif mode == "ollama":
+            response = ollama.chat(model='llama2', messages=[{'role': 'user', 'content': prompt}])
+            response_text = response['message']['content'].strip().replace("```json", "").replace("```", "")
+            return json.loads(response_text).get("cards", [])
+    except Exception as e:
+        print(f"An error occurred during {mode} API call: {e}")
+        return []
+
 
 # --- FastAPI Routes ---
 
@@ -171,7 +219,17 @@ async def view_course(request: Request, course_path: str, conn: psycopg2.extensi
     course = crud.get_course_content_for_user(conn, course_path, user['id'])
     if not course or not course['content']:
         raise HTTPException(status_code=404, detail="Course not found")
-    post = frontmatter.loads(course['content'])
+    
+    content = course['content']
+    # It seems the content might be stored as a JSON string (e.g., '"---\\n..."')
+    # Try to parse it as JSON first.
+    try:
+        content = json.loads(content)
+    except (json.JSONDecodeError, TypeError):
+        # If it's not a valid JSON string, use it as is.
+        pass
+
+    post = frontmatter.loads(content)
     return templates.TemplateResponse("course_viewer.html", {"request": request, "metadata": post.metadata, "content": post.content, "course_path": course_path})
 
 # --- API for Courses ---
@@ -201,8 +259,21 @@ async def api_manage_course_item(item: CourseItem, request: Request, conn: psyco
 
 @app.post("/api/generate-cards")
 async def api_generate_cards(data: CourseContentForGeneration, user: User = Depends(get_current_active_user)):
-    # ... (implementation unchanged)
-    pass
+    if not data.content.strip():
+        raise HTTPException(status_code=400, detail="Content cannot be empty.")
+    generated_cards = generate_cards(data.content, mode="gemini")
+    if not generated_cards:
+        raise HTTPException(status_code=500, detail="Failed to generate cards.")
+    return {"cards": generated_cards}
+
+@app.post("/api/generate-cards-ollama")
+async def api_generate_cards_ollama(data: CourseContentForGeneration, user: User = Depends(get_current_active_user)):
+    if not data.content.strip():
+        raise HTTPException(status_code=400, detail="Content cannot be empty.")
+    generated_cards = generate_cards(data.content, mode="ollama")
+    if not generated_cards:
+        raise HTTPException(status_code=500, detail="Failed to generate cards.")
+    return {"cards": generated_cards}
 
 @app.post("/api/save-cards")
 async def api_save_cards(data: GeneratedCards, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
