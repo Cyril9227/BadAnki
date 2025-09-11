@@ -33,6 +33,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 # --- Bot Setup ---
 bot_app = setup_bot()
+logger = logging.getLogger(__name__)
 
 # --- FastAPI App ---
 app = FastAPI()
@@ -46,32 +47,44 @@ async def startup_event():
         # In production, set the webhook
         if os.environ.get("ENVIRONMENT") == "production":
             webhook_url = f"{os.environ.get('APP_URL')}/webhook/{TELEGRAM_BOT_TOKEN}"
+            logger.info(f"Setting webhook to: {webhook_url}")
             await bot_app.bot.set_webhook(url=webhook_url)
+            logger.info("Webhook set successfully.")
         # In development, start polling
         else:
+            logger.info("Starting bot in polling mode for local development.")
             await bot_app.updater.start_polling()
+            logger.info("Bot started polling.")
 
 @app.on_event("shutdown")
 async def shutdown_event():
     if bot_app:
         # In production, delete the webhook
         if os.environ.get("ENVIRONMENT") == "production":
+            logger.info("Deleting webhook.")
             await bot_app.bot.delete_webhook()
+            logger.info("Webhook deleted.")
         # In development, stop the polling
         else:
+            logger.info("Stopping bot polling.")
             await bot_app.updater.stop()
+            logger.info("Bot polling stopped.")
         await bot_app.stop()
 
 # --- Webhook Endpoint ---
 @app.post("/webhook/{token}")
 async def webhook(request: Request, token: str):
+    logger.info("Webhook endpoint received a request.")
     if token != TELEGRAM_BOT_TOKEN:
+        logger.warning("Invalid token received in webhook request.")
         raise HTTPException(status_code=403, detail="Invalid token")
     
     if bot_app:
         data = await request.json()
+        logger.info(f"Webhook received data: {data}")
         update = Update.de_json(data, bot_app.bot)
         await bot_app.update_queue.put(update)
+        logger.info("Update successfully put into queue.")
     
     return Response(status_code=200)
 
@@ -200,7 +213,7 @@ def generate_cards(text: str, mode="gemini") -> list[dict]:
             response_text = response.text.strip().replace("```json", "").replace("```", "")
             return json.loads(response_text).get("cards", [])
         elif mode == "ollama":
-            response = ollama.chat(model='llama2', messages=[{'role': 'user', 'content': prompt}])
+            response = ollama.chat(model='gemma3:4b', messages=[{'role': 'user', 'content': prompt}])
             response_text = response['message']['content'].strip().replace("```json", "").replace("```", "")
             return json.loads(response_text).get("cards", [])
     except Exception as e:
