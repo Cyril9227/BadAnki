@@ -18,6 +18,8 @@ import ollama
 import secrets
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
+from telegram import Update
+from bot import setup_bot
 
 # --- JWT Configuration ---
 SECRET_KEY = os.environ.get("SECRET_KEY")
@@ -25,25 +27,55 @@ if not SECRET_KEY:
     raise ValueError("No SECRET_KEY set for JWT. Please set this environment variable.")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
-# --- Gemini API Configuration ---
-genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
+# --- Bot Setup ---
+bot_app = setup_bot()
 
-generation_config = {
-  "temperature": 0.5,
-  "top_p": 0.95,
-  "top_k": 64,
-  "max_output_tokens": 8192,
-  "response_mime_type": "application/json",
-}
-safety_settings = [
-    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-]
+# --- FastAPI App ---
+app = FastAPI()
+
+# --- App Events ---
+@app.on_event("startup")
+async def startup_event():
+    if bot_app:
+        # In production, set the webhook
+        if os.environ.get("ENVIRONMENT") == "production":
+            webhook_url = f"{os.environ.get('APP_URL')}/webhook/{TELEGRAM_BOT_TOKEN}"
+            await bot_app.bot.set_webhook(url=webhook_url)
+        # In development, start polling in the background
+        else:
+            import asyncio
+            asyncio.create_task(bot_app.run_polling())
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    if bot_app:
+        # In production, delete the webhook
+        if os.environ.get("ENVIRONMENT") == "production":
+            await bot_app.bot.delete_webhook()
+        # In development, stop the polling
+        else:
+            await bot_app.shutdown()
+
+# --- Webhook Endpoint ---
+@app.post("/webhook/{token}")
+async def webhook(request: Request, token: str):
+    if token != TELEGRAM_BOT_TOKEN:
+        raise HTTPException(status_code=403, detail="Invalid token")
+    
+    if bot_app:
+        data = await request.json()
+        update = Update.de_json(data, bot_app.bot)
+        await bot_app.update_queue.put(update)
+    
+    return Response(status_code=200)
+
+
+# --- Jinja2 Templates ---
+templates = Jinja2Templates(directory="templates")
 
 # --- FastAPI App ---
 app = FastAPI()
@@ -131,6 +163,20 @@ async def get_current_active_user(request: Request):
     return request.state.user
 
 # --- LLM & Card Generation ---
+
+generation_config = {
+  "temperature": 0.5,
+  "top_p": 0.95,
+  "top_k": 64,
+  "max_output_tokens": 8192,
+  "response_mime_type": "application/json",
+}
+safety_settings = [
+    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+]
 
 def generate_cards(text: str, mode="gemini") -> list[dict]:
     prompt = f"""
@@ -281,6 +327,13 @@ async def api_save_cards(data: GeneratedCards, conn: psycopg2.extensions.connect
     return {"success": True, "message": f"{len(data.cards)} cards saved successfully."}
 
 # --- Card Management Routes ---
+@app.get("/card/{card_id}", response_class=HTMLResponse)
+async def view_card(request: Request, card_id: int, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
+    card = crud.get_card_for_user(conn, card_id, user['id'])
+    if card is None:
+        raise HTTPException(status_code=404, detail="Card not found")
+    return templates.TemplateResponse("card_viewer.html", {"request": request, "card": card})
+
 @app.get("/review", response_class=HTMLResponse)
 async def review(request: Request, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     card = crud.get_review_cards_for_user(conn, user['id'])

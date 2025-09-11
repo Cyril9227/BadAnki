@@ -46,6 +46,29 @@ def create_user(conn, username: str, password: str):
     finally:
         cursor.close()
 
+def get_user_by_telegram_chat_id(conn, chat_id: int):
+    """Fetches a user by their Telegram chat ID."""
+    cursor = conn.cursor(cursor_factory=extras.DictCursor)
+    cursor.execute("SELECT * FROM users WHERE telegram_chat_id = %s", (chat_id,))
+    user = cursor.fetchone()
+    cursor.close()
+    return user
+
+def update_telegram_chat_id(conn, user_id: int, chat_id: int):
+    """Updates a user's Telegram chat ID."""
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "UPDATE users SET telegram_chat_id = %s WHERE id = %s",
+            (chat_id, user_id)
+        )
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        cursor.close()
+
 # --- Course CRUD Functions ---
 
 def get_courses_tree_for_user(conn, user_id: int):
@@ -231,6 +254,14 @@ def delete_card_for_user(conn, card_id: int, user_id: int):
     cursor.execute("DELETE FROM cards WHERE id = %s AND user_id = %s", (card_id, user_id))
     conn.commit()
     cursor.close()
+
+def get_random_card_for_user(conn, user_id: int):
+    """Fetches a random card from the database for a specific user."""
+    cursor = conn.cursor(cursor_factory=extras.DictCursor)
+    cursor.execute("SELECT * FROM cards WHERE user_id = %s ORDER BY RANDOM() LIMIT 1", (user_id,))
+    card = cursor.fetchone()
+    cursor.close()
+    return card
 
 def save_generated_cards_for_user(conn, cards: list, user_id: int):
     cursor = conn.cursor()
