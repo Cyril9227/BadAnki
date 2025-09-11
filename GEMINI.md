@@ -14,7 +14,7 @@ This project is a web-based, simplified clone of the Anki flashcard application.
 - **Telegram Bot:** `python-telegram-bot` library
 - **Markdown Parsing:** `frontmatter` library for course content.
 - **LLM Integration:** `google-generativeai` for card generation, `ollama` for local card generation.
-- **Deployment:** Render.com
+- **Deployment:** Render.com (Free Tier)
 
 ## 3. Project Structure
 
@@ -29,47 +29,45 @@ The project is organized into a main FastAPI application (`main.py`), a Telegram
 ├── scheduler.py        # Logic for sending daily review notifications.
 ├── GEMINI.md           # This documentation file.
 ├── requirements.txt    # Python dependencies.
-├── render.yaml         # Infrastructure as Code for deployment on Render.
 └── templates/          # Directory for all Jinja2 HTML templates.
     └── ...
 ```
 
-## 4. Setup and Running the Application
+## 4. Deployment & Local Testing
 
-(Instructions for local setup with `uv` and environment variables remain the same and can be found in previous versions if needed.)
+-   **Production (Render Free Tier):** The application is deployed as a single web service.
+    -   **Telegram Bot:** The bot runs within the FastAPI application lifecycle, using a webhook for communication with Telegram. This is managed in `main.py`. For this to work, the `ENVIRONMENT` environment variable must be set to `production`.
+    -   **Scheduler:** The daily scheduler is triggered by an API endpoint (`/api/trigger-scheduler`). A free, external cron job service (e.g., cron-job.org) is required to call this endpoint on a schedule.
+-   **Local Development:**
+    -   The web server can be run with `uvicorn main:app --reload`.
+    -   The Telegram bot can be tested independently by running `python bot.py`, which starts the bot in polling mode.
 
-## 5. Current Status (As of 2025-09-10)
+## 5. Current Status (As of 2025-09-11)
 
-The application is live and core features are fully functional. The recent development sessions have focused on stabilizing the application, migrating to a database-driven architecture, and implementing a robust authentication system.
+The application's code is largely complete. Local testing is now fully functional, and the primary focus is on resolving the final deployment issues on Render's free tier.
 
 ### Key Accomplishments:
-- **Multi-User Authentication:** Replaced the single-user basic auth with a secure, token-based (JWT) authentication system. Users can now register, log in, and manage their own isolated sets of courses and cards. All relevant API endpoints and data operations are protected and user-specific.
-- **Database-driven Courses:** The application now stores and manages all course content and flashcards directly in the production PostgreSQL database, removing the dependency on the local filesystem. This was a critical step for successful deployment.
-- **Functional Core Components:**
-    - **Card & Course Management:** Users can successfully create, view, edit, and delete courses and their associated flashcards.
-    - **Review System:** The spaced repetition logic for reviewing cards is operational.
-    - **Telegram Cron Job:** The daily scheduler is active and correctly sends review notifications to users via Telegram.
-    - **LaTeX Rendering:** Mathematical formulas written in LaTeX are correctly rendered on the frontend.
-- **Bug Fixes:** 
-    - Resolved a critical routing bug that prevented the "Edit Course" functionality from working correctly.
-    - Fixed an authentication bug causing intermittent logouts by enforcing a persistent `SECRET_KEY` environment variable.
-- **UI Improvements:**
-    - Removed the redundant "New" card button from the main navigation menu.
-- **Deployment:** The application, including the web server, Telegram bot, and cron job, is successfully deployed and running on Render.
+- **Runnable Local Bot:** Modified `bot.py` to be a standalone, runnable script. This allows for easy local testing and development of all bot functionality using polling, completely independent of the web server.
+- **Ollama Integration:** Successfully configured and tested `ollama` for local card generation.
+- **Multi-User Scheduler:** The `scheduler.py` script is ready and sends notifications to all users with due cards. It's exposed via a secure API endpoint.
+- **Telegram Bot Features:** The bot includes `/start`, `/register`, and `/random` commands.
+- **Secure, Multi-User Core:** The application is built on a secure, token-based (JWT) authentication system, with isolated data for each user.
+
+### Known Issues & Resolution Path:
+- **Production Bot Inactive:** The bot is not responding on Render. **Resolution:** This is likely due to a silent error during the webhook setup. Enhanced logging has been added to `main.py` to diagnose this. The user needs to deploy the latest version and check the Render logs for errors during startup and when a command is sent to the bot.
+- **Production Scheduler:** The scheduler is not running automatically. **Resolution:** The user must configure an external cron job service to send a GET request to the `https://<your-app-url>/api/trigger-scheduler?secret=<your-secret>` endpoint.
 
 ## 6. Next Steps & Future Vision
 
-With the core functionality now stable, the next development phase will focus on enhancing the application's features, UI, and maintainability.
+The immediate priority is to use the new logging to fix the production environment and then move on to new features.
 
 ### Immediate Priorities for the Next Session:
-1.  **Generate README:** Create a comprehensive and professional `README.md` file for the GitHub repository.
-2.  **Refine `.gitignore`:** Identify and exclude unnecessary files from the repository.
-3.  **Telegram Bot Enhancement:** Implement a `/random` command to fetch and display a random card. Discuss and decide on the authentication/access strategy for mobile users.
-4.  **Resolve Ollama Issue:** Troubleshoot and fix the local model pulling issue with the Snap installation of Ollama.
+1.  **Diagnose Production Bot:** Deploy the version of `main.py` with enhanced logging and inspect the Render logs to find the root cause of the webhook failure.
+2.  **Set Up External Cron Job:** The user needs to configure an external service to trigger the scheduler endpoint.
+3.  **AI-Generated Card Approval Workflow:** Implement a system where users can review, approve, edit, or discard cards generated by the API or local Ollama before they are added to a course.
+4.  **Generate README:** Create a comprehensive and professional `README.md` file for the GitHub repository.
 
 ### Long-Term Vision:
-- **Modern Frontend with Next.js:** Plan and execute a complete rewrite of the frontend using Next.js and TypeScript. The goal is to create a beautiful, modern, and highly interactive user interface, moving away from the current server-side rendered Jinja2 templates.
-- **Code Quality & Security Audit:**
-    - Review the codebase to implement best practices for security (e.g., input validation, preventing SQL injection, securing endpoints).
-    - Refactor and clean up the code to improve readability and maintainability.
-- **Performance Optimization:** Analyze and address performance bottlenecks to improve the application's "snapiness" and overall user experience.
+- **Modern Frontend with Next.js:** Plan and execute a complete rewrite of the frontend using Next.js and TypeScript.
+- **Code Quality & Security Audit:** Review and refactor the codebase to improve security, readability, and maintainability.
+- **Performance Optimization:** Analyze and address performance bottlenecks.

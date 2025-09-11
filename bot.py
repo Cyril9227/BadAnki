@@ -66,7 +66,7 @@ async def random_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # Prepare the message with MarkdownV2
                 question_text = escape_markdown(card['question'], version=2)
                 answer_text = escape_markdown(card['answer'], version=2)
-                message = f"*Question:*\n{question_text}\n\n*Answer:*\n||{answer_text}||"
+                message = f"*Question:* {question_text} *Answer:* ||{answer_text}||"
 
                 # Prepare the "View on Web" button
                 card_url = f"{APP_URL}/card/{card['id']}"
@@ -144,3 +144,12 @@ def setup_bot():
     application.add_handler(CommandHandler("register", register))
 
     return application
+
+if __name__ == "__main__":
+    logger.info("Starting bot in standalone polling mode...")
+    bot_app = setup_bot()
+    if bot_app:
+        logger.info("Bot application created. Starting polling.")
+        bot_app.run_polling()
+    else:
+        logger.error("Failed to create bot application. Check TELEGRAM_BOT_TOKEN.")

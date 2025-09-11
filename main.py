@@ -47,19 +47,22 @@ app = FastAPI()
 @app.on_event("startup")
 async def startup_event():
     if bot_app:
-        await bot_app.initialize()
-        await bot_app.start()
-        # In production, set the webhook
-        if os.environ.get("ENVIRONMENT") == "production":
-            webhook_url = f"{os.environ.get('APP_URL')}/webhook/{TELEGRAM_BOT_TOKEN}"
-            logger.info(f"Setting webhook to: {webhook_url}")
-            await bot_app.bot.set_webhook(url=webhook_url)
-            logger.info("Webhook set successfully.")
-        # In development, start polling
-        else:
-            logger.info("Starting bot in polling mode for local development.")
-            await bot_app.updater.start_polling()
-            logger.info("Bot started polling.")
+        try:
+            await bot_app.initialize()
+            await bot_app.start()
+            # In production, set the webhook
+            if os.environ.get("ENVIRONMENT") == "production":
+                webhook_url = f"{os.environ.get('APP_URL')}/webhook/{TELEGRAM_BOT_TOKEN}"
+                logger.info(f"Attempting to set webhook to: {webhook_url}")
+                await bot_app.bot.set_webhook(url=webhook_url)
+                logger.info("Webhook set successfully.")
+            # In development, start polling
+            else:
+                logger.info("Starting bot in polling mode for local development.")
+                await bot_app.updater.start_polling()
+                logger.info("Bot started polling.")
+        except Exception as e:
+            logger.error(f"CRITICAL ERROR during bot startup: {e}", exc_info=True)
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -85,11 +88,15 @@ async def webhook(request: Request, token: str):
         raise HTTPException(status_code=403, detail="Invalid token")
     
     if bot_app:
-        data = await request.json()
-        logger.info(f"Webhook received data: {data}")
-        update = Update.de_json(data, bot_app.bot)
-        await bot_app.update_queue.put(update)
-        logger.info("Update successfully put into queue.")
+        try:
+            data = await request.json()
+            logger.info(f"Webhook received data: {data}")
+            update = Update.de_json(data, bot_app.bot)
+            logger.info("Update object successfully created.")
+            await bot_app.update_queue.put(update)
+            logger.info("Update successfully put into queue.")
+        except Exception as e:
+            logger.error(f"Error processing webhook update: {e}", exc_info=True)
     
     return Response(status_code=200)
 
