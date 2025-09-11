@@ -41,14 +41,15 @@ app = FastAPI()
 @app.on_event("startup")
 async def startup_event():
     if bot_app:
+        await bot_app.initialize()
+        await bot_app.start()
         # In production, set the webhook
         if os.environ.get("ENVIRONMENT") == "production":
             webhook_url = f"{os.environ.get('APP_URL')}/webhook/{TELEGRAM_BOT_TOKEN}"
             await bot_app.bot.set_webhook(url=webhook_url)
-        # In development, start polling in the background
+        # In development, start polling
         else:
-            import asyncio
-            asyncio.create_task(bot_app.run_polling())
+            await bot_app.updater.start_polling()
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -58,7 +59,8 @@ async def shutdown_event():
             await bot_app.bot.delete_webhook()
         # In development, stop the polling
         else:
-            await bot_app.shutdown()
+            await bot_app.updater.stop()
+        await bot_app.stop()
 
 # --- Webhook Endpoint ---
 @app.post("/webhook/{token}")
