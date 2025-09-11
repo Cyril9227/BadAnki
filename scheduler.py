@@ -1,58 +1,92 @@
 # scheduler.py
-# This script checks for due cards and sends a notification to a specified Telegram chat.
+# This script checks for due cards for all users and sends notifications via Telegram.
 
 from dotenv import load_dotenv
-
 load_dotenv()
 
 import os
 import psycopg2
+from psycopg2 import extras
 import asyncio
 from datetime import datetime
 from telegram import Bot
-from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
 
 # --- Configuration ---
-# Load environment variables
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 APP_URL = os.environ.get("APP_URL", "http://127.0.0.1:8000")
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
-def get_due_cards_count():
-    """Queries the database and returns the number of cards due for review."""
+def get_users_with_due_cards():
+    """
+    Queries the database to find users who have cards due for review.
+    Returns a list of tuples, where each tuple contains:
+    (telegram_chat_id, due_card_count)
+    """
     if not DATABASE_URL:
         print("Error: DATABASE_URL environment variable is not set.")
-        return 0
+        return []
     
     conn = None
+    users_with_due_cards = []
     try:
         conn = psycopg2.connect(DATABASE_URL)
-        cursor = conn.cursor()
-        # Query for cards where the due_date is in the past or today
-        cursor.execute("SELECT COUNT(*) FROM cards WHERE due_date <= %s", (datetime.now(),))
-        count = cursor.fetchone()[0]
-        return count
+        cursor = conn.cursor(cursor_factory=extras.DictCursor)
+        
+        # SQL query to get users and their count of due cards
+        query = """
+            SELECT
+                u.telegram_chat_id,
+                COUNT(c.id) AS due_cards_count
+            FROM
+                users u
+            JOIN
+                cards c ON u.id = c.user_id
+            WHERE
+                c.due_date <= %s AND u.telegram_chat_id IS NOT NULL
+            GROUP BY
+                u.telegram_chat_id
+            HAVING
+                COUNT(c.id) > 0;
+        """
+        
+        cursor.execute(query, (datetime.now(),))
+        records = cursor.fetchall()
+        
+        for record in records:
+            users_with_due_cards.append(
+                (record['telegram_chat_id'], record['due_cards_count'])
+            )
+            
     except psycopg2.Error as e:
         print(f"Database error: {e}")
-        return 0
     finally:
         if conn:
             conn.close()
+            
+    return users_with_due_cards
 
 async def run_scheduler():
-    """The main function to check cards and send a notification."""
-    print("Scheduler started: Checking for due cards...")
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("Error: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID environment variables must be set.")
-        return "Missing environment variables."
+    """
+    Checks for users with due cards and sends them a notification.
+    """
+    print("Scheduler started: Checking for due cards for all users...")
+    if not TELEGRAM_BOT_TOKEN:
+        print("Error: TELEGRAM_BOT_TOKEN environment variable must be set.")
+        return "Missing TELEGRAM_BOT_TOKEN environment variable."
 
-    due_count = get_due_cards_count()
-    message_to_return = ""
+    users_to_notify = get_users_with_due_cards()
+    
+    if not users_to_notify:
+        result = "No users have cards due for review today."
+        print(result)
+        return result
 
-    if due_count > 0:
-        print(f"Found {due_count} card(s) due for review. Sending notification...")
-        bot = Bot(token=TELEGRAM_BOT_TOKEN)
+    bot = Bot(token=TELEGRAM_BOT_TOKEN)
+    successful_notifications = 0
+    failed_notifications = 0
+
+    for chat_id, due_count in users_to_notify:
+        print(f"Found {due_count} card(s) due for user with chat_id {chat_id}. Sending notification...")
         review_link = f"{APP_URL}/review"
         message = (
             f"👋 You have {due_count} card(s) due for review today!\n\n"
@@ -60,27 +94,19 @@ async def run_scheduler():
         )
         
         try:
-            await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
-            result = "Notification sent successfully."
-            print(result)
-            message_to_return = result
+            await bot.send_message(chat_id=chat_id, text=message)
+            successful_notifications += 1
         except Exception as e:
-            result = f"Failed to send Telegram message: {e}"
-            print(result)
-            message_to_return = result
-    else:
-        result = "No cards due for review today."
-        print(result)
-        message_to_return = result
-    
-    print("Scheduler finished.")
-    return message_to_return
+            print(f"Failed to send Telegram message to chat_id {chat_id}: {e}")
+            failed_notifications += 1
+            
+    result = f"Scheduler finished. Sent {successful_notifications} notifications. Failed for {failed_notifications} users."
+    print(result)
+    return result
 
 async def main():
     """Runs the scheduler directly."""
     await run_scheduler()
 
 if __name__ == "__main__":
-    # The python-telegram-bot library is asynchronous.
-    # We use asyncio.run() to execute our async main function.
     asyncio.run(main())

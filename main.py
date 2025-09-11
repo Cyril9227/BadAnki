@@ -20,11 +20,16 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from telegram import Update
 from bot import setup_bot
+import logging
+from scheduler import run_scheduler
 
 # --- JWT Configuration ---
 SECRET_KEY = os.environ.get("SECRET_KEY")
+SCHEDULER_SECRET = os.environ.get("SCHEDULER_SECRET")
 if not SECRET_KEY:
     raise ValueError("No SECRET_KEY set for JWT. Please set this environment variable.")
+if not SCHEDULER_SECRET:
+    raise ValueError("No SCHEDULER_SECRET set. Please set this environment variable.")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -340,6 +345,15 @@ async def api_generate_cards_ollama(data: CourseContentForGeneration, user: User
 async def api_save_cards(data: GeneratedCards, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     crud.save_generated_cards_for_user(conn, data.cards, user['id'])
     return {"success": True, "message": f"{len(data.cards)} cards saved successfully."}
+
+# --- Scheduler ---
+@app.get("/api/trigger-scheduler")
+async def trigger_scheduler(secret: str):
+    if secret != SCHEDULER_SECRET:
+        raise HTTPException(status_code=403, detail="Invalid secret")
+    
+    result = await run_scheduler()
+    return JSONResponse(content={"status": "completed", "result": result})
 
 # --- Card Management Routes ---
 @app.get("/card/{card_id}", response_class=HTMLResponse)
