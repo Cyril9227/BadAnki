@@ -3,20 +3,27 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import psycopg2
-from psycopg2 import extras
+from psycopg2 import pool
 import os
 from datetime import datetime, timedelta
 
 # --- Database Configuration ---
 # This file handles all database operations
 
+DATABASE_URL = os.environ.get("DATABASE_URL")
+if not DATABASE_URL:
+    raise ValueError("DATABASE_URL environment variable is not set.")
+
+# Create a connection pool
+db_pool = psycopg2.pool.SimpleConnectionPool(1, 20, dsn=DATABASE_URL)
+
 def get_db_connection():
-    """Creates a connection to the PostgreSQL database."""
-    DATABASE_URL = os.environ.get("DATABASE_URL")
-    if not DATABASE_URL:
-        raise ValueError("DATABASE_URL environment variable is not set.")
-    conn = psycopg2.connect(DATABASE_URL)
-    return conn
+    """Gets a connection from the pool."""
+    return db_pool.getconn()
+
+def release_db_connection(conn):
+    """Releases a connection back to the pool."""
+    db_pool.putconn(conn)
 
 def create_database():
     """Creates and updates the database schema by executing the database.sql file."""
@@ -34,20 +41,17 @@ def create_database():
         sample_cards = [
             (
                 'What is the Pythagorean theorem?',
-                'For a right-angled triangle, the square of the hypotenuse is equal to the sum of the squares of the other two sides: $a^2 + b^2 = c^2'
-,
+                'For a right-angled triangle, the square of the hypotenuse is equal to the sum of the squares of the other two sides: $a^2 + b^2 = c^2',
                 datetime.now()
             ),
             (
                 'What is the formula for the area of a circle?',
-                'The area of a circle with radius `r` is given by the formula: $A = \pi r^2'
-,
+                'The area of a circle with radius `r` is given by the formula: $A = \pi r^2',
                 datetime.now()
             ),
             (
                 'What is the integral of $ \frac{1}{x} $?',
-                'The integral of $ \frac{1}{x} $ with respect to `x` is $ \ln|x| + C'
-,
+                'The integral of $ \frac{1}{x} $ with respect to `x` is $ \ln|x| + C',
                 datetime.now()
             )
         ]
@@ -60,7 +64,7 @@ def create_database():
 
     conn.commit()
     cursor.close()
-    conn.close()
+    release_db_connection(conn)
 
 if __name__ == '__main__':
     # This allows running the script directly to initialize the database

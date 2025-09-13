@@ -9,7 +9,7 @@ import psycopg2
 from psycopg2 import extras
 import os
 import frontmatter
-from database import get_db_connection
+from database import get_db_connection, release_db_connection
 import crud
 from pydantic import BaseModel
 import google.generativeai as genai
@@ -123,7 +123,7 @@ async def db_session_middleware(request: Request, call_next):
         response = await call_next(request)
     finally:
         if conn:
-            conn.close()
+            release_db_connection(conn)
     return response
 
 # --- Pydantic Models ---
@@ -373,16 +373,18 @@ async def view_card(request: Request, card_id: int, conn: psycopg2.extensions.co
 @app.get("/review", response_class=HTMLResponse)
 async def review(request: Request, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     card = crud.get_review_cards_for_user(conn, user['id'])
-    all_cards = crud.get_all_cards_for_user(conn, user['id'])
+    stats = crud.get_review_stats_for_user(conn, user['id'])
     
-    now = datetime.now()
-    due_today_count = sum(1 for c in all_cards if c['due_date'] <= now)
-    new_cards_count = sum(1 for c in all_cards if c['interval'] == 1 and c['ease_factor'] == 2.5)
-
     if card is None:
         return templates.TemplateResponse("no_cards.html", {"request": request})
 
-    return templates.TemplateResponse("review.html", {"request": request, "card": card, "due_today_count": due_today_count, "new_cards_count": new_cards_count, "total_cards": len(all_cards)})
+    return templates.TemplateResponse("review.html", {
+        "request": request, 
+        "card": card, 
+        "due_today_count": stats['due_today'], 
+        "new_cards_count": stats['new_cards'], 
+        "total_cards": stats['total_cards']
+    })
 
 @app.post("/review/{card_id}")
 async def update_review(card_id: int, status: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):

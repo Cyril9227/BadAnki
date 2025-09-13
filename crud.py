@@ -6,7 +6,7 @@ import os
 import frontmatter
 from datetime import datetime, timedelta
 from psycopg2 import extras
-from database import get_db_connection
+from psycopg2 import extras
 from passlib.context import CryptContext
 
 # --- Password Hashing ---
@@ -80,7 +80,9 @@ def get_courses_tree_for_user(conn, user_id: int):
     courses = cursor.fetchall()
     cursor.close()
 
-    root = {}
+    tree = {}
+    nodes = {}
+
     for course in courses:
         path = course['path']
         is_placeholder = os.path.basename(path) == '.placeholder'
@@ -88,44 +90,50 @@ def get_courses_tree_for_user(conn, user_id: int):
             path = os.path.dirname(path)
             if not path:
                 continue
-
-        path_parts = path.split(os.sep)
-        current_level = root
         
-        for i, part in enumerate(path_parts):
-            if part not in current_level:
-                current_level[part] = {}
-            
-            if i == len(path_parts) - 1:
-                if is_placeholder:
-                    if '__data' not in current_level[part]:
-                        current_level[part]['__data'] = {"name": part, "path": path, "type": "directory", "depth": i, "children": []}
-                else:
+        path_parts = path.split(os.sep)
+        for i in range(len(path_parts)):
+            current_path = os.path.join(*path_parts[:i+1])
+            if current_path not in nodes:
+                part = path_parts[i]
+                is_dir = (i < len(path_parts) - 1) or (is_placeholder)
+
+                node = {
+                    "name": part,
+                    "path": current_path,
+                    "type": "directory" if is_dir else "file",
+                    "depth": i,
+                    "children": []
+                }
+                
+                if not is_dir:
                     try:
                         post = frontmatter.loads(course['content'])
-                        title = post.metadata.get('title', part)
+                        node['title'] = post.metadata.get('title', part)
                     except Exception:
-                        title = part
-                    current_level[part]['__data'] = {"name": part, "path": path, "type": "file", "depth": i, "title": title}
-            else:
-                if '__data' not in current_level[part]:
-                    dir_path = os.path.join(*path_parts[:i+1])
-                    current_level[part]['__data'] = {"name": part, "path": dir_path, "type": "directory", "depth": i, "children": []}
-                if '__children' not in current_level[part]:
-                    current_level[part]['__children'] = {}
-                current_level = current_level[part]['__children']
+                        node['title'] = part
 
-    def build_final_tree(tree_dict):
-        final_list = []
-        for key, value in sorted(tree_dict.items()):
-            if '__data' in value:
-                node_data = value['__data']
-                if '__children' in value:
-                    node_data['children'] = build_final_tree(value['__children'])
-                final_list.append(node_data)
-        return final_list
+                nodes[current_path] = node
+                
+                parent_path = os.path.dirname(current_path)
+                if parent_path in nodes:
+                    nodes[parent_path]['children'].append(node)
+                else:
+                    tree[part] = node
+    
+    # This is a simplified way to get the root nodes
+    root_nodes = [node for path, node in nodes.items() if os.path.dirname(path) == '']
+    
+    # Sort children recursively
+    def sort_children(node):
+        node['children'].sort(key=lambda x: x['name'])
+        for child in node['children']:
+            sort_children(child)
 
-    return build_final_tree(root)
+    for root_node in root_nodes:
+        sort_children(root_node)
+
+    return sorted(root_nodes, key=lambda x: x['name'])
 
 def get_course_content_for_user(conn, course_path: str, user_id: int):
     cursor = conn.cursor(cursor_factory=extras.DictCursor)
@@ -198,6 +206,22 @@ def get_review_cards_for_user(conn, user_id: int):
     card = cursor.fetchone()
     cursor.close()
     return card
+
+def get_review_stats_for_user(conn, user_id: int):
+    cursor = conn.cursor(cursor_factory=extras.DictCursor)
+    query = """
+    SELECT
+        (SELECT COUNT(*) FROM cards WHERE user_id = %s AND due_date <= %s) AS due_today,
+        (SELECT COUNT(*) FROM cards WHERE user_id = %s AND interval = 1 AND ease_factor = 2.5) AS new_cards,
+        (SELECT COUNT(*) FROM cards WHERE user_id = %s) AS total_cards;
+    """
+    cursor.execute(query, (user_id, datetime.now(), user_id, user_id))
+    stats = cursor.fetchone()
+    cursor.close()
+    return stats
+
+
+
 
 def get_all_cards_for_user(conn, user_id: int):
     cursor = conn.cursor(cursor_factory=extras.DictCursor)
