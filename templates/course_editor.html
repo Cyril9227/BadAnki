@@ -85,7 +85,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-primary" id="save-cards-btn">Save Cards</button>
+                <button type="button" class="btn btn-primary" id="save-cards-btn">Save Approved Cards</button>
             </div>
         </div>
     </div>
@@ -297,12 +297,110 @@ document.addEventListener('DOMContentLoaded', function () {
     generateCardsBtn.addEventListener('click', () => generateCards('/api/generate-cards'));
     generateCardsOllamaBtn.addEventListener('click', () => generateCards('/api/generate-cards-ollama'));
 
+    function displayGeneratedCards(cards) {
+        let html = '<div id="generated-cards-container">';
+        cards.forEach((card, index) => {
+            const questionHTML = marked.parse(card.question || '');
+            const answerHTML = marked.parse(card.answer || '');
+            html += `
+                <div class="card mb-3" data-card-index="${index}">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div class="form-check">
+                            <input class="form-check-input approve-checkbox" type="checkbox" id="approve-${index}" checked>
+                            <label class="form-check-label" for="approve-${index}">
+                                <strong>Card ${index + 1}</strong>
+                            </label>
+                        </div>
+                        <div>
+                            <button class="btn btn-sm btn-outline-primary edit-card-btn">Edit</button>
+                            <button class="btn btn-sm btn-outline-danger delete-card-btn">Delete</button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="card-content">
+                            <p><strong>Q:</strong> <span class="card-question">${questionHTML}</span></p>
+                            <p><strong>A:</strong> <span class="card-answer">${answerHTML}</span></p>
+                        </div>
+                        <div class="edit-form" style="display: none;">
+                            <div class="mb-2">
+                                <label class="form-label">Question:</label>
+                                <textarea class="form-control edit-question">${card.question}</textarea>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label">Answer:</label>
+                                <textarea class="form-control edit-answer">${card.answer}</textarea>
+                            </div>
+                            <button class="btn btn-sm btn-success save-edit-btn">Save</button>
+                            <button class="btn btn-sm btn-secondary cancel-edit-btn">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        html += '</div>';
+        cardsModalBody.innerHTML = html;
+        MathJax.typesetPromise([cardsModalBody]);
+    }
+
+    // --- Event Delegation for Modal Buttons ---
+    cardsModalBody.addEventListener('click', function(e) {
+        const target = e.target;
+        const cardElement = target.closest('.card');
+        if (!cardElement) return;
+
+        const index = parseInt(cardElement.dataset.cardIndex, 10);
+
+        if (target.classList.contains('delete-card-btn')) {
+            generatedCardsData[index] = null; // Mark for deletion
+            cardElement.remove();
+        } else if (target.classList.contains('edit-card-btn')) {
+            cardElement.querySelector('.card-content').style.display = 'none';
+            cardElement.querySelector('.edit-form').style.display = 'block';
+        } else if (target.classList.contains('cancel-edit-btn')) {
+            cardElement.querySelector('.card-content').style.display = 'block';
+            cardElement.querySelector('.edit-form').style.display = 'none';
+        } else if (target.classList.contains('save-edit-btn')) {
+            const newQuestion = cardElement.querySelector('.edit-question').value;
+            const newAnswer = cardElement.querySelector('.edit-answer').value;
+
+            generatedCardsData[index].question = newQuestion;
+            generatedCardsData[index].answer = newAnswer;
+
+            const questionSpan = cardElement.querySelector('.card-question');
+            const answerSpan = cardElement.querySelector('.card-answer');
+
+            questionSpan.innerHTML = marked.parse(newQuestion);
+            answerSpan.innerHTML = marked.parse(newAnswer);
+
+            MathJax.typesetPromise([questionSpan, answerSpan]);
+
+            cardElement.querySelector('.card-content').style.display = 'block';
+            cardElement.querySelector('.edit-form').style.display = 'none';
+        }
+    });
+
     saveCardsBtn.addEventListener('click', function() {
-        if (generatedCardsData.length === 0) return;
+        const approvedCards = [];
+        const cardElements = cardsModalBody.querySelectorAll('.card');
+
+        cardElements.forEach(cardElement => {
+            const index = parseInt(cardElement.dataset.cardIndex, 10);
+            const isApproved = cardElement.querySelector('.approve-checkbox').checked;
+
+            if (isApproved && generatedCardsData[index]) {
+                approvedCards.push(generatedCardsData[index]);
+            }
+        });
+
+        if (approvedCards.length === 0) {
+            alert("No approved cards to save.");
+            return;
+        }
+
         fetch('/api/save-cards', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ cards: generatedCardsData })
+            body: JSON.stringify({ cards: approvedCards })
         })
         .then(handleResponse)
         .then(data => {
@@ -311,28 +409,6 @@ document.addEventListener('DOMContentLoaded', function () {
         })
         .catch(handleError);
     });
-
-    function displayGeneratedCards(cards) {
-        let html = '<div class="accordion" id="cards-accordion">';
-        cards.forEach((card, index) => {
-            const questionHTML = marked.parse(card.question);
-            const answerHTML = marked.parse(card.answer);
-            html += `
-                <div class="accordion-item">
-                    <h2 class="accordion-header" id="heading-${index}">
-                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-${index}">
-                            <strong>Q:</strong>&nbsp;${questionHTML}
-                        </button>
-                    </h2>
-                    <div id="collapse-${index}" class="accordion-collapse collapse" data-bs-parent="#cards-accordion">
-                        <div class="accordion-body"><strong>A:</strong> ${answerHTML}</div>
-                    </div>
-                </div>`;
-        });
-        html += '</div>';
-        cardsModalBody.innerHTML = html;
-        MathJax.typeset([cardsModalBody]);
-    }
 
     function handleResponse(response) {
         if (!response.ok) {
