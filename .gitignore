@@ -14,3 +14,14 @@ __pycache__/
 # Ignore Reference code
 reference_code/
 migrate_data.py
+
+# Node.js
+node_modules/
+/animated-menu/
+
+# Python
+__pycache__/
+.venv/
+
+# Course content
+/courses/
