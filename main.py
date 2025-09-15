@@ -1,38 +1,47 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, Request, Form, Depends, HTTPException, Response
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
-from fastapi.templating import Jinja2Templates
-from datetime import datetime, timedelta
-import psycopg2
-from psycopg2 import extras
-import os
-import frontmatter
-from database import get_db_connection, release_db_connection
-import crud
-from pydantic import BaseModel
-import google.generativeai as genai
+# Standard library
 import json
-import ollama
-import secrets
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from jose import JWTError, jwt
-from telegram import Update
-from bot import setup_bot
 import logging
+import os
+import secrets
+from datetime import datetime, timedelta
+
+# Third-party
+import frontmatter
+import google.generativeai as genai
+import ollama
+import psycopg2
+from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.templating import Jinja2Templates
+from jose import JWTError, jwt
+from pydantic import BaseModel
+from telegram import Update
+
+# Local application
+import crud
+from bot import setup_bot
+from database import get_db_connection, release_db_connection
 from scheduler import run_scheduler
+from utils.json_parsing import normalize_cards, robust_json_loads
+
 
 # --- JWT Configuration ---
 SECRET_KEY = os.environ.get("SECRET_KEY")
 SCHEDULER_SECRET = os.environ.get("SCHEDULER_SECRET")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TELEGRAM_WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET")
+
 if not SECRET_KEY:
     raise ValueError("No SECRET_KEY set for JWT. Please set this environment variable.")
 if not SCHEDULER_SECRET:
     raise ValueError("No SCHEDULER_SECRET set. Please set this environment variable.")
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
@@ -42,6 +51,7 @@ logger = logging.getLogger(__name__)
 
 # --- FastAPI App ---
 app = FastAPI()
+templates = Jinja2Templates(directory="templates")
 
 # --- App Events ---
 @app.on_event("startup")
@@ -50,9 +60,16 @@ async def startup_event():
         try:
             await bot_app.initialize()
             await bot_app.start()
+            
             # In production, set the webhook
             if os.environ.get("ENVIRONMENT") == "production":
-                webhook_url = f"{os.environ.get('APP_URL')}/webhook/{TELEGRAM_BOT_TOKEN}"
+                # Use a secret in the URL instead of the raw token
+                webhook_secret = TELEGRAM_WEBHOOK_SECRET
+                if not webhook_secret:
+                    webhook_secret = secrets.token_urlsafe(32)
+                    logger.warning("TELEGRAM_WEBHOOK_SECRET not set, using a temporary secret. Please set this for production.")
+
+                webhook_url = f"{os.environ.get('APP_URL')}/webhook/{webhook_secret}"
                 logger.info(f"Attempting to set webhook to: {webhook_url}")
                 await bot_app.bot.set_webhook(url=webhook_url)
                 logger.info("Webhook set successfully.")
@@ -80,33 +97,27 @@ async def shutdown_event():
         await bot_app.stop()
 
 # --- Webhook Endpoint ---
-@app.post("/webhook/{token}")
-async def webhook(request: Request, token: str):
-    logger.info("Webhook endpoint received a request.")
-    if token != TELEGRAM_BOT_TOKEN:
-        logger.warning("Invalid token received in webhook request.")
-        raise HTTPException(status_code=403, detail="Invalid token")
+@app.post("/webhook/{secret}")
+async def webhook(request: Request, secret: str):
+    # Validate the secret
+    expected_secret = TELEGRAM_WEBHOOK_SECRET
+    if not expected_secret or not secrets.compare_digest(secret, expected_secret):
+        logger.warning("Invalid secret received in webhook request.")
+        raise HTTPException(status_code=403, detail="Invalid secret")
     
+    logger.info("Webhook endpoint received a valid request.")
     if bot_app:
         try:
             data = await request.json()
-            logger.info(f"Webhook received data: {data}")
+            logger.debug(f"Webhook received data: {data}")
             update = Update.de_json(data, bot_app.bot)
-            logger.info("Update object successfully created.")
             await bot_app.update_queue.put(update)
-            logger.info("Update successfully put into queue.")
+            logger.debug("Update successfully put into queue.")
         except Exception as e:
             logger.error(f"Error processing webhook update: {e}", exc_info=True)
     
     return Response(status_code=200)
 
-
-# --- Jinja2 Templates ---
-templates = Jinja2Templates(directory="templates")
-
-# --- FastAPI App ---
-app = FastAPI()
-templates = Jinja2Templates(directory="templates")
 
 # --- Middleware ---
 @app.middleware("http")
@@ -205,6 +216,7 @@ safety_settings = [
     {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
 ]
 
+
 def generate_cards(text: str, mode="gemini") -> list[dict]:
     prompt = f"""
         Analyze the following text and generate a list of question-and-answer pairs for flashcards.
@@ -212,24 +224,39 @@ def generate_cards(text: str, mode="gemini") -> list[dict]:
         1.  **Language:** Generate the cards in the same language as the provided text.
         2.  **Focus:** Concentrate on the core concepts, definitions, and key formulas. Avoid trivial details.
         3.  **LaTeX:** Use LaTeX for all mathematical formulas. Enclose inline math with `$` and block math with `$$`.
-        4.  **Format:** Return a JSON object with a "cards" key, containing a list of objects, each with "question" and "answer" keys.
+        4.  **Format:** Return ONLY a raw JSON object with a "cards" key, containing a list of objects, each with "question" and "answer" keys. Do not include markdown formatting like ```json.
+        5.  **JSON Escaping:** CRITICALLY IMPORTANT: Ensure that any backslashes `\\` within the question or answer strings are properly escaped as `\\\\`. This is essential for valid JSON, especially for LaTeX content like `\\\\frac` or `\\\\mathbb`.
+
         **Text to Analyze:**
         ---
         {text}
         ---
         """
+    
     try:
         if mode == "gemini":
-            model = genai.GenerativeModel(model_name="gemini-1.5-flash", safety_settings=safety_settings, generation_config=generation_config)
+            model = genai.GenerativeModel(
+                model_name="gemini-1.5-flash", 
+                safety_settings=safety_settings, 
+                generation_config=generation_config
+            )
             response = model.generate_content(prompt)
-            response_text = response.text.strip().replace("```json", "").replace("```", "")
-            return json.loads(response_text).get("cards", [])
+            response_text = response.text.strip()
+            
         elif mode == "ollama":
-            response = ollama.chat(model='gemma3:4b', messages=[{'role': 'user', 'content': prompt}])
-            response_text = response['message']['content'].strip().replace("```json", "").replace("```", "")
-            return json.loads(response_text).get("cards", [])
+            response = ollama.chat(
+                model='gemma3:4b', 
+                messages=[{'role': 'user', 'content': prompt}]
+            )
+            response_text = response['message']['content']
+        
+        # Need to carefully escape latex for JSON parsing and then for frontend rendering...
+        parsed = robust_json_loads(response_text)
+        cards = parsed.get("cards", [])
+        return normalize_cards(cards)
+            
     except Exception as e:
-        print(f"An error occurred during {mode} API call: {e}")
+        logger.error(f"An error occurred during {mode} API call: {e}")
         return []
 
 
@@ -294,12 +321,9 @@ async def view_course(request: Request, course_path: str, conn: psycopg2.extensi
         raise HTTPException(status_code=404, detail="Course not found")
     
     content = course['content']
-    # It seems the content might be stored as a JSON string (e.g., '"---\\n..."')
-    # Try to parse it as JSON first.
     try:
         content = json.loads(content)
     except (json.JSONDecodeError, TypeError):
-        # If it's not a valid JSON string, use it as is.
         pass
 
     post = frontmatter.loads(content)
@@ -352,6 +376,17 @@ async def api_generate_cards_ollama(data: CourseContentForGeneration, user: User
 async def api_save_cards(data: GeneratedCards, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     crud.save_generated_cards_for_user(conn, data.cards, user['id'])
     return {"success": True, "message": f"{len(data.cards)} cards saved successfully."}
+
+@app.get("/api/tags")
+async def api_get_tags(conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
+    tags = crud.get_all_tags_for_user(conn, user['id'])
+    return JSONResponse(content=tags)
+
+# --- Tag-based Views ---
+@app.get("/tags/{tag_name}", response_class=HTMLResponse)
+async def view_courses_by_tag(request: Request, tag_name: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
+    courses = crud.get_courses_by_tag_for_user(conn, tag_name, user['id'])
+    return templates.TemplateResponse("tag_courses.html", {"request": request, "tag": tag_name, "courses": courses})
 
 # --- Scheduler ---
 @app.get("/api/trigger-scheduler")

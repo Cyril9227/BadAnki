@@ -22,3 +22,17 @@ ALTER TABLE cards ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id);
 
 -- Add user_id to the courses table
 ALTER TABLE courses ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id);
+
+-- Add a unique constraint to prevent path collisions between users.
+-- This is a critical fix for a multi-user setup.
+-- The DO NOTHING clause prevents the command from failing if the constraint already exists.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'courses_path_user_id_key' AND conrelid = 'courses'::regclass
+    ) THEN
+        ALTER TABLE courses ADD CONSTRAINT courses_path_user_id_key UNIQUE (path, user_id);
+    END IF;
+END;
+$$;

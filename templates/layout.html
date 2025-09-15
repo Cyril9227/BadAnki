@@ -110,6 +110,13 @@
         </div>
     </div>
 
+    {% if request.state.user %}
+    <div style="position: fixed; top: 1.5rem; left: 1.5rem; z-index: 1051;">
+        <span class="navbar-text">
+            <i class="fas fa-user"></i> {{ request.state.user.username }}
+        </span>
+    </div>
+    {% endif %}
     <nav class="modern-nav">
         <ul class="nav">
             <li class="nav-item"><a href="/" class="nav-link"><i class="fas fa-home"></i><span class="nav-text"> Home</span></a></li>
@@ -120,7 +127,6 @@
             
             <!-- Auth Links -->
             {% if request.state.user %}
-                <li class="nav-item"><a href="#" class="nav-link"><i class="fas fa-user"></i><span class="nav-text"> {{ request.state.user.username }}</span></a></li>
                 <li class="nav-item"><a href="/logout" class="nav-link"><i class="fas fa-sign-out-alt"></i><span class="nav-text"> Logout</span></a></li>
             {% else %}
                     <li class="nav-item">

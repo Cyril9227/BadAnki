@@ -339,7 +339,9 @@ document.addEventListener('DOMContentLoaded', function () {
         });
         html += '</div>';
         cardsModalBody.innerHTML = html;
-        MathJax.typesetPromise([cardsModalBody]);
+        if (window.MathJax) {
+            MathJax.typesetPromise([cardsModalBody]);
+        }
     }
 
     // --- Event Delegation for Modal Buttons ---

@@ -6,8 +6,13 @@ import os
 import frontmatter
 from datetime import datetime, timedelta
 from psycopg2 import extras
-from psycopg2 import extras
 from passlib.context import CryptContext
+
+# --- Spaced Repetition Constants ---
+EASE_FACTOR_MODIFIER = 0.1
+MIN_EASE_FACTOR = 1.3
+EASE_FACTOR_PENALTY = 0.2
+INITIAL_INTERVAL = 1
 
 # --- Password Hashing ---
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -80,7 +85,6 @@ def get_courses_tree_for_user(conn, user_id: int):
     courses = cursor.fetchall()
     cursor.close()
 
-    tree = {}
     nodes = {}
 
     for course in courses:
@@ -118,9 +122,7 @@ def get_courses_tree_for_user(conn, user_id: int):
                 parent_path = os.path.dirname(current_path)
                 if parent_path in nodes:
                     nodes[parent_path]['children'].append(node)
-                else:
-                    tree[part] = node
-    
+
     # This is a simplified way to get the root nodes
     root_nodes = [node for path, node in nodes.items() if os.path.dirname(path) == '']
     
@@ -149,7 +151,7 @@ def save_course_content_for_user(conn, path: str, content: str, user_id: int):
             """
             INSERT INTO courses (path, content, user_id, updated_at)
             VALUES (%s, %s, %s, %s)
-            ON CONFLICT (path) DO UPDATE SET
+            ON CONFLICT (path, user_id) DO UPDATE SET
                 content = EXCLUDED.content,
                 updated_at = EXCLUDED.updated_at
             """,
@@ -198,6 +200,60 @@ def delete_course_item_for_user(conn, path: str, item_type: str, user_id: int):
     finally:
         cursor.close()
 
+def get_all_tags_for_user(conn, user_id: int):
+    """Fetches all unique tags for a user from their courses."""
+    cursor = conn.cursor(cursor_factory=extras.DictCursor)
+    cursor.execute("SELECT content FROM courses WHERE user_id = %s", (user_id,))
+    courses = cursor.fetchall()
+    cursor.close()
+
+    all_tags = set()
+    for course in courses:
+        try:
+            post = frontmatter.loads(course['content'])
+            tags = post.metadata.get('tags')
+            if isinstance(tags, list):
+                all_tags.update(tags)
+            elif isinstance(tags, str):
+                # Split string by comma and strip whitespace
+                all_tags.update([tag.strip() for tag in tags.split(',')])
+        except Exception:
+            # Ignore content that can't be parsed
+            continue
+            
+    return sorted(list(all_tags))
+
+def get_courses_by_tag_for_user(conn, tag: str, user_id: int):
+    """Fetches all courses for a user that have a specific tag."""
+    cursor = conn.cursor(cursor_factory=extras.DictCursor)
+    cursor.execute("SELECT path, content FROM courses WHERE user_id = %s", (user_id,))
+    courses = cursor.fetchall()
+    cursor.close()
+
+    tagged_courses = []
+    for course in courses:
+        try:
+            post = frontmatter.loads(course['content'])
+            tags = post.metadata.get('tags')
+            
+            # Normalize tags to a list of strings
+            tag_list = []
+            if isinstance(tags, list):
+                tag_list = [str(t).strip() for t in tags]
+            elif isinstance(tags, str):
+                tag_list = [t.strip() for t in tags.split(',')]
+
+            if tag in tag_list:
+                course_info = {
+                    'path': course['path'],
+                    'title': post.metadata.get('title', os.path.basename(course['path']).replace('.md', ''))
+                }
+                tagged_courses.append(course_info)
+        except Exception:
+            continue
+            
+    return tagged_courses
+
 # --- Card CRUD Functions ---
 
 def get_review_cards_for_user(conn, user_id: int):
@@ -241,10 +297,10 @@ def update_card_for_user(conn, card_id: int, user_id: int, remembered: bool):
     ease_factor, interval = card['ease_factor'], card['interval']
     if remembered:
         interval = int(interval * ease_factor)
-        ease_factor += 0.1
+        ease_factor += EASE_FACTOR_MODIFIER
     else:
-        interval = 1
-        ease_factor = max(1.3, ease_factor - 0.2)
+        interval = INITIAL_INTERVAL
+        ease_factor = max(MIN_EASE_FACTOR, ease_factor - EASE_FACTOR_PENALTY)
     
     next_due_date = datetime.now() + timedelta(days=interval)
     cursor.execute("UPDATE cards SET due_date = %s, ease_factor = %s, interval = %s WHERE id = %s", (next_due_date, ease_factor, interval, card_id))
