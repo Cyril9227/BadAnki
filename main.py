@@ -66,8 +66,7 @@ async def startup_event():
                 # Use a secret in the URL instead of the raw token
                 webhook_secret = TELEGRAM_WEBHOOK_SECRET
                 if not webhook_secret:
-                    webhook_secret = secrets.token_urlsafe(32)
-                    logger.warning("TELEGRAM_WEBHOOK_SECRET not set, using a temporary secret. Please set this for production.")
+                    logger.warning("TELEGRAM_WEBHOOK_SECRET not set. Please set this for production.")
 
                 webhook_url = f"{os.environ.get('APP_URL')}/webhook/{webhook_secret}"
                 logger.info(f"Attempting to set webhook to: {webhook_url}")
