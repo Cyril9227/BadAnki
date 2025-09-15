@@ -1,6 +1,7 @@
-# Bad Anki - A Spaced Repetition Flashcard App
+# (Bad) Anki
 
-Bad Anki is a web-based flashcard application inspired by Anki, designed to help you study and remember information efficiently using a spaced repetition system. It features a clean, modern interface, multi-user support, and powerful tools for creating and managing your study materials.
+[intro to write] + [gif showing the app]
+
 
 ## Key Features
 
