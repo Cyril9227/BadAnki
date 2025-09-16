@@ -54,3 +54,4 @@ psycopg2-binary
 ollama
 passlib[bcrypt]
 python-jose[cryptography]
+anthropic

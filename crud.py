@@ -358,3 +358,34 @@ def save_generated_cards_for_user(conn, cards: list, user_id: int):
         raise e
     finally:
         cursor.close()
+
+# --- API Key CRUD Functions ---
+
+def get_api_keys_for_user(conn, user_id: int):
+    """Fetches the API keys for a specific user."""
+    cursor = conn.cursor(cursor_factory=extras.DictCursor)
+    cursor.execute("SELECT * FROM user_api_keys WHERE user_id = %s", (user_id,))
+    api_keys = cursor.fetchone()
+    cursor.close()
+    return api_keys
+
+def save_api_keys_for_user(conn, user_id: int, gemini_api_key: str, anthropic_api_key: str):
+    """Saves or updates the API keys for a specific user."""
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """
+            INSERT INTO user_api_keys (user_id, gemini_api_key, anthropic_api_key)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (user_id) DO UPDATE SET
+                gemini_api_key = EXCLUDED.gemini_api_key,
+                anthropic_api_key = EXCLUDED.anthropic_api_key
+            """,
+            (user_id, gemini_api_key, anthropic_api_key)
+        )
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        cursor.close()

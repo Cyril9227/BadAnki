@@ -8,15 +8,14 @@
 *   **Spaced Repetition System (SRS):** Utilizes an algorithm inspired by SM-2 to schedule card reviews at optimal intervals, maximizing memory retention.
 *   **Secure, Multi-User Core:** The application is built on a secure, token-based (JWT) authentication system, with isolated data for each user.
 *   **Course & Card Management:** Easily create, edit, and delete courses and flashcards through an intuitive web interface.
-*   **Markdown & LaTeX Support:** Write your course content and flashcards using Markdown for formatting and LaTeX for mathematical notation.
+*   **Markdown & LaTeX Support:** Write or upload your course content and flashcards using Markdown for formatting and LaTeX for mathematical notation.
 *   **AI-Powered Card Generation:**
-    *   **Gemini:** Leverage Google's Gemini Pro to automatically generate high-quality flashcards from your course notes.
-    *   **Ollama (Local):** Generate cards offline using local language models like Llama 2.
+    *   **Multi-Provider Support:** Automatically generate flashcards from your course notes using multiple AI providers.
+        *   **Gemini:** Leverage Google's Gemini Pro for high-quality card generation.
+        *   **Anthropic:** Use Anthropic's models for another source of AI-generated content.
+        *   **Ollama (Local):** Generate cards offline using local language models like Llama 2.
     *   **Approval Workflow:** You can individually edit, delete, and approve each AI-generated card before saving them.
 *   **Telegram Integration:** Receive daily review reminders via a dedicated Telegram bot. You can also interact with your saved cards with commands like `/random`.
-*   **Performance Overhaul:**
-    * Implemented a `psycopg2` connection pool to dramatically reduce database connection overhead.
-    * Optimized several database queries to improve application speed.
 
 ## Core Technologies
 
@@ -78,24 +77,20 @@
 
 ## Deployment on Render (Free Tier)
 
-The application is designed to be deployed as a single web service on Render's free tier.
+The application is designed to be deployed as a single web service on Render's free tier (or equivalent).
 
 *   **Start Command:** To ensure the Telegram bot's webhook initializes correctly, you must use a single Gunicorn worker. Set your start command on the Render dashboard to:
     ```
     gunicorn -w 1 -k uvicorn.workers.UvicornWorker main:app
     ```
 
-*   **Scheduler:** The daily scheduler is triggered by an API endpoint. You must use a free external cron job service (like [cron-job.org](https://cron-job.org/)) to send a daily GET request to the following endpoint:
+*   **Scheduler:** The daily scheduler is triggered by an API endpoint. You can use a free external cron job service (like [cron-job.org](https://cron-job.org/)) to send a daily GET request to the following endpoint:
     ```
     https://<your-app-url>/api/trigger-scheduler?secret=<your-secret>
     ```
     You must set a `SCHEDULER_SECRET` environment variable for this to work.
 
-## Long-Term Vision
+## Next Steps
 
 *   **Modern Frontend with Next.js:** Plan and execute a complete rewrite of the frontend using Next.js and TypeScript, leveraging a component-based architecture for a modern, fast, and maintainable UI.
-*   **Code Quality & Security Audit:** Review and refactor the codebase to improve security, readability, and maintainability.
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a pull request or open an issue to discuss your ideas.
+*   **Code Quality & Security Audit:** Review and refactor the codebase to improve "snappiness", security, readability, and maintainability.

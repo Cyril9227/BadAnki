@@ -112,9 +112,14 @@
 
     {% if request.state.user %}
     <div style="position: fixed; top: 1.5rem; left: 1.5rem; z-index: 1051;">
-        <span class="navbar-text">
-            <i class="fas fa-user"></i> {{ request.state.user.username }}
-        </span>
+        <div class="dropdown">
+            <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                <i class="fas fa-user"></i> {{ request.state.user.username }}
+            </a>
+            <ul class="dropdown-menu" aria-labelledby="userDropdown">
+                <li><a class="dropdown-item" href="/api-keys">API Keys</a></li>
+            </ul>
+        </div>
     </div>
     {% endif %}
     <nav class="modern-nav">
@@ -164,5 +169,6 @@
     </script>
 
     {% block scripts %}{% endblock %}
+
 </body>
 </html>

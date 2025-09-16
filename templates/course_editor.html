@@ -24,6 +24,19 @@
         padding: 0.1rem 0.4rem;
         font-size: 0.8rem;
     }
+    .api-status {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        margin-left: 5px;
+    }
+    .api-key-good {
+        background-color: green;
+    }
+    .api-key-bad {
+        background-color: red;
+    }
 </style>
 {% endblock %}
 
@@ -53,8 +66,21 @@
                         <textarea id="markdown-editor" name="content" class="form-control" rows="15"></textarea>
                     </div>
                     <button type="submit" class="btn btn-primary">Save</button>
-                    <button type="button" id="generate-cards-btn" class="btn btn-secondary">Generate Cards (Gemini)</button>
-                    <button type="button" id="generate-cards-ollama-btn" class="btn btn-info">Generate Cards (Ollama)</button>
+                    <div class="btn-group">
+                        <button type="button" id="generate-cards-btn" class="btn {{ 'btn-success' if gemini_api_key_exists or anthropic_api_key_exists else 'btn-secondary' }} dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" {% if not gemini_api_key_exists and not anthropic_api_key_exists %}disabled{% endif %}>
+                            Generate Cards
+                        </button>
+                        <ul class="dropdown-menu">
+                            {% if gemini_api_key_exists %}
+                                <li><a class="dropdown-item" href="#" id="generate-cards-gemini-btn">Using Gemini</a></li>
+                            {% endif %}
+                            {% if anthropic_api_key_exists %}
+                                <li><a class="dropdown-item" href="#" id="generate-cards-anthropic-btn">Using Anthropic</a></li>
+                            {% endif %}
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="#" id="generate-cards-ollama-btn">Using Ollama (Local)</a></li>
+                        </ul>
+                    </div>
                     <button type="button" id="download-btn" class="btn btn-success">Download</button>
                 </form>
                 <hr>
@@ -103,8 +129,6 @@ document.addEventListener('DOMContentLoaded', function () {
     const editorForm = document.getElementById('editor-form');
     const editingFilename = document.getElementById('editing-filename');
     const currentFilePathInput = document.getElementById('current-file-path');
-    const generateCardsBtn = document.getElementById('generate-cards-btn');
-    const generateCardsOllamaBtn = document.getElementById('generate-cards-ollama-btn');
     const downloadBtn = document.getElementById('download-btn');
     const cardsModal = new bootstrap.Modal(document.getElementById('cards-modal'));
     const cardsModalBody = document.getElementById('cards-modal-body-content');
@@ -294,8 +318,20 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    generateCardsBtn.addEventListener('click', () => generateCards('/api/generate-cards'));
-    generateCardsOllamaBtn.addEventListener('click', () => generateCards('/api/generate-cards-ollama'));
+    document.addEventListener('click', function(e) {
+        if (e.target.matches('#generate-cards-gemini-btn')) {
+            e.preventDefault();
+            generateCards('/api/generate-cards');
+        }
+        if (e.target.matches('#generate-cards-anthropic-btn')) {
+            e.preventDefault();
+            generateCards('/api/generate-cards-anthropic');
+        }
+        if (e.target.matches('#generate-cards-ollama-btn')) {
+            e.preventDefault();
+            generateCards('/api/generate-cards-ollama');
+        }
+    });
 
     function displayGeneratedCards(cards) {
         let html = '<div id="generated-cards-container">';

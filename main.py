@@ -13,6 +13,7 @@ import frontmatter
 import google.generativeai as genai
 import ollama
 import psycopg2
+import anthropic
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -129,7 +130,13 @@ async def db_session_middleware(request: Request, call_next):
     try:
         conn = get_db_connection()
         request.state.db = conn
-        request.state.user = await get_current_user(request, conn)
+        user = await get_current_user(request, conn)
+        request.state.user = user
+        if user:
+            api_keys = crud.get_api_keys_for_user(conn, user['id'])
+            request.state.api_keys = api_keys
+        else:
+            request.state.api_keys = None
         response = await call_next(request)
     finally:
         if conn:
@@ -158,6 +165,10 @@ class CourseContentForGeneration(BaseModel):
 
 class GeneratedCards(BaseModel):
     cards: list[GeneratedCard]
+
+class ApiKeys(BaseModel):
+    gemini_api_key: str | None = None
+    anthropic_api_key: str | None = None
 
 # --- Database Dependency ---
 def get_db(request: Request):
@@ -216,7 +227,7 @@ safety_settings = [
 ]
 
 
-def generate_cards(text: str, mode="gemini") -> list[dict]:
+def generate_cards(text: str, mode="gemini", api_key: str = None) -> list[dict]:
     prompt = f"""
         Analyze the following text and generate a list of question-and-answer pairs for flashcards.
         **Instructions:**
@@ -234,6 +245,8 @@ def generate_cards(text: str, mode="gemini") -> list[dict]:
     
     try:
         if mode == "gemini":
+            if api_key:
+                genai.configure(api_key=api_key)
             model = genai.GenerativeModel(
                 model_name="gemini-1.5-flash", 
                 safety_settings=safety_settings, 
@@ -249,6 +262,22 @@ def generate_cards(text: str, mode="gemini") -> list[dict]:
             )
             response_text = response['message']['content']
         
+        elif mode == "anthropic":
+            if not api_key:
+                raise ValueError("Anthropic API key is required.")
+            client = anthropic.Anthropic(api_key=api_key)
+            message = client.messages.create(
+                model="claude-3-haiku-20240307",
+                max_tokens=4096,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt,
+                    }
+                ],
+            )
+            response_text = message.content[0].text
+        
         # Need to carefully escape latex for JSON parsing and then for frontend rendering...
         parsed = robust_json_loads(response_text)
         cards = parsed.get("cards", [])
@@ -257,6 +286,12 @@ def generate_cards(text: str, mode="gemini") -> list[dict]:
     except Exception as e:
         logger.error(f"An error occurred during {mode} API call: {e}")
         return []
+
+
+@app.get("/api-keys", response_class=HTMLResponse)
+async def api_keys_form(request: Request, user: User = Depends(get_current_active_user)):
+    return templates.TemplateResponse("api_keys.html", {"request": request, "api_keys": request.state.api_keys})
+
 
 
 # --- FastAPI Routes ---
@@ -311,7 +346,20 @@ async def list_courses(request: Request, user: User = Depends(get_current_active
 
 @app.get("/edit-course/{course_path:path}", response_class=HTMLResponse)
 async def edit_course(request: Request, course_path: str, user: User = Depends(get_current_active_user)):
-    return templates.TemplateResponse("course_editor.html", {"request": request, "course_path": course_path})
+    gemini_api_key_exists = False
+    anthropic_api_key_exists = False
+    if request.state.api_keys:
+        if request.state.api_keys.get('gemini_api_key'):
+            gemini_api_key_exists = True
+        if request.state.api_keys.get('anthropic_api_key'):
+            anthropic_api_key_exists = True
+    
+    return templates.TemplateResponse("course_editor.html", {
+        "request": request, 
+        "course_path": course_path,
+        "gemini_api_key_exists": gemini_api_key_exists,
+        "anthropic_api_key_exists": anthropic_api_key_exists
+    })
 
 @app.get("/courses/{course_path:path}", response_class=HTMLResponse)
 async def view_course(request: Request, course_path: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
@@ -354,10 +402,15 @@ async def api_manage_course_item(item: CourseItem, request: Request, conn: psyco
     return {"success": True}
 
 @app.post("/api/generate-cards")
-async def api_generate_cards(data: CourseContentForGeneration, user: User = Depends(get_current_active_user)):
+async def api_generate_cards(request: Request, data: CourseContentForGeneration, user: User = Depends(get_current_active_user)):
     if not data.content.strip():
         raise HTTPException(status_code=400, detail="Content cannot be empty.")
-    generated_cards = generate_cards(data.content, mode="gemini")
+    
+    api_key = None
+    if request.state.api_keys:
+        api_key = request.state.api_keys.get('gemini_api_key')
+
+    generated_cards = generate_cards(data.content, mode="gemini", api_key=api_key)
     if not generated_cards:
         raise HTTPException(status_code=500, detail="Failed to generate cards.")
     return {"cards": generated_cards}
@@ -371,6 +424,21 @@ async def api_generate_cards_ollama(data: CourseContentForGeneration, user: User
         raise HTTPException(status_code=500, detail="Failed to generate cards.")
     return {"cards": generated_cards}
 
+
+@app.post("/api/generate-cards-anthropic")
+async def api_generate_cards_anthropic(request: Request, data: CourseContentForGeneration, user: User = Depends(get_current_active_user)):
+    if not data.content.strip():
+        raise HTTPException(status_code=400, detail="Content cannot be empty.")
+    
+    api_key = None
+    if request.state.api_keys:
+        api_key = request.state.api_keys.get('anthropic_api_key')
+
+    generated_cards = generate_cards(data.content, mode="anthropic", api_key=api_key)
+    if not generated_cards:
+        raise HTTPException(status_code=500, detail="Failed to generate cards.")
+    return {"cards": generated_cards}
+
 @app.post("/api/save-cards")
 async def api_save_cards(data: GeneratedCards, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     crud.save_generated_cards_for_user(conn, data.cards, user['id'])
@@ -380,6 +448,11 @@ async def api_save_cards(data: GeneratedCards, conn: psycopg2.extensions.connect
 async def api_get_tags(conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     tags = crud.get_all_tags_for_user(conn, user['id'])
     return JSONResponse(content=tags)
+
+@app.post("/api/save-api-keys")
+async def api_save_api_keys(data: ApiKeys, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
+    crud.save_api_keys_for_user(conn, user['id'], data.gemini_api_key, data.anthropic_api_key)
+    return {"success": True}
 
 # --- Tag-based Views ---
 @app.get("/tags/{tag_name}", response_class=HTMLResponse)

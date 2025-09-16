@@ -1,0 +1,67 @@
+{% extends "layout.html" %}
+
+{% block title %}Manage API Keys{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Manage API Keys</h2>
+    <p>Add your API keys to enable AI-powered features.</p>
+
+    <div id="alert-container"></div>
+
+    <form id="api-keys-form">
+        <div class="mb-3">
+            <label for="gemini_api_key" class="form-label">Gemini API Key</label>
+            <input type="password" class="form-control" id="gemini_api_key" name="gemini_api_key" value="{{ api_keys.gemini_api_key if api_keys else '' }}">
+        </div>
+        <div class="mb-3">
+            <label for="anthropic_api_key" class="form-label">Anthropic API Key</label>
+            <input type="password" class="form-control" id="anthropic_api_key" name="anthropic_api_key" value="{{ api_keys.anthropic_api_key if api_keys else '' }}">
+        </div>
+        <button type="submit" class="btn btn-primary">Save Keys</button>
+    </form>
+</div>
+
+<script>
+document.getElementById('api-keys-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const geminiKey = document.getElementById('gemini_api_key').value;
+    const anthropicKey = document.getElementById('anthropic_api_key').value;
+    const alertContainer = document.getElementById('alert-container');
+
+    try {
+        const response = await fetch('/api/save-api-keys', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                gemini_api_key: geminiKey,
+                anthropic_api_key: anthropicKey
+            })
+        });
+
+        if (response.ok) {
+            showAlert('API keys saved successfully!', 'success');
+        } else {
+            const errorData = await response.json();
+            showAlert(`Error: ${errorData.detail || 'Failed to save API keys.'}`, 'danger');
+        }
+    } catch (error) {
+        showAlert('An unexpected error occurred.', 'danger');
+    }
+});
+
+function showAlert(message, type) {
+    const alertContainer = document.getElementById('alert-container');
+    const alert = `
+        <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    `;
+    alertContainer.innerHTML = alert;
+}
+</script>
+{% endblock %}
