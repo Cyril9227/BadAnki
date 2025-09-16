@@ -1,13 +1,12 @@
 # (Bad) Anki
 
-I'm often forgetting stuff when I do maths on my own, so I thought it would be cool to vibe-code a personal knowledge management tool tailored to my needs, while also learning more about best software engineering practices, agentic coding, and (local) generative AI usage.
+I'm often forgetting stuff when I solve maths problems for fun, so I thought it would be cool to vibe-code a personal knowledge management tool tailored to my needs, while also learning more about best software engineering practices, agentic coding, and (local) generative AI usage.
 
-I think this project covers both aims well: I get some kind of Anki clone connected to my Telegram that forces me to remember maths concepts, while I also get to experiment with a wide range of skills: frontend, backend, database and multi-users management, cloud deployment, cron jobs, Telegram bot scripting, as well as using generative AI through API providers or locally via Ollama.
+I think this project covers each aim quite well: I get some kind of Anki clone connected to my Telegram that forces me to remember maths concepts, theorems etc. while I also get to experiment with a wide range of skills: frontend, backend, database & multi-users management, cloud deployment, cron jobs, Telegram bot scripting, as well as using generative AI through API providers or locally via Ollama.
 
 The workflow is basically: 
-```
-learn something cool → write or upload a Markdown file (with LaTeX) → use any AI provider or local Ollama to generate relevant Anki cards → delete / edit / approve generated cards → cards are added to the database and the spaced repetition algorithm decides which ones are due for review → I get a daily ping on Telegram with a link to the relevant cards due for review.
-```
+
+>learn something cool → write or upload a Markdown file (with LaTeX support) → use any AI provider or local Ollama to generate relevant Anki cards → delete / edit / approve AI-generated cards → cards are added to the database and the spaced repetition algorithm decides which ones are due for review → I get a daily ping on Telegram with a link to the relevant cards due for review.
 
 ## Key Features
 
@@ -105,6 +104,5 @@ The application is designed to be deployed as a single web service on Render's f
 ## Caveats 
 - Only handles markdown files, would be sweet to have it also parse PDF files etc.
 - Entirely vibe-coded without any kind of strong test suite / CI-CD pipeline, it's bound to break at some point lol
-    - AI agents are very eager to write a lot of code, might have some redundancies..
 - Rudimentary link between courses through tags
 - Local LLM call to generate cards *sometimes* bug because of weird JSON parsing, need to take a look / change default ollama model
