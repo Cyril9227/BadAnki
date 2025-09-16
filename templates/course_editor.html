@@ -392,26 +392,36 @@ document.addEventListener('DOMContentLoaded', function () {
             generatedCardsData[index] = null; // Mark for deletion
             cardElement.remove();
         } else if (target.classList.contains('edit-card-btn')) {
+            const cardData = generatedCardsData[index];
+            cardElement.querySelector('.edit-question').value = cardData.question;
+            cardElement.querySelector('.edit-answer').value = cardData.answer;
             cardElement.querySelector('.card-content').style.display = 'none';
             cardElement.querySelector('.edit-form').style.display = 'block';
         } else if (target.classList.contains('cancel-edit-btn')) {
             cardElement.querySelector('.card-content').style.display = 'block';
             cardElement.querySelector('.edit-form').style.display = 'none';
         } else if (target.classList.contains('save-edit-btn')) {
-            const newQuestion = cardElement.querySelector('.edit-question').value;
-            const newAnswer = cardElement.querySelector('.edit-answer').value;
+            const questionTextarea = cardElement.querySelector('.edit-question');
+            const answerTextarea = cardElement.querySelector('.edit-answer');
+            const newQuestion = questionTextarea.value;
+            const newAnswer = answerTextarea.value;
 
+            // Update data model
             generatedCardsData[index].question = newQuestion;
             generatedCardsData[index].answer = newAnswer;
 
+            // Update the card's display view
             const questionSpan = cardElement.querySelector('.card-question');
             const answerSpan = cardElement.querySelector('.card-answer');
-
             questionSpan.innerHTML = marked.parse(newQuestion);
             answerSpan.innerHTML = marked.parse(newAnswer);
 
-            MathJax.typesetPromise([questionSpan, answerSpan]);
+            // Ensure MathJax re-renders the new content
+            if (window.MathJax) {
+                MathJax.typesetPromise([questionSpan, answerSpan]);
+            }
 
+            // Hide the form and show the content
             cardElement.querySelector('.card-content').style.display = 'block';
             cardElement.querySelector('.edit-form').style.display = 'none';
         }
