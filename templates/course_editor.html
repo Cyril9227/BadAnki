@@ -44,20 +44,28 @@
 <div class="container-fluid mt-4">
     <div class="row">
         <!-- File Tree Column -->
-        <div class="col-md-4">
-            <h4>
-                Courses
-                <button class="btn btn-sm btn-outline-success ms-2 new-folder-btn" data-path="">
+        <div class="col-lg-4">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h4>Courses</h4>
+                <button class="btn btn-sm btn-outline-success new-folder-btn d-none d-lg-inline-block" data-path="">
                     <i class="fas fa-plus"></i> New Folder
                 </button>
-            </h4>
-            <div id="file-tree">
-                <!-- File tree will be loaded here by JavaScript -->
+                <button class="btn btn-primary d-lg-none" type="button" data-bs-toggle="collapse" data-bs-target="#fileTreeCollapse" aria-expanded="true" aria-controls="fileTreeCollapse">
+                    Toggle File Tree
+                </button>
+            </div>
+            <div class="collapse show" id="fileTreeCollapse">
+                <div id="file-tree">
+                    <!-- File tree will be loaded here by JavaScript -->
+                </div>
+                <button class="btn btn-sm btn-outline-success new-folder-btn d-lg-none mt-2" data-path="">
+                    <i class="fas fa-plus"></i> New Folder
+                </button>
             </div>
         </div>
 
         <!-- Editor Column -->
-        <div class="col-md-8">
+        <div class="col-lg-8">
             <div id="editor-container" style="display: none;">
                 <h4 id="editing-filename"></h4>
                 <form id="editor-form">
@@ -236,6 +244,16 @@ document.addEventListener('DOMContentLoaded', function () {
                 currentFilePathInput.value = path;
                 markdownEditor.value = content;
                 updatePreview();
+
+                // Auto-collapse file tree and scroll on mobile
+                const fileTreeCollapse = document.getElementById('fileTreeCollapse');
+                if (window.getComputedStyle(document.querySelector('.d-lg-none')).display !== 'none') {
+                    const bsCollapse = new bootstrap.Collapse(fileTreeCollapse, {
+                        toggle: false
+                    });
+                    bsCollapse.hide();
+                    editorContainer.scrollIntoView({ behavior: 'smooth' });
+                }
             })
             .catch(handleError);
     }

@@ -36,43 +36,12 @@
             background-color: rgb(var(--background-rgb));
             color: rgb(var(--foreground-rgb));
             transition: background-color 0.3s ease, color 0.3s ease;
+            padding-top: 5rem;
         }
-        .modern-nav {
-            position: fixed;
-            top: 1.5rem;
-            left: 50%;
-            transform: translateX(-50%);
-            padding: 0.5rem;
-            background-color: rgba(var(--card-background-rgb), 0.7);
+        .navbar {
+            background-color: rgba(var(--card-background-rgb), 0.8);
             backdrop-filter: blur(10px);
-            border: 1px solid rgba(var(--border-rgb), 0.5);
-            border-radius: var(--radius);
-            box-shadow: var(--box-shadow);
-            z-index: 1050;
-        }
-        .modern-nav .nav-link {
-            color: rgb(var(--muted-foreground-rgb));
-            padding: 0.75rem 1rem;
-            border-radius: calc(var(--radius) * 0.75);
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-weight: 500;
-        }
-        .modern-nav .nav-link:hover,
-        .modern-nav .nav-link.active {
-            color: rgb(var(--primary-rgb));
-            background-color: rgba(var(--primary-rgb), 0.1);
-        }
-        .modern-nav .nav-text { display: none; }
-        @media (min-width: 768px) {
-            .modern-nav .nav-text { display: inline; }
-        }
-        .theme-toggle {
-            position: fixed;
-            top: 1.5rem;
-            right: 1.5rem;
-            z-index: 1051;
+            border-bottom: 1px solid rgba(var(--border-rgb), 0.5);
         }
         .card {
             background-color: rgb(var(--card-background-rgb));
@@ -84,15 +53,31 @@
             background-color: rgb(var(--primary-rgb));
             border-color: rgb(var(--primary-rgb));
         }
-        main.container { padding-top: 8rem; }
+        @media (min-width: 992px) {
+            body {
+                padding-top: 8rem;
+            }
+        }
     </style>
 
     <!-- MathJax Config -->
     <script>
         window.MathJax = {
             tex: {
-                inlineMath: [['\\(', '\\)'], ['$', '$']],
-                displayMath: [['\\[', '\\]'], ['$$','$$']]
+                inlineMath: [['\\(', '\\)'], ['
+
+    {% block scripts %}{% endblock %}
+
+</body>
+</html>
+, '
+
+    {% block scripts %}{% endblock %}
+
+</body>
+</html>
+]],
+                displayMath: [['\\[', '\\]'], ['$','$']]
             }
         };
     </script>
@@ -103,67 +88,86 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
-    <div class="theme-toggle">
-        <div class="form-check form-switch">
-            <input class="form-check-input" type="checkbox" role="switch" id="themeSwitch">
-            <label class="form-check-label" for="themeSwitch"><i class="fas fa-sun"></i> / <i class="fas fa-moon"></i></label>
-        </div>
-    </div>
-
-    {% if request.state.user %}
-    <div style="position: fixed; top: 1.5rem; left: 1.5rem; z-index: 1051;">
-        <div class="dropdown">
-            <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                <i class="fas fa-user"></i> {{ request.state.user.username }}
-            </a>
-            <ul class="dropdown-menu" aria-labelledby="userDropdown">
-                <li><a class="dropdown-item" href="/api-keys">API Keys</a></li>
-            </ul>
-        </div>
-    </div>
-    {% endif %}
-    <nav class="modern-nav">
-        <ul class="nav">
-            <li class="nav-item"><a href="/" class="nav-link"><i class="fas fa-home"></i><span class="nav-text"> Home</span></a></li>
-            <li class="nav-item"><a href="/courses" class="nav-link"><i class="fas fa-book"></i><span class="nav-text"> Courses</span></a></li>
-            <li class="nav-item"><a href="/edit-course/home" class="nav-link"><i class="fas fa-edit"></i><span class="nav-text"> Editor</span></a></li>
-            <li class="nav-item"><a href="/review" class="nav-link"><i class="fas fa-star"></i><span class="nav-text"> Review</span></a></li>
-            <li class="nav-item"><a href="/manage" class="nav-link"><i class="fas fa-cog"></i><span class="nav-text"> Manage</span></a></li>
-            
-            <!-- Auth Links -->
-            {% if request.state.user %}
-                <li class="nav-item"><a href="/logout" class="nav-link"><i class="fas fa-sign-out-alt"></i><span class="nav-text"> Logout</span></a></li>
-            {% else %}
+    <nav class="navbar navbar-expand-lg fixed-top">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/"><i class="fas fa-brain"></i> Bad Anki</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+                    <li class="nav-item">
+                        <a href="/" class="nav-link"><i class="fas fa-home"></i> Home</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="/courses" class="nav-link"><i class="fas fa-book"></i> Courses</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="/edit-course/home" class="nav-link"><i class="fas fa-edit"></i> Editor</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="/review" class="nav-link"><i class="fas fa-star"></i> Review</a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="/manage" class="nav-link"><i class="fas fa-cog"></i> Manage</a>
+                    </li>
+                </ul>
+                <ul class="navbar-nav">
+                    {% if request.state.user %}
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-user"></i> {{ request.state.user.username }}
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
+                            <li><a class="dropdown-item" href="/api-keys">API Keys</a></li>
+                            <li><a class="dropdown-item" href="/logout">Logout</a></li>
+                        </ul>
+                    </li>
+                    {% else %}
                     <li class="nav-item">
                         <a class="nav-link" href="/login">Login</a>
                     </li>
-            {% endif %}
-        </ul>
+                    {% endif %}
+                    <li class="nav-item ms-lg-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" role="switch" id="themeSwitch">
+                            <label class="form-check-label" for="themeSwitch"><i class="fas fa-sun"></i> / <i class="fas fa-moon"></i></label>
+                        </div>
+                    </li>
+                </ul>
+            </div>
+        </div>
     </nav>
 
-    <main class="container mt-4">
+    <main class="container">
         {% block content %}{% endblock %}
     </main>
 
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
 
-    <!-- Theme Toggle -->
+    <!-- Theme Toggle & Nav Toggle -->
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             const themeSwitch = document.getElementById('themeSwitch');
             const htmlElement = document.documentElement;
-            const currentTheme = localStorage.getItem('theme') || 'light';
-            htmlElement.setAttribute('data-bs-theme', currentTheme);
-            themeSwitch.checked = currentTheme === 'dark';
-            themeSwitch.addEventListener('change', function () {
-                const theme = this.checked ? 'dark' : 'light';
+            
+            function setTheme(theme) {
                 htmlElement.setAttribute('data-bs-theme', theme);
                 localStorage.setItem('theme', theme);
-            });
+                themeSwitch.checked = theme === 'dark';
+            }
+
+            const currentTheme = localStorage.getItem('theme') || 'light';
+            setTheme(currentTheme);
+
+            themeSwitch.addEventListener('change', () => setTheme(themeSwitch.checked ? 'dark' : 'light'));
+
             const currentLocation = window.location.pathname;
-            document.querySelectorAll('.modern-nav .nav-link').forEach(link => {
-                if (link.getAttribute('href') === currentLocation) link.classList.add('active');
+            document.querySelectorAll('.navbar-nav .nav-link').forEach(link => {
+                if (link.getAttribute('href') === currentLocation) {
+                    link.classList.add('active');
+                }
             });
         });
     </script>

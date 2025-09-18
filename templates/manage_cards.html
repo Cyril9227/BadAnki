@@ -2,6 +2,44 @@
 
 {% block title %}Manage Cards{% endblock %}
 
+{% block head %}
+{{ super() }}
+<style>
+    /* Hide table headers on small screens */
+    @media (max-width: 576px) {
+        .table thead {
+            display: none;
+        }
+        .table tbody tr {
+            display: block;
+            margin-bottom: 1rem;
+            border: 1px solid rgba(var(--border-rgb), 0.7);
+            border-radius: var(--radius);
+            padding: 1rem;
+        }
+        .table tbody td {
+            display: block;
+            text-align: right;
+            padding-left: 50%;
+            position: relative;
+            border: none;
+        }
+        .table tbody td::before {
+            content: attr(data-label);
+            position: absolute;
+            left: 0;
+            width: 45%;
+            padding-left: 1rem;
+            font-weight: bold;
+            text-align: left;
+        }
+        .action-buttons {
+            text-align: right;
+        }
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <h1 class="mb-4">Manage Cards</h1>
 
@@ -15,20 +53,20 @@
                     <th>Due Date</th>
                     <th>Ease Factor</th>
                     <th>Interval (days)</th>
-                    <th class="pe-4">Actions</th>
+                    <th class="pe-4 text-end">Actions</th>
                 </tr>
             </thead>
             <tbody>
                 {% for card in cards %}
                 <tr>
-                    <td class="ps-4">{{ card.question }}</td>
-                    <td>{{ card.answer }}</td>
-                    <td>{{ card.due_date.strftime('%Y-%m-%d') if card.due_date else 'N/A' }}</td>
-                    <td>{{ "%.2f"|format(card.ease_factor) }}</td>
-                    <td>{{ card.interval }}</td>
-                    <td class="pe-4">
-                        <a href="/edit-card/{{ card.id }}" class="btn btn-sm btn-outline-primary">Edit</a>
-                        <form action="/delete/{{ card.id }}" method="post" style="display:inline;">
+                    <td data-label="Question" class="ps-4">{{ card.question | safe }}</td>
+                    <td data-label="Answer">{{ card.answer | safe }}</td>
+                    <td data-label="Due Date">{{ card.due_date.strftime('%Y-%m-%d') if card.due_date else 'N/A' }}</td>
+                    <td data-label="Ease Factor">{{ "%.2f"|format(card.ease_factor) }}</td>
+                    <td data-label="Interval">{{ card.interval }}</td>
+                    <td data-label="Actions" class="pe-4 action-buttons">
+                        <a href="/edit-card/{{ card.id }}" class="btn btn-sm btn-outline-primary mb-1 mb-sm-0">Edit</a>
+                        <form action="/delete/{{ card.id }}" method="post" class="d-inline">
                             <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Are you sure you want to delete this card?');">Delete</button>
                         </form>
                     </td>
@@ -38,4 +76,15 @@
         </table>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    // Re-render MathJax for the card content
+    if (window.MathJax) {
+        MathJax.typesetPromise();
+    }
+});
+</script>
 {% endblock %}
