@@ -12,7 +12,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.helpers import escape_markdown
 from telegram.constants import ParseMode
 from telegram.ext import Application, CommandHandler, ContextTypes
-from database import get_db_connection
+from database import get_db_connection, release_db_connection
 from crud import get_random_card_for_user, get_user_by_username, verify_password, get_user_by_telegram_chat_id, update_telegram_chat_id
 
 # --- Bot Configuration ---
@@ -94,7 +94,7 @@ async def random_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Sorry, something went wrong while fetching a card.")
     finally:
         if conn:
-            conn.close()
+            release_db_connection(conn)
 
 def setup_bot():
     """Creates and configures the bot application."""
