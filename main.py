@@ -116,6 +116,7 @@ async def shutdown_event():
 # --- Webhook Endpoint ---
 @app.post("/webhook/{secret}")
 async def webhook(request: Request, secret: str):
+    logger.info("Webhook endpoint was hit!")
     # Validate the secret
     expected_secret = TELEGRAM_WEBHOOK_SECRET
     if not expected_secret or not secrets.compare_digest(secret, expected_secret):
@@ -123,13 +124,18 @@ async def webhook(request: Request, secret: str):
         raise HTTPException(status_code=403, detail="Invalid secret")
     
     bot_app = request.app.state.bot_app
-    if bot_app:
-        try:
-            data = await request.json()
-            update = Update.de_json(data, bot_app.bot)
-            await bot_app.update_queue.put(update)
-        except Exception as e:
-            logger.error(f"Error processing webhook update: {e}", exc_info=True)
+    if not bot_app:
+        logger.error("bot_app not found in application state!")
+        return Response(status_code=500)
+
+    try:
+        data = await request.json()
+        logger.info(f"Received webhook data: {data}")
+        update = Update.de_json(data, bot_app.bot)
+        await bot_app.update_queue.put(update)
+        logger.info("Successfully processed webhook and queued update.")
+    except Exception as e:
+        logger.error(f"Error processing webhook update: {e}", exc_info=True)
     
     return Response(status_code=200)
 
