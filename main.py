@@ -46,25 +46,36 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
-# --- Bot Setup ---
-bot_app = setup_bot()
-logger = logging.getLogger(__name__)
 
 # --- FastAPI App ---
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
+# --- App State ---
+# We use the app state to store the bot instance, ensuring it's available
+# across the application's lifecycle without using a global variable.
+# This is a cleaner and more robust approach for managing shared resources.
+app.state.bot_app = None
+logger = logging.getLogger(__name__)
+
 # --- App Events ---
 @app.on_event("startup")
 async def startup_event():
+    """
+    Initializes the bot application on startup and sets the webhook.
+    Using the app state is crucial for robust Gunicorn deployments.
+    """
+    bot_app = setup_bot()
     if bot_app:
         try:
             await bot_app.initialize()
             await bot_app.start()
             
+            # Store the bot_app instance in the app's state
+            app.state.bot_app = bot_app
+            
             # In production, set the webhook
             if os.environ.get("ENVIRONMENT") == "production":
-                # Use a secret in the URL instead of the raw token
                 webhook_secret = TELEGRAM_WEBHOOK_SECRET
                 if not webhook_secret:
                     logger.warning("TELEGRAM_WEBHOOK_SECRET not set. Please set this for production.")
@@ -76,13 +87,18 @@ async def startup_event():
             # In development, start polling
             else:
                 logger.info("Starting bot in polling mode for local development.")
-                await bot_app.updater.start_polling()
-                logger.info("Bot started polling.")
+                # Make sure updater is available
+                if hasattr(bot_app, 'updater') and bot_app.updater:
+                    await bot_app.updater.start_polling()
+                    logger.info("Bot started polling.")
+                else:
+                    logger.error("Bot updater not available for polling.")
         except Exception as e:
             logger.error(f"CRITICAL ERROR during bot startup: {e}", exc_info=True)
 
 @app.on_event("shutdown")
 async def shutdown_event():
+    bot_app = app.state.bot_app
     if bot_app:
         # In production, delete the webhook
         if os.environ.get("ENVIRONMENT") == "production":
@@ -92,8 +108,9 @@ async def shutdown_event():
         # In development, stop the polling
         else:
             logger.info("Stopping bot polling.")
-            await bot_app.updater.stop()
-            logger.info("Bot polling stopped.")
+            if hasattr(bot_app, 'updater') and bot_app.updater:
+                await bot_app.updater.stop()
+                logger.info("Bot polling stopped.")
         await bot_app.stop()
 
 # --- Webhook Endpoint ---
@@ -105,14 +122,12 @@ async def webhook(request: Request, secret: str):
         logger.warning("Invalid secret received in webhook request.")
         raise HTTPException(status_code=403, detail="Invalid secret")
     
-    logger.info("Webhook endpoint received a valid request.")
+    bot_app = request.app.state.bot_app
     if bot_app:
         try:
             data = await request.json()
-            logger.debug(f"Webhook received data: {data}")
             update = Update.de_json(data, bot_app.bot)
             await bot_app.update_queue.put(update)
-            logger.debug("Update successfully put into queue.")
         except Exception as e:
             logger.error(f"Error processing webhook update: {e}", exc_info=True)
     
@@ -334,6 +349,12 @@ async def register_user(username: str = Form(...), password: str = Form(...), co
         raise HTTPException(status_code=400, detail="Username already registered")
     crud.create_user(conn, username, password)
     return RedirectResponse(url="/login", status_code=303)
+
+
+@app.get("/health", response_class=JSONResponse)
+async def health_check():
+    """A simple endpoint to keep the service alive."""
+    return {"status": "ok"}
 
 
 @app.get("/", response_class=HTMLResponse)
