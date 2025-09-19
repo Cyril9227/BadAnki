@@ -12,61 +12,125 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
 
     <!-- Custom CSS -->
-    <style>
-        :root {
-            --background-rgb: 255, 255, 255;
-            --foreground-rgb: 33, 37, 41;
-            --border-rgb: 214, 214, 214;
-            --primary-rgb: 29, 78, 216;
-            --muted-foreground-rgb: 108, 117, 125;
-            --card-background-rgb: 255, 255, 255;
-            --box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.05);
-            --radius: 0.5rem;
-        }
-        [data-bs-theme="dark"] {
-            --background-rgb: 18, 18, 18;
-            --foreground-rgb: 230, 230, 230;
-            --border-rgb: 50, 50, 50;
-            --primary-rgb: 59, 130, 246;
-            --muted-foreground-rgb: 160, 160, 160;
-            --card-background-rgb: 30, 30, 30;
-            --box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2), 0 1px 3px rgba(0, 0, 0, 0.2);
-        }
-        body {
-            background-color: rgb(var(--background-rgb));
-            color: rgb(var(--foreground-rgb));
-            transition: background-color 0.3s ease, color 0.3s ease;
-            padding-top: 5rem;
-        }
-        .navbar {
-            background-color: rgba(var(--card-background-rgb), 0.8);
-            backdrop-filter: blur(10px);
-            border-bottom: 1px solid rgba(var(--border-rgb), 0.5);
-        }
-        .card {
-            background-color: rgb(var(--card-background-rgb));
-            border: 1px solid rgba(var(--border-rgb), 0.7);
-            box-shadow: var(--box-shadow);
-            border-radius: var(--radius);
-        }
-        .btn-primary {
-            background-color: rgb(var(--primary-rgb));
-            border-color: rgb(var(--primary-rgb));
-        }
+   <!-- Custom CSS -->
+<style>
+    /* Global Variables */
+    :root {
+        --background-rgb: 255, 255, 255;
+        --foreground-rgb: 33, 37, 41;
+        --border-rgb: 214, 214, 214;
+        --primary-rgb: 29, 78, 216;
+        --muted-foreground-rgb: 108, 117, 125;
+        --card-background-rgb: 255, 255, 255;
+        --box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.05);
+        --radius: 0.5rem;
+    }
+
+    [data-bs-theme="dark"] {
+        --background-rgb: 18, 18, 18;
+        --foreground-rgb: 230, 230, 230;
+        --border-rgb: 50, 50, 50;
+        --primary-rgb: 59, 130, 246;
+        --muted-foreground-rgb: 160, 160, 160;
+        --card-background-rgb: 30, 30, 30;
+        --box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2), 0 1px 3px rgba(0, 0, 0, 0.2);
+    }
+
+    /* Global Box Sizing */
+    *, *::before, *::after {
+        box-sizing: border-box;
+    }
+
+    /* Body & HTML Fixes for Scroll Overflow */
+    html, body {
+        max-width: 100%;
+        overflow-x: hidden;          /* prevent horizontal scroll */
+        overscroll-behavior-x: none; /* optional: prevent rubber-band horizontal scroll */
+        background-color: rgb(var(--background-rgb));
+        color: rgb(var(--foreground-rgb));
+        transition: background-color 0.3s ease, color 0.3s ease;
+        padding-top: 5rem;
+    }
+
+    /* Containers for responsive layout */
+    .container-fluid, main.container-fluid {
+        padding-left: 1rem;
+        padding-right: 1rem;
+        max-width: 100%;
+        overflow-x: hidden;
+    }
+
+    /* Navbar */
+    .navbar {
+        background-color: rgba(var(--card-background-rgb), 0.8);
+        backdrop-filter: blur(10px);
+        border-bottom: 1px solid rgba(var(--border-rgb), 0.5);
+        overflow-x: hidden; /* prevent navbar children from causing scroll */
+    }
+
+    .navbar-brand, .nav-link {
+        white-space: nowrap; /* prevent text wrapping overflow */
+    }
+
+    /* Cards */
+    .card {
+        background-color: rgb(var(--card-background-rgb));
+        border: 1px solid rgba(var(--border-rgb), 0.7);
+        box-shadow: var(--box-shadow);
+        border-radius: var(--radius);
+    }
+
+    /* Buttons */
+    .btn-primary {
+        background-color: rgb(var(--primary-rgb));
+        border-color: rgb(var(--primary-rgb));
+    }
+
+    /* Theme Toggle */
+    .theme-toggle {
+        position: fixed;
+        bottom: 1rem;
+        left: 1rem;
+        z-index: 1000;
+    }
+
+    @media (max-width: 576px) {
         .theme-toggle {
-            position: fixed;
-            bottom: 1rem;
-            left: 1rem;
-            z-index: 1000;
+            bottom: 4rem; /* push up on small devices to avoid overlap */
         }
-        .desktop-nav .nav-link {
-            font-size: 1.1rem;
-            padding: 0.5rem 1rem;
-        }
-        main {
-            padding-top: 1rem;
-        }
-    </style>
+    }
+
+    /* Desktop Nav Links */
+    .desktop-nav .nav-link {
+        font-size: 1.1rem;
+        padding: 0.5rem 1rem;
+    }
+
+    /* Main Content */
+    main {
+        padding-top: 1rem;
+        overflow-x: hidden; /* ensure main content never overflows */
+    }
+
+    /* Offcanvas Menu */
+    .offcanvas {
+        max-width: 80%; /* prevent horizontal overflow */
+        overflow-x: hidden;
+    }
+
+    /* Responsive Images & Videos */
+    img, video {
+        max-width: 100%;
+        height: auto;
+        display: block;
+    }
+
+    /* Optional: prevent vertical “rubber-band” scroll on iOS */
+    body {
+        overscroll-behavior-y: contain;
+    }
+</style>
+
 
     <script>
     window.MathJax = {
