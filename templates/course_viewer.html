@@ -88,14 +88,20 @@
         const courseContentDiv = document.getElementById('course-content');
         const rawContent = document.getElementById('raw-content').textContent;
 
-        courseContentDiv.innerHTML = marked.parse(rawContent);
-        
-        // Ensure MathJax is ready before typesetting
-        if (window.MathJax && window.MathJax.startup) {
-            window.MathJax.startup.promise.then(() => {
-                MathJax.typesetPromise([courseContentDiv]);
-            });
-        }
+        // Use a promise to handle the asynchronous nature of parsing and typesetting
+        new Promise((resolve) => {
+            // Parse the markdown content
+            const htmlContent = marked.parse(rawContent);
+            courseContentDiv.innerHTML = htmlContent;
+            resolve();
+        }).then(() => {
+            // Once the content is set, typeset it with MathJax
+            if (window.MathJax && window.MathJax.startup) {
+                return window.MathJax.typesetPromise([courseContentDiv]);
+            }
+        }).catch(error => {
+            console.error("Error rendering course content:", error);
+        });
     });
 </script>
 {% endblock %}

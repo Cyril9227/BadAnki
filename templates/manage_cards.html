@@ -5,8 +5,24 @@
 {% block head %}
 {{ super() }}
 <style>
+    .table-responsive {
+        overflow-x: auto;
+    }
+    .table th, .table td {
+        vertical-align: middle;
+    }
+    .question-col, .answer-col {
+        max-width: 300px; /* Adjust as needed */
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+    }
+    .actions-col {
+        min-width: 150px; /* Ensure space for buttons */
+        text-align: right;
+    }
+
     /* Hide table headers on small screens */
-    @media (max-width: 576px) {
+    @media (max-width: 768px) {
         .table thead {
             display: none;
         }
@@ -23,6 +39,8 @@
             padding-left: 50%;
             position: relative;
             border: none;
+            white-space: normal; /* Allow wrapping on mobile */
+            max-width: 100%;
         }
         .table tbody td::before {
             content: attr(data-label);
@@ -48,23 +66,23 @@
         <table class="table table-striped mb-0">
             <thead>
                 <tr>
-                    <th class="ps-4">Question</th>
-                    <th>Answer</th>
+                    <th class="ps-4 question-col">Question</th>
+                    <th class="answer-col">Answer</th>
                     <th>Due Date</th>
                     <th>Ease Factor</th>
                     <th>Interval (days)</th>
-                    <th class="pe-4 text-end">Actions</th>
+                    <th class="pe-4 actions-col">Actions</th>
                 </tr>
             </thead>
             <tbody>
                 {% for card in cards %}
                 <tr>
-                    <td data-label="Question" class="ps-4">{{ card.question | safe }}</td>
-                    <td data-label="Answer">{{ card.answer | safe }}</td>
+                    <td data-label="Question" class="ps-4 question-col">{{ card.question | safe }}</td>
+                    <td data-label="Answer" class="answer-col">{{ card.answer | safe }}</td>
                     <td data-label="Due Date">{{ card.due_date.strftime('%Y-%m-%d') if card.due_date else 'N/A' }}</td>
                     <td data-label="Ease Factor">{{ "%.2f"|format(card.ease_factor) }}</td>
                     <td data-label="Interval">{{ card.interval }}</td>
-                    <td data-label="Actions" class="pe-4 action-buttons">
+                    <td data-label="Actions" class="pe-4 action-buttons actions-col">
                         <a href="/edit-card/{{ card.id }}" class="btn btn-sm btn-outline-primary mb-1 mb-sm-0">Edit</a>
                         <form action="/delete/{{ card.id }}" method="post" class="d-inline">
                             <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Are you sure you want to delete this card?');">Delete</button>
