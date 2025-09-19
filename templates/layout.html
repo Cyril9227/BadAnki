@@ -109,8 +109,14 @@
                     </li>
                 </ul>
                 <ul class="navbar-nav d-flex align-items-center">
+                    <li class="nav-item me-2">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" role="switch" id="themeSwitch">
+                            <label class="form-check-label" for="themeSwitch"><i class="fas fa-sun"></i> / <i class="fas fa-moon"></i></label>
+                        </div>
+                    </li>
                     {% if request.state.user %}
-                    <li class="nav-item dropdown me-3">
+                    <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="fas fa-user"></i> {{ request.state.user.username }}
                         </a>
@@ -118,12 +124,6 @@
                             <li><a class="dropdown-item" href="/api-keys">API Keys</a></li>
                             <li><a class="dropdown-item" href="/logout">Logout</a></li>
                         </ul>
-                    </li>
-                    <li class="nav-item">
-                        <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" role="switch" id="themeSwitch">
-                            <label class="form-check-label" for="themeSwitch"><i class="fas fa-sun"></i> / <i class="fas fa-moon"></i></label>
-                        </div>
                     </li>
                     {% else %}
                     <li class="nav-item">
