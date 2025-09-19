@@ -12,7 +12,6 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
 
     <!-- Custom CSS -->
-   <!-- Custom CSS -->
 <style>
     /* Global Variables */
     :root {
@@ -44,12 +43,19 @@
     /* Body & HTML Fixes for Scroll Overflow */
     html, body {
         max-width: 100%;
-        overflow-x: hidden;          /* prevent horizontal scroll */
-        overscroll-behavior-x: none; /* optional: prevent rubber-band horizontal scroll */
+        overflow-x: hidden;
+        overscroll-behavior-x: none;
         background-color: rgb(var(--background-rgb));
         color: rgb(var(--foreground-rgb));
         transition: background-color 0.3s ease, color 0.3s ease;
-        padding-top: 5rem;
+        padding-top: 3.5rem; /* Reduced from 5rem to 3.5rem for mobile */
+    }
+
+    /* Responsive padding-top */
+    @media (min-width: 768px) {
+        html, body {
+            padding-top: 4.5rem; /* More space on desktop */
+        }
     }
 
     /* Containers for responsive layout */
@@ -65,11 +71,11 @@
         background-color: rgba(var(--card-background-rgb), 0.8);
         backdrop-filter: blur(10px);
         border-bottom: 1px solid rgba(var(--border-rgb), 0.5);
-        overflow-x: hidden; /* prevent navbar children from causing scroll */
+        overflow-x: hidden;
     }
 
     .navbar-brand, .nav-link {
-        white-space: nowrap; /* prevent text wrapping overflow */
+        white-space: nowrap;
     }
 
     /* Cards */
@@ -86,17 +92,25 @@
         border-color: rgb(var(--primary-rgb));
     }
 
-    /* Theme Toggle */
+    /* Theme Toggle - improved positioning */
     .theme-toggle {
         position: fixed;
         bottom: 1rem;
-        left: 1rem;
+        right: 1rem; /* Changed from left to right */
         z-index: 1000;
+        background-color: rgba(var(--card-background-rgb), 0.95);
+        padding: 0.5rem;
+        border-radius: var(--radius);
+        box-shadow: var(--box-shadow);
+        border: 1px solid rgba(var(--border-rgb), 0.5);
     }
 
     @media (max-width: 576px) {
         .theme-toggle {
-            bottom: 4rem; /* push up on small devices to avoid overlap */
+            bottom: 0.5rem;
+            right: 0.5rem;
+            padding: 0.25rem 0.5rem;
+            transform: scale(0.9); /* Slightly smaller on mobile */
         }
     }
 
@@ -109,12 +123,20 @@
     /* Main Content */
     main {
         padding-top: 1rem;
-        overflow-x: hidden; /* ensure main content never overflows */
+        padding-bottom: 5rem; /* Add bottom padding to avoid theme toggle overlap */
+        overflow-x: hidden;
+    }
+
+    @media (max-width: 576px) {
+        main {
+            padding-top: 0.5rem; /* Less top padding on mobile */
+            padding-bottom: 4rem;
+        }
     }
 
     /* Offcanvas Menu */
     .offcanvas {
-        max-width: 80%; /* prevent horizontal overflow */
+        max-width: 80%;
         overflow-x: hidden;
     }
 
@@ -125,12 +147,16 @@
         display: block;
     }
 
-    /* Optional: prevent vertical “rubber-band” scroll on iOS */
+    /* Optional: prevent vertical rubber-band scroll on iOS */
     body {
         overscroll-behavior-y: contain;
     }
-</style>
 
+    /* Ensure content doesn't go under theme toggle */
+    .container-fluid > .row {
+        margin-bottom: 2rem;
+    }
+</style>
 
     <script>
     window.MathJax = {

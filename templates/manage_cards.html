@@ -7,53 +7,102 @@
 <style>
     .table-responsive {
         overflow-x: auto;
+        -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
     }
-    .table th, .table td {
-        vertical-align: middle;
-    }
-    .question-col, .answer-col {
-        max-width: 300px; /* Adjust as needed */
-        word-wrap: break-word;
-        overflow-wrap: break-word;
-    }
-    .actions-col {
-        min-width: 150px; /* Ensure space for buttons */
-        text-align: right;
+    
+    /* Desktop styles */
+    @media (min-width: 769px) {
+        .table th, .table td {
+            vertical-align: middle;
+        }
+        .question-col, .answer-col {
+            max-width: 300px;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }
+        .actions-col {
+            min-width: 150px;
+            text-align: right;
+        }
     }
 
-    /* Hide table headers on small screens */
+    /* Mobile card-based layout */
     @media (max-width: 768px) {
+        .table-responsive {
+            border: none;
+        }
+        
+        .table {
+            border: none;
+        }
+        
         .table thead {
             display: none;
         }
+        
+        .table tbody {
+            display: block;
+        }
+        
         .table tbody tr {
             display: block;
             margin-bottom: 1rem;
+            background-color: rgb(var(--card-background-rgb));
             border: 1px solid rgba(var(--border-rgb), 0.7);
             border-radius: var(--radius);
             padding: 1rem;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
         }
+        
         .table tbody td {
             display: block;
-            text-align: right;
-            padding-left: 50%;
-            position: relative;
+            text-align: left;
+            padding: 0.5rem 0;
             border: none;
-            white-space: normal; /* Allow wrapping on mobile */
-            max-width: 100%;
+            position: relative;
+            word-break: break-word;
+            overflow-wrap: break-word;
         }
+        
         .table tbody td::before {
             content: attr(data-label);
-            position: absolute;
-            left: 0;
-            width: 45%;
-            padding-left: 1rem;
             font-weight: bold;
-            text-align: left;
+            display: block;
+            margin-bottom: 0.25rem;
+            color: rgb(var(--muted-foreground-rgb));
+            font-size: 0.875rem;
         }
+        
+        .table tbody td[data-label="Question"],
+        .table tbody td[data-label="Answer"] {
+            background-color: rgba(var(--border-rgb), 0.1);
+            padding: 0.75rem;
+            border-radius: calc(var(--radius) * 0.5);
+            margin-bottom: 0.5rem;
+        }
+        
         .action-buttons {
-            text-align: right;
+            display: flex;
+            gap: 0.5rem;
+            justify-content: flex-start;
+            margin-top: 0.5rem;
         }
+        
+        .action-buttons .btn {
+            flex: 1;
+        }
+    }
+
+    /* Ensure MathJax content doesn't overflow */
+    .mjx-container {
+        max-width: 100% !important;
+        overflow-x: auto !important;
+        overflow-y: hidden !important;
+    }
+    
+    /* Improve button spacing on all screens */
+    .btn-sm {
+        padding: 0.375rem 0.75rem;
     }
 </style>
 {% endblock %}
@@ -81,9 +130,9 @@
                     <td data-label="Answer" class="answer-col">{{ card.answer | safe }}</td>
                     <td data-label="Due Date">{{ card.due_date.strftime('%Y-%m-%d') if card.due_date else 'N/A' }}</td>
                     <td data-label="Ease Factor">{{ "%.2f"|format(card.ease_factor) }}</td>
-                    <td data-label="Interval">{{ card.interval }}</td>
+                    <td data-label="Interval">{{ card.interval }} days</td>
                     <td data-label="Actions" class="pe-4 action-buttons actions-col">
-                        <a href="/edit-card/{{ card.id }}" class="btn btn-sm btn-outline-primary mb-1 mb-sm-0">Edit</a>
+                        <a href="/edit-card/{{ card.id }}" class="btn btn-sm btn-outline-primary">Edit</a>
                         <form action="/delete/{{ card.id }}" method="post" class="d-inline">
                             <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Are you sure you want to delete this card?');">Delete</button>
                         </form>
@@ -94,6 +143,13 @@
         </table>
     </div>
 </div>
+
+<!-- Add a message if no cards -->
+{% if not cards %}
+<div class="alert alert-info mt-3">
+    <i class="fas fa-info-circle"></i> No cards found. Create some cards from your courses to start reviewing!
+</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
@@ -101,7 +157,9 @@
 document.addEventListener('DOMContentLoaded', function () {
     // Re-render MathJax for the card content
     if (window.MathJax) {
-        MathJax.typesetPromise();
+        MathJax.typesetPromise().catch(function (e) {
+            console.error('MathJax rendering error:', e);
+        });
     }
 });
 </script>
