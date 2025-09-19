@@ -78,7 +78,7 @@
     </div>
 
     <!-- Hidden div to store the raw content for the script -->
-    <div id="raw-content" style="display: none;">{{ content }}</div>
+    <div id="raw-content" style="display: none;">{{ content | e }}</div>
 </div>
 {% endblock %}
 
@@ -88,9 +88,14 @@
         const courseContentDiv = document.getElementById('course-content');
         const rawContent = document.getElementById('raw-content').textContent;
 
-        // Render Markdown and then typeset with MathJax
         courseContentDiv.innerHTML = marked.parse(rawContent);
-        MathJax.typesetPromise([courseContentDiv]);
+        
+        // Ensure MathJax is ready before typesetting
+        if (window.MathJax && window.MathJax.startup) {
+            window.MathJax.startup.promise.then(() => {
+                MathJax.typesetPromise([courseContentDiv]);
+            });
+        }
     });
 </script>
 {% endblock %}
