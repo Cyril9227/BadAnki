@@ -408,6 +408,24 @@ async def view_course(request: Request, course_path: str, conn: psycopg2.extensi
 async def api_get_courses_tree(conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     return crud.get_courses_tree_for_user(conn, user['id'])
 
+@app.get("/api/download-course/{course_path:path}")
+async def download_course(course_path: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
+    course = crud.get_course_content_for_user(conn, course_path, user['id'])
+    if not course:
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    content = course['content']
+    # Ensure the filename is safe and has a .md extension
+    safe_filename = os.path.basename(course_path)
+    if not safe_filename.endswith('.md'):
+        safe_filename += '.md'
+        
+    return Response(
+        content=content,
+        media_type="text/markdown",
+        headers={"Content-Disposition": f"attachment; filename={safe_filename}"}
+    )
+
 @app.get("/api/course-content/{course_path:path}", response_class=JSONResponse)
 async def api_get_course_content(course_path: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     course = crud.get_course_content_for_user(conn, course_path, user['id'])

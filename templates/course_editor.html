@@ -41,7 +41,7 @@
 {% endblock %}
 
 {% block content %}
-<div class="container-fluid mt-4">
+<div class="container-fluid">
     <div class="row">
         <!-- File Tree Column -->
         <div class="col-lg-4">
@@ -73,23 +73,25 @@
                     <div class="form-group mb-2">
                         <textarea id="markdown-editor" name="content" class="form-control" rows="15"></textarea>
                     </div>
-                    <button type="submit" class="btn btn-primary">Save</button>
-                    <div class="btn-group">
-                        <button type="button" id="generate-cards-btn" class="btn {{ 'btn-success' if gemini_api_key_exists or anthropic_api_key_exists else 'btn-secondary' }} dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" {% if not gemini_api_key_exists and not anthropic_api_key_exists %}disabled{% endif %}>
-                            Generate Cards
-                        </button>
-                        <ul class="dropdown-menu">
-                            {% if gemini_api_key_exists %}
-                                <li><a class="dropdown-item" href="#" id="generate-cards-gemini-btn">Using Gemini</a></li>
-                            {% endif %}
-                            {% if anthropic_api_key_exists %}
-                                <li><a class="dropdown-item" href="#" id="generate-cards-anthropic-btn">Using Anthropic</a></li>
-                            {% endif %}
-                            <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="#" id="generate-cards-ollama-btn">Using Ollama</a></li>
-                        </ul>
+                    <div class="d-flex flex-wrap gap-2 d-grid d-md-flex">
+                        <button type="submit" class="btn btn-primary">Save</button>
+                        <div class="btn-group">
+                            <button type="button" id="generate-cards-btn" class="btn {{ 'btn-success' if gemini_api_key_exists or anthropic_api_key_exists else 'btn-secondary' }} dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" {% if not gemini_api_key_exists and not anthropic_api_key_exists %}disabled{% endif %}>
+                                Generate Cards
+                            </button>
+                            <ul class="dropdown-menu">
+                                {% if gemini_api_key_exists %}
+                                    <li><a class="dropdown-item" href="#" id="generate-cards-gemini-btn">Using Gemini</a></li>
+                                {% endif %}
+                                {% if anthropic_api_key_exists %}
+                                    <li><a class="dropdown-item" href="#" id="generate-cards-anthropic-btn">Using Anthropic</a></li>
+                                {% endif %}
+                                <li><hr class="dropdown-divider"></li>
+                                <li><a class="dropdown-item" href="#" id="generate-cards-ollama-btn">Using Ollama</a></li>
+                            </ul>
+                        </div>
+                        <button type="button" id="download-btn" class="btn btn-info">Download</button>
                     </div>
-                    <button type="button" id="download-btn" class="btn btn-success">Download</button>
                 </form>
                 <hr>
                 <h5>Live Preview</h5>
