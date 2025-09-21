@@ -143,12 +143,11 @@ window.MathJax = {
                         <li><a class="dropdown-item" href="/secrets">Manage Secrets</a></li>
                         <li><hr class="dropdown-divider d-lg-none"></li>
                         <li class="d-lg-none">
-                            <div class="dropdown-item">
-                                <div class="form-check form-switch">
-                                    <input class="form-check-input" type="checkbox" id="themeSwitchMobile">
-                                    <label class="form-check-label" for="themeSwitchMobile">Dark Mode</label>
-                                </div>
-                            </div>
+                            <a class="dropdown-item" href="#" id="themeToggleMobile">
+                                <i class="fas fa-sun me-2" id="themeIconMobileSun"></i>
+                                <i class="fas fa-moon me-2" id="themeIconMobileMoon"></i>
+                                Toggle Theme
+                            </a>
                         </li>
                         <li><hr class="dropdown-divider"></li>
                         <li><a class="dropdown-item" href="/logout">Logout</a></li>
@@ -198,8 +197,18 @@ window.MathJax = {
     <script>
     document.addEventListener('DOMContentLoaded', () => {
         const themeSwitchDesktop = document.getElementById('themeSwitchDesktop');
-        const themeSwitchMobile = document.getElementById('themeSwitchMobile');
+        const themeToggleMobile = document.getElementById('themeToggleMobile');
+        const themeIconMobileSun = document.getElementById('themeIconMobileSun');
+        const themeIconMobileMoon = document.getElementById('themeIconMobileMoon');
         const html = document.documentElement;
+
+        const updateIcons = (theme) => {
+            if (themeToggleMobile) {
+                const isDark = theme === 'dark';
+                themeIconMobileSun.style.display = isDark ? 'none' : 'inline-block';
+                themeIconMobileMoon.style.display = isDark ? 'inline-block' : 'none';
+            }
+        };
 
         const setTheme = (theme, shouldUpdateSwitches = true) => {
             html.setAttribute('data-bs-theme', theme);
@@ -207,8 +216,8 @@ window.MathJax = {
             if (shouldUpdateSwitches) {
                 const isDark = theme === 'dark';
                 if (themeSwitchDesktop) themeSwitchDesktop.checked = isDark;
-                if (themeSwitchMobile) themeSwitchMobile.checked = isDark;
             }
+            updateIcons(theme);
         };
 
         const currentTheme = localStorage.getItem('theme') || 'light';
@@ -219,9 +228,11 @@ window.MathJax = {
                 setTheme(themeSwitchDesktop.checked ? 'dark' : 'light');
             });
         }
-        if (themeSwitchMobile) {
-            themeSwitchMobile.addEventListener('change', () => {
-                setTheme(themeSwitchMobile.checked ? 'dark' : 'light');
+        if (themeToggleMobile) {
+            themeToggleMobile.addEventListener('click', (e) => {
+                e.preventDefault();
+                const newTheme = html.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark';
+                setTheme(newTheme);
             });
         }
 

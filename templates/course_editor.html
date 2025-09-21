@@ -5,20 +5,14 @@
 {% block head %}
 {{ super() }}
 <style>
-    .file-tree-item {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 0.5rem 0.75rem;
-    }
-    .file-tree-item .item-name {
+    .item-name {
         cursor: pointer;
     }
-    .file-tree-item .item-actions {
+    .item-actions {
         display: none;
     }
-    .file-tree-item:hover .item-actions {
-        display: block;
+    .list-group-item:hover .item-actions {
+        display: inline-block;
     }
     .item-actions .btn {
         padding: 0.1rem 0.4rem;
@@ -45,23 +39,18 @@
     <div class="row">
         <!-- File Tree Column -->
         <div class="col-lg-4">
-            <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="align-items-center mb-2">
                 <h4>Courses</h4>
                 <button class="btn btn-sm btn-outline-success new-folder-btn d-none d-lg-inline-block" data-path="">
                     <i class="fas fa-plus"></i> New Folder
                 </button>
-                <button class="btn btn-primary d-lg-none" type="button" data-bs-toggle="collapse" data-bs-target="#fileTreeCollapse" aria-expanded="true" aria-controls="fileTreeCollapse">
-                    Toggle File Tree
-                </button>
             </div>
-            <div class="collapse show" id="fileTreeCollapse">
-                <div id="file-tree">
-                    <!-- File tree will be loaded here by JavaScript -->
-                </div>
-                <button class="btn btn-sm btn-outline-success new-folder-btn d-lg-none mt-2" data-path="">
-                    <i class="fas fa-plus"></i> New Folder
-                </button>
+            <div id="file-tree">
+                <!-- File tree will be loaded here by JavaScript -->
             </div>
+            <button class="btn btn-sm btn-outline-success new-folder-btn d-lg-none mt-2" data-path="">
+                <i class="fas fa-plus"></i> New Folder
+            </button>
         </div>
 
         <!-- Editor Column -->
@@ -177,7 +166,7 @@ document.addEventListener('DOMContentLoaded', function () {
             if (node.type === 'directory') {
                 html += `
                     <div style="padding-left: ${padding}px;">
-                        <div class="list-group-item file-tree-item d-flex justify-content-between align-items-center" data-bs-toggle="collapse" href="#${collapseId}" role="button" aria-expanded="false" aria-controls="${collapseId}">
+                        <div class="list-group-item d-flex justify-content-between align-items-center" data-bs-toggle="collapse" href="#${collapseId}" role="button" aria-expanded="false" aria-controls="${collapseId}">
                             <span class="item-name folder-item" data-path="${node.path}">
                                 <i class="fas fa-folder"></i> ${node.name}
                             </span>
@@ -193,13 +182,15 @@ document.addEventListener('DOMContentLoaded', function () {
                 `;
             } else {
                 html += `
-                    <div class="list-group-item file-tree-item" style="padding-left: ${padding}px;">
-                        <span class="item-name file-item" data-path="${node.path}">
-                            <i class="fas fa-file-alt"></i> ${node.title || node.name}
-                        </span>
-                        <span class="item-actions">
-                            <button class="btn btn-outline-danger delete-item-btn" data-path="${node.path}" data-type="file" title="Delete File"><i class="fas fa-trash-alt"></i></button>
-                        </span>
+                    <div style="padding-left: ${padding}px;">
+                        <div class="list-group-item d-flex justify-content-between align-items-center">
+                            <span class="item-name file-item" data-path="${node.path}">
+                                <i class="fas fa-file-alt"></i> ${node.title || node.name}
+                            </span>
+                            <span class="item-actions">
+                                <button class="btn btn-outline-danger delete-item-btn" data-path="${node.path}" data-type="file" title="Delete File"><i class="fas fa-trash-alt"></i></button>
+                            </span>
+                        </div>
                     </div>
                 `;
             }
@@ -266,10 +257,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 markdownEditor.value = content;
                 updatePreview();
 
-                const fileTreeCollapse = document.getElementById('fileTreeCollapse');
-                if (window.getComputedStyle(document.querySelector('.d-lg-none')).display !== 'none') {
-                    const bsCollapse = new bootstrap.Collapse(fileTreeCollapse, { toggle: false });
-                    bsCollapse.hide();
+                if (window.innerWidth < 992) { // 992px is the breakpoint for lg devices
                     editorContainer.scrollIntoView({ behavior: 'smooth' });
                 }
             })
