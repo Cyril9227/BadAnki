@@ -4,7 +4,7 @@
 {% block title %}Home - Anki Clone{% endblock %}
 
 {% block content %}
-<div class="container-fluid py-5 home-hero">
+<div class="container-fluid home-hero">
     <div class="card p-5 text-center">
         <h1 class="display-5 fw-bold">Personal Learning App</h1>
         <div class="col-lg-8 mx-auto">
@@ -16,4 +16,12 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    document.body.classList.add('home-page-active');
+});
+</script>
 {% endblock %}
