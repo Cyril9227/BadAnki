@@ -34,21 +34,33 @@ APP_URL = os.environ.get("APP_URL", "http://127.0.0.1:8000")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Sends a welcome message when the /start command is issued."""
-    await update.message.reply_text(
-        "Welcome to the Anki Clone bot! Use /review to get a link to your next review session."
-    )
+    try:
+        await update.message.reply_text(
+            "Welcome to the Anki Clone bot! Use /review to get a link to your next review session."
+        )
+    except Exception as e:
+        logger.error(f"Error in /start command: {e}", exc_info=True)
+        await update.message.reply_text("Sorry, something went wrong.")
 
 async def review(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Sends a link to the review page."""
-    review_link = f"{APP_URL}/review"
-    await update.message.reply_text(
-        f"Click here to start your review session: {review_link}"
-    )
+    try:
+        review_link = f"{APP_URL}/review"
+        await update.message.reply_text(
+            f"Click here to start your review session: {review_link}"
+        )
+    except Exception as e:
+        logger.error(f"Error in /review command: {e}", exc_info=True)
+        await update.message.reply_text("Sorry, something went wrong.")
 
 async def my_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Sends the user their chat ID."""
-    chat_id = update.message.chat_id
-    await update.message.reply_text(f"Your Telegram Chat ID is: `{chat_id}`")
+    try:
+        chat_id = update.message.chat_id
+        await update.message.reply_text(f"Your Telegram Chat ID is: `{chat_id}`")
+    except Exception as e:
+        logger.error(f"Error in /my_id command: {e}", exc_info=True)
+        await update.message.reply_text("Sorry, something went wrong.")
 
 async def random_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Sends a random card to a registered user with better formatting and a web link."""

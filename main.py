@@ -41,6 +41,10 @@ if not SECRET_KEY:
 if not SCHEDULER_SECRET:
     raise ValueError("No SCHEDULER_SECRET set. Please set this environment variable.")
 
+BOT_RESTART_SECRET = os.environ.get("BOT_RESTART_SECRET")
+if not BOT_RESTART_SECRET:
+    raise ValueError("No BOT_RESTART_SECRET set. Please set this environment variable.")
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
@@ -191,6 +195,11 @@ class ApiKeys(BaseModel):
     gemini_api_key: str | None = None
     anthropic_api_key: str | None = None
 
+class Secrets(BaseModel):
+    telegram_token: str | None = None
+    telegram_chat_id: str | None = None
+    scheduler_secret: str | None = None
+
 # --- Database Dependency ---
 def get_db(request: Request):
     """
@@ -224,6 +233,21 @@ async def get_current_user(request: Request, conn: psycopg2.extensions.connectio
         return None
     user = crud.get_user_by_username(conn, username=username)
     return user
+
+def generate_csrf_token(session_id: str):
+    """Generate a CSRF token."""
+    return jwt.encode({"session_id": session_id}, SECRET_KEY, algorithm=ALGORITHM)
+
+async def csrf_protect(request: Request):
+    """A dependency to protect against CSRF attacks."""
+    if request.method == "POST":
+        csrf_token = request.headers.get("X-CSRF-Token")
+        if not csrf_token:
+            raise HTTPException(status_code=403, detail="Missing CSRF token")
+        try:
+            jwt.decode(csrf_token, SECRET_KEY, algorithms=[ALGORITHM])
+        except JWTError:
+            raise HTTPException(status_code=403, detail="Invalid CSRF token")
 
 async def get_current_active_user(request: Request):
     if not request.state.user:
@@ -312,6 +336,17 @@ def generate_cards(text: str, mode="gemini", api_key: str = None) -> list[dict]:
 @app.get("/api-keys", response_class=HTMLResponse)
 async def api_keys_form(request: Request, user: User = Depends(get_current_active_user)):
     return templates.TemplateResponse("api_keys.html", {"request": request, "api_keys": request.state.api_keys})
+
+@app.get("/secrets", response_class=HTMLResponse)
+async def secrets_form(request: Request, user: User = Depends(get_current_active_user)):
+    secrets = crud.get_secrets_for_user(request.state.db, user['id'])
+    csrf_token = generate_csrf_token(user['username'])
+    return templates.TemplateResponse("secrets.html", {"request": request, "secrets": secrets, "csrf_token": csrf_token})
+
+@app.post("/secrets", dependencies=[Depends(csrf_protect)])
+async def save_secrets(request: Request, user: User = Depends(get_current_active_user), telegram_chat_id: str = Form(None)):
+    crud.save_secrets_for_user(request.state.db, user['id'], telegram_chat_id)
+    return RedirectResponse(url="/secrets", status_code=303)
 
 
 
@@ -513,6 +548,27 @@ async def trigger_scheduler(secret: str):
     
     result = await run_scheduler()
     return JSONResponse(content={"status": "completed", "result": result})
+
+@app.get("/api/restart-bot")
+async def restart_bot(secret: str):
+    """A secret-protected endpoint to manually restart the bot."""
+    if secret != BOT_RESTART_SECRET:
+        raise HTTPException(status_code=403, detail="Invalid secret")
+    
+    logger.info("Manual bot restart triggered.")
+    
+    # First, shut down the existing bot gracefully
+    await shutdown_event()
+    logger.info("Existing bot instance shut down.")
+    
+    # Now, start a new bot instance
+    try:
+        await startup_event()
+        logger.info("New bot instance started successfully.")
+        return JSONResponse(content={"status": "completed", "message": "Bot restarted successfully."})
+    except Exception as e:
+        logger.error(f"Failed to restart bot: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to restart bot.")
 
 # --- Card Management Routes ---
 @app.get("/card/{card_id}", response_class=HTMLResponse)

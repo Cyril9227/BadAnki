@@ -37,3 +37,10 @@ CREATE TABLE IF NOT EXISTS user_api_keys (
     anthropic_api_key TEXT,
     FOREIGN KEY (user_id) REFERENCES users (id)
 );
+
+-- Create the user_secrets table
+CREATE TABLE IF NOT EXISTS user_secrets (
+    user_id INTEGER PRIMARY KEY,
+    telegram_chat_id TEXT,
+    FOREIGN KEY (user_id) REFERENCES users (id)
+);

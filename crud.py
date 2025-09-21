@@ -389,3 +389,33 @@ def save_api_keys_for_user(conn, user_id: int, gemini_api_key: str, anthropic_ap
         raise e
     finally:
         cursor.close()
+
+# --- Secrets CRUD Functions ---
+
+def get_secrets_for_user(conn, user_id: int):
+    """Fetches the secrets for a specific user."""
+    cursor = conn.cursor(cursor_factory=extras.DictCursor)
+    cursor.execute("SELECT * FROM user_secrets WHERE user_id = %s", (user_id,))
+    secrets = cursor.fetchone()
+    cursor.close()
+    return secrets
+
+def save_secrets_for_user(conn, user_id: int, telegram_chat_id: str):
+    """Saves or updates the secrets for a specific user."""
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """
+            INSERT INTO user_secrets (user_id, telegram_chat_id)
+            VALUES (%s, %s)
+            ON CONFLICT (user_id) DO UPDATE SET
+                telegram_chat_id = EXCLUDED.telegram_chat_id
+            """,
+            (user_id, telegram_chat_id)
+        )
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        cursor.close()
