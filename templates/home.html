@@ -1,7 +1,6 @@
-
 {% extends "layout.html" %}
 
-{% block title %}Home - Anki Clone{% endblock %}
+{% block title %}Home - Bad Anki{% endblock %}
 
 {% block content %}
 <div class="container-fluid home-hero">
@@ -16,12 +15,28 @@
         </div>
     </div>
 </div>
-{% endblock %}
 
-{% block scripts %}
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    document.body.classList.add('home-page-active');
-});
-</script>
+<style>
+@media (max-width: 768px) {
+    html, body {
+        height: 100%;
+        overflow: hidden;
+        margin: 0;
+        padding: 0;
+    }
+
+    .home-hero {
+        min-height: 100vh;
+        min-height: 100dvh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+    }
+    
+    .home-hero .card {
+        width: 100%;
+    }
+}
+</style>
 {% endblock %}
