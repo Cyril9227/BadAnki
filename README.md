@@ -1,8 +1,12 @@
-# Bad Anki: A Smart Flashcard App
+# (Bad) Anki
 
-Bad Anki is a web-based, simplified clone of the Anki flashcard application, supercharged with AI and designed for efficient, long-term knowledge retention. It uses a spaced repetition system (SRS) to help you study and remember information, from complex math formulas to everyday facts.
+I'm often forgetting stuff when I solve maths problems for fun, so I thought it would be cool to vibe-code a personal knowledge management tool tailored to my needs, while also learning more about best software engineering practices, agentic coding, and (local) generative AI usage.
 
-The core workflow is simple: create courses from Markdown notes, let AI generate flashcards for you, and receive daily review reminders on Telegram.
+I think this project covers each aim quite well: I get some kind of Anki clone connected to my Telegram that forces me to remember maths concepts, theorems etc. while I also get to experiment with a wide range of skills: frontend, backend, database & multi-users management, cloud deployment, cron jobs, Telegram bot scripting, as well as using generative AI through API providers or locally via Ollama.
+
+The workflow is basically: 
+
+>learn something cool → write or upload a Markdown file (with LaTeX support) → use any AI provider or local Ollama to generate relevant Anki cards → delete / edit / approve AI-generated cards → cards are added to the database and the spaced repetition algorithm decides which ones are due for review → I get a daily ping on Telegram with a link to the relevant cards due for review.
 
 ## Key Features
 
