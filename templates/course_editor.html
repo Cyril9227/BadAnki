@@ -96,9 +96,15 @@
                 <hr>
                 <h5>Live Preview</h5>
                 <div id="live-preview" class="border p-3"></div>
+                <div id="drop-zone-editor" class="border rounded p-3 mt-3 text-center text-muted" style="border-style: dashed !important;">
+                    Drag & Drop .md files here or click to upload
+                </div>
             </div>
             <div id="no-file-selected" class="text-center text-muted pt-5">
                 <p>Select a file to start editing or create a new one.</p>
+                <div id="drop-zone-main" class="border rounded p-5 mt-3 text-center text-muted" style="border-style: dashed !important;">
+                    Drag & Drop .md files here or click to upload
+                </div>
             </div>
         </div>
     </div>
@@ -126,6 +132,7 @@
         </div>
     </div>
 </div>
+<input type="file" id="file-input" multiple accept=".md" style="display: none;">
 {% endblock %}
 
 {% block scripts %}
@@ -144,8 +151,13 @@ document.addEventListener('DOMContentLoaded', function () {
     const cardsModalBody = document.getElementById('cards-modal-body-content');
     const saveCardsBtn = document.getElementById('save-cards-btn');
     const loadingSpinner = document.getElementById('loading-spinner');
+    const saveBtn = document.querySelector('button[type="submit"]'); // Re-target the save button
+    const dropZoneMain = document.getElementById('drop-zone-main');
+    const dropZoneEditor = document.getElementById('drop-zone-editor');
+    const fileInput = document.getElementById('file-input');
 
     let generatedCardsData = [];
+    let currentDirectory = ''; // Tracks the currently selected directory
 
     function loadFileTree() {
         fetch('/api/courses-tree')
@@ -156,14 +168,17 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function buildTreeHTML(nodes) {
-        let html = '<div class="list-group">';
-        nodes.forEach(node => {
+        let html = '<div class="list-group list-group-flush">';
+        nodes.forEach((node, index) => {
             const padding = (node.depth || 0) * 20;
+            const safePath = node.path.replace(/[^a-zA-Z0-9]/g, '-');
+            const collapseId = `collapse-${safePath}-${index}`;
+
             if (node.type === 'directory') {
                 html += `
                     <div style="padding-left: ${padding}px;">
-                        <div class="list-group-item file-tree-item">
-                            <span class="item-name" data-path="${node.path}">
+                        <div class="list-group-item file-tree-item d-flex justify-content-between align-items-center" data-bs-toggle="collapse" href="#${collapseId}" role="button" aria-expanded="false" aria-controls="${collapseId}">
+                            <span class="item-name folder-item" data-path="${node.path}">
                                 <i class="fas fa-folder"></i> ${node.name}
                             </span>
                             <span class="item-actions">
@@ -171,7 +186,9 @@ document.addEventListener('DOMContentLoaded', function () {
                                 <button class="btn btn-outline-danger delete-item-btn" data-path="${node.path}" data-type="folder" title="Delete Folder"><i class="fas fa-trash-alt"></i></button>
                             </span>
                         </div>
-                        ${node.children ? buildTreeHTML(node.children) : ''}
+                        <div class="collapse" id="${collapseId}">
+                           ${node.children && node.children.length > 0 ? buildTreeHTML(node.children) : ''}
+                        </div>
                     </div>
                 `;
             } else {
@@ -231,6 +248,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 noFileSelected.style.display = 'block';
                 currentFilePathInput.value = '';
                 markdownEditor.value = '';
+                currentDirectory = ''; // Reset directory context
             }
         })
         .catch(handleError);
@@ -240,6 +258,7 @@ document.addEventListener('DOMContentLoaded', function () {
         fetch(`/api/course-content/${path}`)
             .then(handleResponse)
             .then(content => {
+                currentDirectory = path.substring(0, path.lastIndexOf('/'));
                 editorContainer.style.display = 'block';
                 noFileSelected.style.display = 'none';
                 editingFilename.textContent = `Editing: ${path}`;
@@ -247,12 +266,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 markdownEditor.value = content;
                 updatePreview();
 
-                // Auto-collapse file tree and scroll on mobile
                 const fileTreeCollapse = document.getElementById('fileTreeCollapse');
                 if (window.getComputedStyle(document.querySelector('.d-lg-none')).display !== 'none') {
-                    const bsCollapse = new bootstrap.Collapse(fileTreeCollapse, {
-                        toggle: false
-                    });
+                    const bsCollapse = new bootstrap.Collapse(fileTreeCollapse, { toggle: false });
                     bsCollapse.hide();
                     editorContainer.scrollIntoView({ behavior: 'smooth' });
                 }
@@ -260,22 +276,46 @@ document.addEventListener('DOMContentLoaded', function () {
             .catch(handleError);
     }
 
-    // --- Single, Delegated Event Listener ---
     document.body.addEventListener('click', function(e) {
-        const target = e.target.closest('button, .file-item');
-        if (!target) return;
+        const buttonTarget = e.target.closest('.item-actions button');
+        const newFolderRootBtn = e.target.closest('.new-folder-btn:not(.item-actions button)');
 
-        const path = target.dataset.path;
+        if (buttonTarget || newFolderRootBtn) {
+            e.stopPropagation(); // Prevent the collapse toggle when a button is clicked
+            const btn = buttonTarget || newFolderRootBtn;
+            const path = btn.dataset.path;
 
-        if (target.classList.contains('file-item')) {
+            if (btn.classList.contains('new-file-btn')) {
+                createNewItem('file', path);
+            } else if (btn.classList.contains('new-folder-btn')) {
+                createNewItem('folder', ''); // Root folder creation
+            } else if (btn.classList.contains('delete-item-btn')) {
+                const type = btn.dataset.type;
+                deleteItem(path, type);
+            }
+            return;
+        }
+
+        const fileTarget = e.target.closest('.file-item');
+        if (fileTarget) {
+            const path = fileTarget.dataset.path;
             loadEditorContent(path);
-        } else if (target.classList.contains('new-file-btn')) {
-            createNewItem('file', path);
-        } else if (target.classList.contains('new-folder-btn')) {
-            createNewItem('folder', path);
-        } else if (target.classList.contains('delete-item-btn')) {
-            const type = target.dataset.type;
-            deleteItem(path, type);
+            document.querySelectorAll('.list-group-item').forEach(item => item.classList.remove('bg-light'));
+            fileTarget.closest('.list-group-item').classList.add('bg-light');
+            return;
+        }
+
+        const folderTarget = e.target.closest('.folder-item');
+        if (folderTarget) {
+            const path = folderTarget.dataset.path;
+            currentDirectory = path;
+            document.querySelectorAll('.list-group-item').forEach(item => item.classList.remove('bg-light'));
+            folderTarget.closest('.list-group-item').classList.add('bg-light');
+            
+            editorContainer.style.display = 'none';
+            noFileSelected.style.display = 'block';
+            currentFilePathInput.value = '';
+            markdownEditor.value = '';
         }
     });
 
@@ -290,7 +330,10 @@ document.addEventListener('DOMContentLoaded', function () {
             body: JSON.stringify({ path: path, content: content })
         })
         .then(handleResponse)
-        .then(() => alert('File saved successfully!'))
+        .then(() => {
+            alert('File saved successfully!');
+            loadFileTree();
+        })
         .catch(handleError);
     });
 
@@ -302,6 +345,76 @@ document.addEventListener('DOMContentLoaded', function () {
             alert('Please select a file to download.');
         }
     });
+
+    function setupDropZone(dropZone) {
+        if (!dropZone) return;
+        dropZone.addEventListener('click', () => fileInput.click());
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('border-primary');
+            dropZone.classList.remove('text-muted');
+        });
+
+        dropZone.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('border-primary');
+            dropZone.classList.add('text-muted');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('border-primary');
+            dropZone.classList.add('text-muted');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFileUpload(files, currentDirectory);
+            }
+        });
+    }
+
+    fileInput.addEventListener('change', (e) => {
+        const files = e.target.files;
+        if (files.length > 0) {
+            handleFileUpload(files, currentDirectory);
+        }
+    });
+
+    function handleFileUpload(files, uploadDirectory) {
+        const mdFiles = Array.from(files).filter(file => file.name.endsWith('.md'));
+        if (mdFiles.length === 0) {
+            alert("No Markdown (.md) files found. Please select files with the .md extension.");
+            return;
+        }
+
+        let uploadedCount = 0;
+        mdFiles.forEach(file => {
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const content = event.target.result;
+                const path = uploadDirectory ? `${uploadDirectory}/${file.name}` : file.name;
+
+                fetch(`/api/course-content`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: path, content: content })
+                })
+                .then(handleResponse)
+                .then(() => {
+                    uploadedCount++;
+                    if (uploadedCount === mdFiles.length) {
+                        alert(`Successfully uploaded ${uploadedCount} file(s)!`);
+                        loadFileTree();
+                    }
+                })
+                .catch(handleError);
+            };
+            reader.readAsText(file);
+        });
+    }
+
+    setupDropZone(dropZoneMain);
+    setupDropZone(dropZoneEditor);
 
     function generateCards(apiUrl) {
         const content = markdownEditor.value;
@@ -400,7 +513,6 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    // --- Event Delegation for Modal Buttons ---
     cardsModalBody.addEventListener('click', function(e) {
         const target = e.target;
         const cardElement = target.closest('.card');
@@ -409,7 +521,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const index = parseInt(cardElement.dataset.cardIndex, 10);
 
         if (target.classList.contains('delete-card-btn')) {
-            generatedCardsData[index] = null; // Mark for deletion
+            generatedCardsData[index] = null;
             cardElement.remove();
         } else if (target.classList.contains('edit-card-btn')) {
             const cardData = generatedCardsData[index];
@@ -426,22 +538,18 @@ document.addEventListener('DOMContentLoaded', function () {
             const newQuestion = questionTextarea.value;
             const newAnswer = answerTextarea.value;
 
-            // Update data model
             generatedCardsData[index].question = newQuestion;
             generatedCardsData[index].answer = newAnswer;
 
-            // Update the card's display view
             const questionSpan = cardElement.querySelector('.card-question');
             const answerSpan = cardElement.querySelector('.card-answer');
             questionSpan.innerHTML = marked.parse(newQuestion);
             answerSpan.innerHTML = marked.parse(newAnswer);
 
-            // Ensure MathJax re-renders the new content
             if (window.MathJax) {
                 MathJax.typesetPromise([questionSpan, answerSpan]);
             }
 
-            // Hide the form and show the content
             cardElement.querySelector('.card-content').style.display = 'block';
             cardElement.querySelector('.edit-form').style.display = 'none';
         }
@@ -482,7 +590,6 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!response.ok) {
             return response.json().then(err => { throw new Error(err.detail || `HTTP error! status: ${response.status}`) });
         }
-        // Handle empty JSON responses for success cases like DELETE
         const contentType = response.headers.get("content-type");
         if (contentType && contentType.indexOf("application/json") !== -1) {
             return response.json();
@@ -501,7 +608,6 @@ document.addEventListener('DOMContentLoaded', function () {
         MathJax.typesetPromise([livePreview]);
     }
 
-    // --- Initial Load ---
     loadFileTree();
     const initialPath = "{{ course_path|default('') }}";
     if (initialPath && initialPath !== 'home') {
