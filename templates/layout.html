@@ -83,6 +83,15 @@
         }
     }
 
+    @media (max-width: 768px) {
+        .home-hero {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            min-height: calc(100vh - 56px - 4rem); /* Full viewport height minus navbar and some padding */
+        }
+    }
+
     main {
         padding-bottom: 5rem;
     }
@@ -132,6 +141,16 @@ window.MathJax = {
                     <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
                         <li><a class="dropdown-item" href="/api-keys">API Keys</a></li>
                         <li><a class="dropdown-item" href="/secrets">Manage Secrets</a></li>
+                        <li><hr class="dropdown-divider d-lg-none"></li>
+                        <li class="d-lg-none">
+                            <div class="dropdown-item">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="themeSwitchMobile">
+                                    <label class="form-check-label" for="themeSwitchMobile">Dark Mode</label>
+                                </div>
+                            </div>
+                        </li>
+                        <li><hr class="dropdown-divider"></li>
                         <li><a class="dropdown-item" href="/logout">Logout</a></li>
                     </ul>
                 </div>
@@ -159,11 +178,11 @@ window.MathJax = {
         </div>
     </div>
 
-    <!-- Theme Toggle -->
-    <div class="theme-toggle">
+    <!-- Theme Toggle (Desktop) -->
+    <div class="theme-toggle d-none d-lg-block">
         <div class="form-check form-switch">
-            <input class="form-check-input" type="checkbox" id="themeSwitch">
-            <label class="form-check-label" for="themeSwitch"><i class="fas fa-sun"></i> / <i class="fas fa-moon"></i></label>
+            <input class="form-check-input" type="checkbox" id="themeSwitchDesktop">
+            <label class="form-check-label" for="themeSwitchDesktop"><i class="fas fa-sun"></i> / <i class="fas fa-moon"></i></label>
         </div>
     </div>
 
@@ -178,17 +197,34 @@ window.MathJax = {
 
     <script>
     document.addEventListener('DOMContentLoaded', () => {
-        const themeSwitch = document.getElementById('themeSwitch');
-        if (themeSwitch) {
-            const html = document.documentElement;
-            const setTheme = t => {
-                html.setAttribute('data-bs-theme', t);
-                localStorage.setItem('theme', t);
-                themeSwitch.checked = t === 'dark';
-            };
-            setTheme(localStorage.getItem('theme') || 'light');
-            themeSwitch.addEventListener('change', () => setTheme(themeSwitch.checked ? 'dark' : 'light'));
+        const themeSwitchDesktop = document.getElementById('themeSwitchDesktop');
+        const themeSwitchMobile = document.getElementById('themeSwitchMobile');
+        const html = document.documentElement;
+
+        const setTheme = (theme, shouldUpdateSwitches = true) => {
+            html.setAttribute('data-bs-theme', theme);
+            localStorage.setItem('theme', theme);
+            if (shouldUpdateSwitches) {
+                const isDark = theme === 'dark';
+                if (themeSwitchDesktop) themeSwitchDesktop.checked = isDark;
+                if (themeSwitchMobile) themeSwitchMobile.checked = isDark;
+            }
+        };
+
+        const currentTheme = localStorage.getItem('theme') || 'light';
+        setTheme(currentTheme);
+
+        if (themeSwitchDesktop) {
+            themeSwitchDesktop.addEventListener('change', () => {
+                setTheme(themeSwitchDesktop.checked ? 'dark' : 'light');
+            });
         }
+        if (themeSwitchMobile) {
+            themeSwitchMobile.addEventListener('change', () => {
+                setTheme(themeSwitchMobile.checked ? 'dark' : 'light');
+            });
+        }
+
         const current = window.location.pathname;
         document.querySelectorAll('.navbar-nav .nav-link').forEach(link => {
             if (link.getAttribute('href') === current) link.classList.add('active');
