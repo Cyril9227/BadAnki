@@ -188,7 +188,9 @@
                     <td data-label="Ease Factor">{{ "%.2f"|format(card.ease_factor) }}</td>
                     <td data-label="Interval">{{ card.interval }} days</td>
                     <td data-label="Actions" class="action-buttons actions-col">
-                        <a href="/edit-card/{{ card.id }}" class="btn btn-sm btn-outline-primary">Edit</a>
+                        <form action="/edit-card/{{ card.id }}" method="get" class="d-inline">
+                            <button type="submit" class="btn btn-sm btn-outline-primary">Edit</button>
+                        </form>
                         <form action="/delete/{{ card.id }}" method="post" class="d-inline">
                             <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Are you sure you want to delete this card?');">Delete</button>
                         </form>
