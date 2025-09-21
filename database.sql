@@ -24,13 +24,12 @@ CREATE TABLE IF NOT EXISTS courses (
     user_id INTEGER NOT NULL,
     path TEXT NOT NULL,
     content TEXT,
-    type TEXT NOT NULL, -- 'file' or 'directory'
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (user_id, path),
     FOREIGN KEY (user_id) REFERENCES users (id)
 );
 
 -- Create the user_api_keys table
-DROP TABLE IF EXISTS user_api_keys CASCADE;
 CREATE TABLE IF NOT EXISTS user_api_keys (
     user_id INTEGER PRIMARY KEY,
     gemini_api_key TEXT,
