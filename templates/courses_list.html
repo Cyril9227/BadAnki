@@ -45,41 +45,54 @@ document.addEventListener('DOMContentLoaded', function () {
             console.error('Error fetching tags:', error);
         });
 
-    // Fetch and display all courses
+    // Fetch and display courses in a collapsible tree
     fetch('/api/courses-tree')
         .then(response => response.json())
         .then(data => {
-            let html = '';
-            
-            // Recursive function to find all files in the tree
-            function findFiles(nodes) {
-                let files = [];
-                for (const node of nodes) {
-                    if (node.type === 'file') {
-                        files.push(node);
-                    }
-                    if (node.children) {
-                        files = files.concat(findFiles(node.children));
-                    }
-                }
-                return files;
+            if (data.length === 0) {
+                courseList.innerHTML = '<p>No courses found. You can create one in the editor.</p>';
+                return;
             }
 
-            const files = findFiles(data);
+            // Recursive function to build the tree HTML
+            function buildTree(nodes, level = 0) {
+                let html = '';
+                nodes.forEach(node => {
+                    const isDirectory = node.type === 'directory';
+                    const paddingLeft = 20 * level; // Indentation for hierarchy
 
-            if (files.length === 0) {
-                html = '<p>No courses found. You can create one in the editor.</p>';
-            } else {
-                files.forEach(item => {
-                    const displayName = item.title || item.name.replace('.md', '');
-                    html += `<a href="/courses/${item.path}" class="list-group-item list-group-item-action">
-                                <strong>${displayName}</strong>
-                                <br>
-                                <small class="text-muted">${item.path}</small>
-                             </a>`;
+                    if (isDirectory) {
+                        const collapseId = `collapse-${node.path.replace(/[^a-zA-Z0-9]/g, '-')}`;
+                        html += `
+                            <a href="#${collapseId}" 
+                               data-bs-toggle="collapse" 
+                               aria-expanded="false" 
+                               aria-controls="${collapseId}"
+                               class="list-group-item list-group-item-action d-flex align-items-center"
+                               style="padding-left: ${paddingLeft + 12}px;">
+                                <i class="fas fa-folder me-2"></i>
+                                <strong>${node.name}</strong>
+                            </a>
+                            <div class="collapse" id="${collapseId}">
+                                ${buildTree(node.children, level + 1)}
+                            </div>
+                        `;
+                    } else {
+                        const displayName = node.title || node.name.replace('.md', '');
+                        html += `
+                            <a href="/courses/${node.path}" 
+                               class="list-group-item list-group-item-action d-flex align-items-center"
+                               style="padding-left: ${paddingLeft + 12}px;">
+                                <i class="fas fa-file-alt me-2"></i>
+                                <span>${displayName}</span>
+                            </a>
+                        `;
+                    }
                 });
+                return html;
             }
-            courseList.innerHTML = html;
+
+            courseList.innerHTML = buildTree(data);
         })
         .catch(error => {
             courseList.innerHTML = '<p class="text-danger">Error loading courses.</p>';

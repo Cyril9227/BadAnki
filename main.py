@@ -195,11 +195,6 @@ class ApiKeys(BaseModel):
     gemini_api_key: str | None = None
     anthropic_api_key: str | None = None
 
-class Secrets(BaseModel):
-    telegram_token: str | None = None
-    telegram_chat_id: str | None = None
-    scheduler_secret: str | None = None
-
 # --- Database Dependency ---
 def get_db(request: Request):
     """

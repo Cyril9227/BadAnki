@@ -63,7 +63,7 @@
                         <textarea id="markdown-editor" name="content" class="form-control" rows="15"></textarea>
                     </div>
                     <div class="d-flex flex-wrap gap-2 d-grid d-md-flex">
-                        <button type="submit" class="btn btn-primary">Save</button>
+                        <button type="button" id="save-btn" class="btn btn-primary">Save</button>
                         <div class="btn-group">
                             <button type="button" id="generate-cards-btn" class="btn {{ 'btn-success' if gemini_api_key_exists or anthropic_api_key_exists else 'btn-secondary' }} dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" {% if not gemini_api_key_exists and not anthropic_api_key_exists %}disabled{% endif %}>
                                 Generate Cards
@@ -86,7 +86,7 @@
                 <h5>Live Preview</h5>
                 <div id="live-preview" class="border p-3"></div>
                 <div id="drop-zone-editor" class="border rounded p-3 mt-3 text-center text-muted" style="border-style: dashed !important;">
-                    Drag & Drop .md files here or click to upload
+                    Drag & Drop .md files here to upload into the current folder
                 </div>
             </div>
             <div id="no-file-selected" class="text-center text-muted pt-5">
@@ -140,7 +140,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const cardsModalBody = document.getElementById('cards-modal-body-content');
     const saveCardsBtn = document.getElementById('save-cards-btn');
     const loadingSpinner = document.getElementById('loading-spinner');
-    const saveBtn = document.querySelector('button[type="submit"]'); // Re-target the save button
+    const saveBtn = document.querySelector('button[type="submit"]');
     const dropZoneMain = document.getElementById('drop-zone-main');
     const dropZoneEditor = document.getElementById('drop-zone-editor');
     const fileInput = document.getElementById('file-input');
@@ -256,8 +256,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 currentFilePathInput.value = path;
                 markdownEditor.value = content;
                 updatePreview();
-
-                if (window.innerWidth < 992) { // 992px is the breakpoint for lg devices
+                // 992px is the breakpoint for lg devices
+                if (window.innerWidth < 992) { 
                     editorContainer.scrollIntoView({ behavior: 'smooth' });
                 }
             })
@@ -299,7 +299,6 @@ document.addEventListener('DOMContentLoaded', function () {
             currentDirectory = path;
             document.querySelectorAll('.list-group-item').forEach(item => item.classList.remove('bg-light'));
             folderTarget.closest('.list-group-item').classList.add('bg-light');
-            
             editorContainer.style.display = 'none';
             noFileSelected.style.display = 'block';
             currentFilePathInput.value = '';
@@ -307,8 +306,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     });
 
-    editorForm.addEventListener('submit', function (e) {
-        e.preventDefault();
+    saveBtn.addEventListener('click', function () {
         const path = currentFilePathInput.value;
         const content = markdownEditor.value;
 
