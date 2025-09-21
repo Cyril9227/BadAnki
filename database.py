@@ -1,10 +1,9 @@
 from dotenv import load_dotenv
-
 load_dotenv()
 
+import os
 import psycopg2
 from psycopg2 import pool
-import os
 from datetime import datetime, timedelta
 
 # --- Database Configuration ---
@@ -14,7 +13,6 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL environment variable is not set.")
 
-# Create a connection pool
 db_pool = psycopg2.pool.SimpleConnectionPool(1, 20, dsn=DATABASE_URL)
 
 def get_db_connection():
