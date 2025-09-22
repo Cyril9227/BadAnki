@@ -36,7 +36,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Sends a welcome message when the /start command is issued."""
     try:
         await update.message.reply_text(
-            "Welcome to the Anki Clone bot! Use /review to get a link to your next review session."
+            "Welcome to the Anki Clone bot! Use /review to get a link to your next review session or /random to get a random card."
         )
     except Exception as e:
         logger.error(f"Error in /start command: {e}", exc_info=True)
@@ -78,7 +78,7 @@ async def random_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # Prepare the message with MarkdownV2
                 question_text = escape_markdown(card['question'], version=2)
                 answer_text = escape_markdown(card['answer'], version=2)
-                message = f"*Question:* {question_text} *Answer:* ||{answer_text}||"
+                message = f"*Question:* {question_text}\n\n*Answer:* ||{answer_text}||"
 
                 # Prepare the "View on Web" button
                 card_url = f"{APP_URL}/card/{card['id']}"
