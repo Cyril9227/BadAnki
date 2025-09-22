@@ -350,6 +350,8 @@ async def save_secrets(request: Request, user: User = Depends(get_current_active
 
 
 
+TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME")
+
 # --- FastAPI Routes ---
 
 @app.get("/login", response_class=HTMLResponse)
@@ -400,7 +402,7 @@ async def health_check():
 
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
-    return templates.TemplateResponse("home.html", {"request": request})
+    return templates.TemplateResponse("home.html", {"request": request, "telegram_bot_username": TELEGRAM_BOT_USERNAME})
 
 @app.get("/courses", response_class=HTMLResponse)
 async def list_courses(request: Request, user: User = Depends(get_current_active_user)):

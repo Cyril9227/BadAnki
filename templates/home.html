@@ -16,11 +16,44 @@
     </div>
 </div>
 
+<div class="container mt-5">
+    <div class="row">
+        <div class="col-md-6 mb-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">How It Works</h5>
+                    <ul>
+                        <li><strong>Create or Upload Courses:</strong> You can write your own courses directly in the editor using Markdown and LaTeX, or upload existing Markdown files.</li>
+                        <li><strong>Generate Flashcards:</strong> Leverage the power of AI to automatically generate flashcards from your course content (don't forget to add your API key in your profile page !). You can also manually create flashcards for the key concepts you want to remember from the home page.</li>
+                        <li><strong>Review and Learn:</strong> The app will schedule reviews of your flashcards at optimal intervals to help you commit them to long-term memory. You can can access your review session from the menu bar or directly in a Telegram chat. 
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6 mb-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">Telegram Bot Setup</h5>
+                    <ol>
+                        <li><strong>Find your Chat ID:</strong> Talk to a bot like <a href="https://t.me/userinfobot" target="_blank">@userinfobot</a> on Telegram to find your unique user ID.</li>
+                        <li><strong>Save your Chat ID:</strong> Go to the "Secrets" page in this app and save your Telegram Chat ID.</li>
+                        {% if telegram_bot_username %}
+                        <li><strong>Start Chatting:</strong> Click here to start a conversation with our bot: <a href="https://t.me/{{ telegram_bot_username }}" target="_blank">@{{ telegram_bot_username }}</a>.</li>
+                        {% else %}
+                        <li><strong>Start Chatting:</strong> Once your ID is saved, you can start interacting with the bot on Telegram to review cards and more.</li>
+                        {% endif %}
+                    </ol>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <style>
 @media (max-width: 768px) {
     html, body {
         height: 100%;
-        overflow: hidden;
         margin: 0;
         padding: 0;
     }
