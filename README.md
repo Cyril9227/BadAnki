@@ -8,6 +8,14 @@ The workflow is basically:
 
 >learn something cool → write or upload a Markdown file (with LaTeX support) → use any AI provider or local Ollama to generate relevant Anki cards → delete / edit / approve AI-generated cards → cards are added to the database and the spaced repetition algorithm decides which ones are due for review → I get a daily ping on Telegram with a link to the relevant cards due for review.
 
+
+## TO-DO 
+
+- [] Add positive feedback in the UI (mobile / Desktop) for actions : register, login, add secrets, add cards etc.
+- [] Add basic security for users, nnot same username, strong password etc.
+
+
+
 ## Key Features
 
 *   **Spaced Repetition System (SRS):** Utilizes an algorithm inspired by SM-2 to schedule card reviews at optimal intervals, maximizing memory retention.
