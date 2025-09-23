@@ -382,14 +382,22 @@ async def logout(response: Response):
     return response
 
 @app.get("/register", response_class=HTMLResponse)
-async def register_form(request: Request):
-    return templates.TemplateResponse("register.html", {"request": request})
+async def register_form(request: Request, error: str = None):
+    return templates.TemplateResponse("register.html", {"request": request, "error": error})
 
 @app.post("/register")
-async def register_user(username: str = Form(...), password: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db)):
+async def register_user(request: Request, username: str = Form(...), password: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db)):
+    # Username validation
     user = crud.get_user_by_username(conn, username)
     if user:
-        raise HTTPException(status_code=400, detail="Username already registered")
+        return templates.TemplateResponse("register.html", {"request": request, "error": "Username already registered"})
+
+    # Password validation
+    if len(password) < 8:
+        return templates.TemplateResponse("register.html", {"request": request, "error": "Password must be at least 8 characters long"})
+    if not any(char.isdigit() for char in password):
+        return templates.TemplateResponse("register.html", {"request": request, "error": "Password must contain at least one number"})
+
     crud.create_user(conn, username, password)
     return RedirectResponse(url="/login", status_code=303)
 

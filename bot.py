@@ -53,17 +53,10 @@ async def review(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error in /review command: {e}", exc_info=True)
         await update.message.reply_text("Sorry, something went wrong.")
 
-async def my_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Sends the user their chat ID."""
-    try:
-        chat_id = update.message.chat_id
-        await update.message.reply_text(f"Your Telegram Chat ID is: `{chat_id}`")
-    except Exception as e:
-        logger.error(f"Error in /my_id command: {e}", exc_info=True)
-        await update.message.reply_text("Sorry, something went wrong.")
+
 
 async def random_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Sends a random card to a registered user with better formatting and a web link."""
+    """Sends a random card to a registered user."""
     logger.info(f"Received /random command from chat_id: {update.message.chat_id}")
     conn = None
     try:
@@ -119,7 +112,6 @@ def setup_bot():
     # Register the command handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("review", review))
-    application.add_handler(CommandHandler("myid", my_id))
     application.add_handler(CommandHandler("random", random_card))
 
     return application
