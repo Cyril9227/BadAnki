@@ -359,14 +359,11 @@ async def login_form(request: Request):
     return templates.TemplateResponse("login.html", {"request": request})
 
 @app.post("/login")
-async def login_for_access_token(response: Response, form_data: OAuth2PasswordRequestForm = Depends(), conn: psycopg2.extensions.connection = Depends(get_db)):
+async def login_for_access_token(request: Request, response: Response, form_data: OAuth2PasswordRequestForm = Depends(), conn: psycopg2.extensions.connection = Depends(get_db)):
     user = crud.get_user_by_username(conn, form_data.username)
     if not user or not crud.verify_password(form_data.password, user['password_hash']):
-        raise HTTPException(
-            status_code=401,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        return templates.TemplateResponse("login.html", {"request": request, "error": "Incorrect username or password"})
+        
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user['username']}, expires_delta=access_token_expires
@@ -399,7 +396,9 @@ async def register_user(request: Request, username: str = Form(...), password: s
         return templates.TemplateResponse("register.html", {"request": request, "error": "Password must contain at least one number"})
 
     crud.create_user(conn, username, password)
-    return RedirectResponse(url="/login", status_code=303)
+    response = RedirectResponse(url="/login", status_code=303)
+    response.set_cookie(key="flash", value="success:Registered successfully! Please log in.", max_age=5)
+    return response
 
 
 @app.get("/health", response_class=JSONResponse)
@@ -621,7 +620,9 @@ async def new_card_form(request: Request, user: User = Depends(get_current_activ
 @app.post("/new")
 async def create_new_card(question: str = Form(...), answer: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     crud.create_card_for_user(conn, question, answer, user['id'])
-    return RedirectResponse(url="/", status_code=303)
+    response = RedirectResponse(url="/", status_code=303)
+    response.set_cookie(key="flash", value="success:Card created successfully!", max_age=5)
+    return response
 
 @app.get("/edit-card/{card_id}", response_class=HTMLResponse)
 async def edit_card_form(request: Request, card_id: int, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
@@ -638,4 +639,6 @@ async def update_existing_card(card_id: int, question: str = Form(...), answer: 
 @app.post("/delete/{card_id}")
 async def delete_card(card_id: int, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     crud.delete_card_for_user(conn, card_id, user['id'])
-    return RedirectResponse(url="/manage", status_code=303)
+    response = RedirectResponse(url="/manage", status_code=303)
+    response.set_cookie(key="flash", value="success:Card deleted successfully!", max_age=5)
+    return response
