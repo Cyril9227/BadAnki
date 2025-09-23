@@ -1,3 +1,14 @@
+
+## TO-DO 
+
+- [x] Add positive feedback in the UI (mobile / Desktop) for actions : register, login, add secrets, add cards etc.
+- [x] Add basic security for users, not same username, strong password etc.
+- [ ] Blog
+- [ ] Ajouter tests + CI/CD
+- [ ] Revoir codebase et virer les trucs pour eviter usine a gaz
+- [ ] Voir comment backup localement la bdd / avoir un truc facile a spin avec un autre provider
+
+
 # (Bad) Anki
 
 I'm often forgetting stuff when I solve maths problems for fun, so I thought it would be cool to vibe-code a personal knowledge management tool tailored to my needs, while also learning more about best software engineering practices, agentic coding, and (local) generative AI usage.
@@ -7,16 +18,6 @@ I think this project covers each aim quite well: I get some kind of Anki clone c
 The workflow is basically: 
 
 >learn something cool → write or upload a Markdown file (with LaTeX support) → use any AI provider or local Ollama to generate relevant Anki cards → delete / edit / approve AI-generated cards → cards are added to the database and the spaced repetition algorithm decides which ones are due for review → I get a daily ping on Telegram with a link to the relevant cards due for review.
-
-
-## TO-DO 
-
-- [x] Add positive feedback in the UI (mobile / Desktop) for actions : register, login, add secrets, add cards etc.
-- [x] Add basic security for users, not same username, strong password etc.
-- [ ] Ajouter tests + CI/CD
-- [ ] Revoir codebase et virer les trucs pour eviter usine a gaz
-- [ ] Voir comment backup localement la bdd / avoir un truc facile a spin avec un autre provider
-
 
 
 ## Key Features
