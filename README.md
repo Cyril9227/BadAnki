@@ -11,8 +11,11 @@ The workflow is basically:
 
 ## TO-DO 
 
-- [] Add positive feedback in the UI (mobile / Desktop) for actions : register, login, add secrets, add cards etc.
-- [] Add basic security for users, nnot same username, strong password etc.
+- [x] Add positive feedback in the UI (mobile / Desktop) for actions : register, login, add secrets, add cards etc.
+- [x] Add basic security for users, not same username, strong password etc.
+- [ ] Ajouter tests + CI/CD
+- [ ] Revoir codebase et virer les trucs pour eviter usine a gaz
+- [ ] Voir comment backup localement la bdd / avoir un truc facile a spin avec un autre provider
 
 
 
