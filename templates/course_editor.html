@@ -199,8 +199,19 @@ document.addEventListener('DOMContentLoaded', function () {
         return html;
     }
 
-    function createNewItem(type, parentPath) {
-        const name = prompt(`Enter the name for the new ${type}:`);
+    async function createNewItem(type, parentPath) {
+        const { value: name } = await Swal.fire({
+            title: `Enter the name for the new ${type}:`,
+            input: 'text',
+            inputLabel: `${type.charAt(0).toUpperCase() + type.slice(1)} Name`,
+            showCancelButton: true,
+            inputValidator: (value) => {
+                if (!value) {
+                    return 'You need to write something!'
+                }
+            }
+        });
+
         if (!name) return;
 
         const newPath = parentPath ? `${parentPath}/${name}` : name;
@@ -221,8 +232,18 @@ document.addEventListener('DOMContentLoaded', function () {
         .catch(handleError);
     }
 
-    function deleteItem(path, type) {
-        if (!confirm(`Are you sure you want to delete this ${type}: ${path}? This action cannot be undone.`)) {
+    async function deleteItem(path, type) {
+        const result = await Swal.fire({
+            title: `Are you sure you want to delete this ${type}?`,
+            text: `Path: ${path}. This action cannot be undone.`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'Yes, delete it!'
+        });
+
+        if (!result.isConfirmed) {
             return;
         }
 
@@ -319,7 +340,15 @@ document.addEventListener('DOMContentLoaded', function () {
         })
         .then(handleResponse)
         .then(() => {
-            alert('File saved successfully!');
+            Swal.fire({
+                toast: true,
+                position: 'top-end',
+                icon: 'success',
+                title: 'File saved successfully!',
+                showConfirmButton: false,
+                timer: 3000,
+                timerProgressBar: true
+            });
             loadFileTree();
         })
         .catch(handleError);
@@ -330,7 +359,15 @@ document.addEventListener('DOMContentLoaded', function () {
         if (path) {
             window.location.href = `/api/download-course/${path}`;
         } else {
-            alert('Please select a file to download.');
+            Swal.fire({
+                toast: true,
+                position: 'top-end',
+                icon: 'error',
+                title: 'Please select a file to download.',
+                showConfirmButton: false,
+                timer: 3000,
+                timerProgressBar: true
+            });
         }
     });
 
@@ -371,7 +408,15 @@ document.addEventListener('DOMContentLoaded', function () {
     function handleFileUpload(files, uploadDirectory) {
         const mdFiles = Array.from(files).filter(file => file.name.endsWith('.md'));
         if (mdFiles.length === 0) {
-            alert("No Markdown (.md) files found. Please select files with the .md extension.");
+            Swal.fire({
+                toast: true,
+                position: 'top-end',
+                icon: 'error',
+                title: 'No Markdown (.md) files found.',
+                showConfirmButton: false,
+                timer: 3000,
+                timerProgressBar: true
+            });
             return;
         }
 
@@ -391,7 +436,15 @@ document.addEventListener('DOMContentLoaded', function () {
                 .then(() => {
                     uploadedCount++;
                     if (uploadedCount === mdFiles.length) {
-                        alert(`Successfully uploaded ${uploadedCount} file(s)!`);
+                        Swal.fire({
+                            toast: true,
+                            position: 'top-end',
+                            icon: 'success',
+                            title: `Successfully uploaded ${uploadedCount} file(s)!`,
+                            showConfirmButton: false,
+                            timer: 3000,
+                            timerProgressBar: true
+                        });
                         loadFileTree();
                     }
                 })
@@ -407,7 +460,15 @@ document.addEventListener('DOMContentLoaded', function () {
     function generateCards(apiUrl) {
         const content = markdownEditor.value;
         if (!content.trim()) {
-            alert('Editor is empty. Please add some content before generating cards.');
+            Swal.fire({
+                toast: true,
+                position: 'top-end',
+                icon: 'warning',
+                title: 'Editor is empty. Please add content.',
+                showConfirmButton: false,
+                timer: 3000,
+                timerProgressBar: true
+            });
             return;
         }
 
@@ -557,7 +618,15 @@ document.addEventListener('DOMContentLoaded', function () {
         });
 
         if (approvedCards.length === 0) {
-            alert("No approved cards to save.");
+            Swal.fire({
+                toast: true,
+                position: 'top-end',
+                icon: 'warning',
+                title: 'No approved cards to save.',
+                showConfirmButton: false,
+                timer: 3000,
+                timerProgressBar: true
+            });
             return;
         }
 
@@ -568,7 +637,11 @@ document.addEventListener('DOMContentLoaded', function () {
         })
         .then(handleResponse)
         .then(data => {
-            alert(data.message);
+            Swal.fire({
+                icon: 'success',
+                title: 'Success!',
+                text: data.message,
+            });
             cardsModal.hide();
         })
         .catch(handleError);
@@ -586,7 +659,15 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function handleError(error) {
-        alert(`An error occurred: ${error.message}`);
+        Swal.fire({
+            toast: true,
+            position: 'top-end',
+            icon: 'error',
+            title: `An error occurred: ${error.message}`,
+            showConfirmButton: false,
+            timer: 3000,
+            timerProgressBar: true
+        });
         console.error(error);
     }
 

@@ -191,8 +191,8 @@
                         <form action="/edit-card/{{ card.id }}" method="get" class="d-inline">
                             <button type="submit" class="btn btn-sm btn-outline-primary">Edit</button>
                         </form>
-                        <form action="/delete/{{ card.id }}" method="post" class="d-inline">
-                            <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Are you sure you want to delete this card?');">Delete</button>
+                        <form action="/delete/{{ card.id }}" method="post" class="d-inline delete-form">
+                            <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
                         </form>
                     </td>
                 </tr>
@@ -219,6 +219,27 @@ document.addEventListener('DOMContentLoaded', function () {
             console.error('MathJax rendering error:', e);
         });
     }
+
+    // SweetAlert2 for delete confirmation
+    const deleteForms = document.querySelectorAll('.delete-form');
+    deleteForms.forEach(form => {
+        form.addEventListener('submit', function (e) {
+            e.preventDefault();
+            Swal.fire({
+                title: 'Are you sure?',
+                text: "You won't be able to revert this!",
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#3085d6',
+                cancelButtonColor: '#d33',
+                confirmButtonText: 'Yes, delete it!'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    form.submit();
+                }
+            });
+        });
+    });
 });
 </script>
 {% endblock %}
