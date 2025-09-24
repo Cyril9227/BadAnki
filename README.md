@@ -1,4 +1,18 @@
-# (Bad) Anki
+
+## TO-DO 
+
+- [x] Add positive feedback in the UI (mobile / Desktop) for actions : register, login, add secrets, add cards etc.
+- [x] Add basic security for users, not same username, strong password etc.
+- [x] Check that when pple add secrets like telegram chat ID it is correctly added to database, currently can only find mine while i registered my other tg account
+- [ ] Blog
+- [ ] Ajouter tests + CI/CD
+- [ ] Revoir codebase et virer les trucs pour eviter usine a gaz
+- [x] Voir comment backup localement la bdd / avoir un truc facile a spin avec un autre provider (script sont faits dans /utils, a demander tuto avec postgres)
+- [ ] Ajouter le bouton download dans /courses et pas seulement /courses-editor
+- [ ] Voir si sur mobile on peut avoir un plus joli preview de question / reponse pour les cartes
+
+
+# [(Bad) Anki](https://badanki.onrender.com/)
 
 I'm often forgetting stuff when I solve maths problems for fun, so I thought it would be cool to vibe-code a personal knowledge management tool tailored to my needs, while also learning more about best software engineering practices, agentic coding, and (local) generative AI usage.
 
@@ -9,18 +23,9 @@ The workflow is basically:
 >learn something cool → write or upload a Markdown file (with LaTeX support) → use any AI provider or local Ollama to generate relevant Anki cards → delete / edit / approve AI-generated cards → cards are added to the database and the spaced repetition algorithm decides which ones are due for review → I get a daily ping on Telegram with a link to the relevant cards due for review.
 
 
-## TO-DO 
-
-- [] Add positive feedback in the UI (mobile / Desktop) for actions : register, login, add secrets, add cards etc.
-- [] Add basic security for users, nnot same username, strong password etc.
-
-
-
 ## Key Features
 
-*   **Spaced Repetition System (SRS):** Utilizes an algorithm inspired by SM-2 to schedule card reviews at optimal intervals, maximizing memory retention.
-*   **Secure, Multi-User Core:** The application is built on a secure, token-based (JWT) authentication system, with isolated data for each user.
-*   **Course & Card Management:** Easily create, edit, delete or download courses and flashcards through an intuitive web interface.
+*   **Course & Card Management:** Easily create, edit, delete or download courses and flashcards through an intuitive web interface and fully responsive mobile UI.
 *   **Markdown & LaTeX Support:** Write or upload your course content and flashcards using Markdown for formatting and LaTeX for mathematical notation.
 *   **AI-Powered Card Generation:**
     *   **Multi-Provider Support:** Automatically generate flashcards from your course notes using multiple AI providers.
@@ -28,6 +33,8 @@ The workflow is basically:
         *   **Anthropic:** Use Anthropic's models for another source of AI-generated content.
         *   **Ollama (Local):** Generate cards offline using local language models like Llama 2.
     *   **Approval Workflow:** You can individually edit, delete, and approve each AI-generated card before saving them.
+*   **Spaced Repetition System (SRS):** Utilizes an algorithm inspired by SM-2 to schedule card reviews at optimal intervals, maximizing memory retention.
+*   **Secure, Multi-User Core:** The application is built on a secure, token-based (JWT) authentication system, with isolated data for each user.
 *   **Telegram Integration:** Receive daily review reminders via a dedicated Telegram bot. You can also interact with your saved cards with commands like `/random`.
 
 ## Core Technologies
@@ -36,7 +43,7 @@ The workflow is basically:
 *   **Frontend:** [Jinja2](https://jinja.palletsprojects.com/) Templates with [Bootstrap 5](https://getbootstrap.com/)
 *   **Database:** PostgreSQL (Production) / SQLite (Local)
 *   **Deployment:** [Render.com](https://render.com/) (Free Tier)
-*   **LLM Integration:** `google-generativeai`, `ollama`
+*   **LLM Integration:** `google-generativeai`, `anthropic`, `ollama`
 *   **Telegram Bot:** `python-telegram-bot`
 
 ## Project Structure
@@ -47,7 +54,6 @@ The workflow is basically:
 ├── crud.py             # Contains database create, read, update, and delete operations.
 ├── database.py         # Script to initialize the database schema.
 ├── scheduler.py        # Logic for sending daily review notifications.
-├── GEMINI.md           # Gemini session documentation.
 ├── requirements.txt    # Python dependencies.
 └── templates/          # Directory for all Jinja2 HTML templates.
     └── ...
@@ -114,3 +120,5 @@ The application is designed to be deployed as a single web service on Render's f
 - Entirely vibe-coded without any kind of strong test suite / CI-CD pipeline, it's bound to break at some point lol
 - Rudimentary link between courses through tags
 - Local LLM call to generate cards *sometimes* bug because of weird JSON parsing, need to take a look / change default ollama model
+
+

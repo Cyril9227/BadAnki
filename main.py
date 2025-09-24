@@ -149,11 +149,8 @@ async def db_session_middleware(request: Request, call_next):
         request.state.db = conn
         user = await get_current_user(request, conn)
         request.state.user = user
-        if user:
-            api_keys = crud.get_api_keys_for_user(conn, user['id'])
-            request.state.api_keys = api_keys
-        else:
-            request.state.api_keys = None
+        # API keys are now part of the user model
+        request.state.api_keys = user
         response = await call_next(request)
     finally:
         if conn:
@@ -331,14 +328,17 @@ async def api_keys_form(request: Request, user: User = Depends(get_current_activ
 
 @app.get("/secrets", response_class=HTMLResponse)
 async def secrets_form(request: Request, user: User = Depends(get_current_active_user)):
-    secrets = crud.get_secrets_for_user(request.state.db, user['id'])
     csrf_token = generate_csrf_token(user['username'])
-    return templates.TemplateResponse(request, "secrets.html", {"secrets": secrets, "csrf_token": csrf_token})
+    return templates.TemplateResponse("secrets.html", {"request": request, "secrets": user, "csrf_token": csrf_token})
 
 @app.post("/secrets", dependencies=[Depends(csrf_protect)])
 async def save_secrets(request: Request, user: User = Depends(get_current_active_user), telegram_chat_id: str = Form(None)):
+    # If the chat ID is an empty string, treat it as None
+    if telegram_chat_id == "":
+        telegram_chat_id = None
+        
     crud.save_secrets_for_user(request.state.db, user['id'], telegram_chat_id)
-    return RedirectResponse(url="/secrets", status_code=303)
+    return JSONResponse(content={"success": True})
 
 
 

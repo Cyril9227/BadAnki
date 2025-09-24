@@ -54,25 +54,12 @@ def create_user(conn, username: str, password: str):
 def get_user_by_telegram_chat_id(conn, chat_id: int):
     """Fetches a user by their Telegram chat ID."""
     cursor = conn.cursor(cursor_factory=extras.DictCursor)
-    cursor.execute("SELECT * FROM users WHERE telegram_chat_id = %s", (chat_id,))
+    cursor.execute("SELECT * FROM users WHERE telegram_chat_id = %s", (str(chat_id),))
     user = cursor.fetchone()
     cursor.close()
     return user
 
-def update_telegram_chat_id(conn, user_id: int, chat_id: int):
-    """Updates a user's Telegram chat ID."""
-    cursor = conn.cursor()
-    try:
-        cursor.execute(
-            "UPDATE users SET telegram_chat_id = %s WHERE id = %s",
-            (chat_id, user_id)
-        )
-        conn.commit()
-    except Exception as e:
-        conn.rollback()
-        raise e
-    finally:
-        cursor.close()
+
 
 # --- Course CRUD Functions ---
 
@@ -169,13 +156,13 @@ def create_course_item_for_user(conn, path: str, item_type: str, user_id: int):
     try:
         if item_type == 'file':
             cursor.execute(
-                "INSERT INTO courses (path, content, user_id) VALUES (%s, %s, %s) ON CONFLICT (path, user_id) DO NOTHING",
+                "INSERT INTO courses (path, content, user_id, type) VALUES (%s, %s, %s, 'file') ON CONFLICT (path, user_id) DO NOTHING",
                 (path, "---\ntitle: New Course\ntags: \n---\n\n", user_id)
             )
         elif item_type == 'folder':
             placeholder_path = os.path.join(path, ".placeholder")
             cursor.execute(
-                "INSERT INTO courses (path, content, user_id) VALUES (%s, %s, %s) ON CONFLICT (path, user_id) DO NOTHING",
+                "INSERT INTO courses (path, content, user_id, type) VALUES (%s, %s, %s, 'directory') ON CONFLICT (path, user_id) DO NOTHING",
                 (placeholder_path, "This is a placeholder file.", user_id)
             )
         conn.commit()
@@ -359,15 +346,7 @@ def save_generated_cards_for_user(conn, cards: list, user_id: int):
     finally:
         cursor.close()
 
-# --- API Key CRUD Functions ---
-
-def get_api_keys_for_user(conn, user_id: int):
-    """Fetches the API keys for a specific user."""
-    cursor = conn.cursor(cursor_factory=extras.DictCursor)
-    cursor.execute("SELECT * FROM user_api_keys WHERE user_id = %s", (user_id,))
-    api_keys = cursor.fetchone()
-    cursor.close()
-    return api_keys
+# --- API Key and Secrets CRUD Functions ---
 
 def save_api_keys_for_user(conn, user_id: int, gemini_api_key: str, anthropic_api_key: str):
     """Saves or updates the API keys for a specific user."""
@@ -375,13 +354,11 @@ def save_api_keys_for_user(conn, user_id: int, gemini_api_key: str, anthropic_ap
     try:
         cursor.execute(
             """
-            INSERT INTO user_api_keys (user_id, gemini_api_key, anthropic_api_key)
-            VALUES (%s, %s, %s)
-            ON CONFLICT (user_id) DO UPDATE SET
-                gemini_api_key = EXCLUDED.gemini_api_key,
-                anthropic_api_key = EXCLUDED.anthropic_api_key
+            UPDATE users
+            SET gemini_api_key = %s, anthropic_api_key = %s
+            WHERE id = %s
             """,
-            (user_id, gemini_api_key, anthropic_api_key)
+            (gemini_api_key, anthropic_api_key, user_id)
         )
         conn.commit()
     except Exception as e:
@@ -390,28 +367,17 @@ def save_api_keys_for_user(conn, user_id: int, gemini_api_key: str, anthropic_ap
     finally:
         cursor.close()
 
-# --- Secrets CRUD Functions ---
-
-def get_secrets_for_user(conn, user_id: int):
-    """Fetches the secrets for a specific user."""
-    cursor = conn.cursor(cursor_factory=extras.DictCursor)
-    cursor.execute("SELECT * FROM user_secrets WHERE user_id = %s", (user_id,))
-    secrets = cursor.fetchone()
-    cursor.close()
-    return secrets
-
 def save_secrets_for_user(conn, user_id: int, telegram_chat_id: str):
-    """Saves or updates the secrets for a specific user."""
+    """Saves or updates the Telegram chat ID for a specific user."""
     cursor = conn.cursor()
     try:
         cursor.execute(
             """
-            INSERT INTO user_secrets (user_id, telegram_chat_id)
-            VALUES (%s, %s)
-            ON CONFLICT (user_id) DO UPDATE SET
-                telegram_chat_id = EXCLUDED.telegram_chat_id
+            UPDATE users
+            SET telegram_chat_id = %s
+            WHERE id = %s
             """,
-            (user_id, telegram_chat_id)
+            (telegram_chat_id, user_id)
         )
         conn.commit()
     except Exception as e:

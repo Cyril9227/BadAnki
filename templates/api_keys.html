@@ -5,63 +5,67 @@
 {% block content %}
 <div class="container mt-4">
     <h2>Manage API Keys</h2>
-    <p>Add your API keys to enable AI-powered features.</p>
+    <p>Provide your API keys for third-party services like Google Gemini and Anthropic to enable AI-powered features.</p>
 
-    <div id="alert-container"></div>
-
-    <form id="api-keys-form">
-        <div class="mb-3">
-            <label for="gemini_api_key" class="form-label">Gemini API Key</label>
-            <input type="password" class="form-control" id="gemini_api_key" name="gemini_api_key" value="{{ api_keys.gemini_api_key if api_keys else '' }}">
+    <div class="card">
+        <div class="card-body">
+            <form id="api-keys-form">
+                <div class="mb-3">
+                    <label for="gemini_api_key" class="form-label">Google Gemini API Key</label>
+                    <input type="password" id="gemini_api_key" name="gemini_api_key" class="form-control" placeholder="Enter your Gemini API key" value="{{ user.gemini_api_key if user else '' }}">
+                </div>
+                <div class="mb-3">
+                    <label for="anthropic_api_key" class="form-label">Anthropic API Key</label>
+                    <input type="password" id="anthropic_api_key" name="anthropic_api_key" class="form-control" placeholder="Enter your Anthropic API key" value="{{ user.anthropic_api_key if user else '' }}">
+                </div>
+                <button type="submit" class="btn btn-primary">Save API Keys</button>
+            </form>
         </div>
-        <div class="mb-3">
-            <label for="anthropic_api_key" class="form-label">Anthropic API Key</label>
-            <input type="password" class="form-control" id="anthropic_api_key" name="anthropic_api_key" value="{{ api_keys.anthropic_api_key if api_keys else '' }}">
-        </div>
-        <button type="submit" class="btn btn-primary">Save Keys</button>
-    </form>
+    </div>
 </div>
 
 <script>
-document.getElementById('api-keys-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    
-    const geminiKey = document.getElementById('gemini_api_key').value;
-    const anthropicKey = document.getElementById('anthropic_api_key').value;
-    const alertContainer = document.getElementById('alert-container');
+document.getElementById('api-keys-form').addEventListener('submit', function(event) {
+    event.preventDefault();
 
-    try {
-        const response = await fetch('/api/save-api-keys', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                gemini_api_key: geminiKey,
-                anthropic_api_key: anthropicKey
-            })
-        });
+    const geminiApiKey = document.getElementById('gemini_api_key').value;
+    const anthropicApiKey = document.getElementById('anthropic_api_key').value;
 
-        if (response.ok) {
-            showAlert('API keys saved successfully!', 'success');
+    fetch('/api/save-api-keys', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            gemini_api_key: geminiApiKey,
+            anthropic_api_key: anthropicApiKey
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            Swal.fire({
+                icon: 'success',
+                title: 'Success!',
+                text: 'API keys saved successfully.',
+                timer: 2000,
+                showConfirmButton: false
+            });
         } else {
-            const errorData = await response.json();
-            showAlert(`Error: ${errorData.detail || 'Failed to save API keys.'}`, 'danger');
+            Swal.fire({
+                icon: 'error',
+                title: 'Oops...',
+                text: 'Something went wrong!',
+            });
         }
-    } catch (error) {
-        showAlert('An unexpected error occurred.', 'danger');
-    }
+    })
+    .catch(error => {
+        Swal.fire({
+            icon: 'error',
+            title: 'Oops...',
+            text: 'An unexpected error occurred.',
+        });
+    });
 });
-
-function showAlert(message, type) {
-    const alertContainer = document.getElementById('alert-container');
-    const alert = `
-        <div class="alert alert-${type} alert-dismissible fade show" role="alert">
-            ${message}
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        </div>
-    `;
-    alertContainer.innerHTML = alert;
-}
 </script>
 {% endblock %}
