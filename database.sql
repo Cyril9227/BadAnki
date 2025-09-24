@@ -13,8 +13,8 @@ CREATE TABLE IF NOT EXISTS cards (
     answer TEXT NOT NULL,
     due_date TIMESTAMP NOT NULL,
     last_reviewed TIMESTAMP,
-    repetition_level INTEGER NOT NULL DEFAULT 0,
-    easiness_factor REAL NOT NULL DEFAULT 2.5,
+    interval INTEGER NOT NULL DEFAULT 0,
+    ease_factor REAL NOT NULL DEFAULT 2.5,
     FOREIGN KEY (user_id) REFERENCES users (id)
 );
 
@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS courses (
     path TEXT NOT NULL,
     content TEXT,
     type TEXT NOT NULL, -- 'file' or 'directory'
+    updated_at TIMESTAMP,
     UNIQUE (user_id, path),
     FOREIGN KEY (user_id) REFERENCES users (id)
 );
