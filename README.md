@@ -7,7 +7,9 @@
 - [ ] Blog
 - [ ] Ajouter tests + CI/CD
 - [ ] Revoir codebase et virer les trucs pour eviter usine a gaz
-- [ ] Voir comment backup localement la bdd / avoir un truc facile a spin avec un autre provider
+- [x] Voir comment backup localement la bdd / avoir un truc facile a spin avec un autre provider (script sont faits dans /utils, a demander tuto avec postgres)
+- [ ] Ajouter le bouton download dans /courses et pas seulement /courses-editor
+- [ ] Voir si sur mobile on peut avoir un plus joli preview de question / reponse pour les cartes
 
 
 # [(Bad) Anki](https://badanki.onrender.com/)
