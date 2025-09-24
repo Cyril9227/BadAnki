@@ -3,14 +3,14 @@
 
 - [x] Add positive feedback in the UI (mobile / Desktop) for actions : register, login, add secrets, add cards etc.
 - [x] Add basic security for users, not same username, strong password etc.
-- [ ] Check that when pple add secrets like telegram chat ID it is correctly added to database, currently can only find mine while i registered my other tg account
+- [x] Check that when pple add secrets like telegram chat ID it is correctly added to database, currently can only find mine while i registered my other tg account
 - [ ] Blog
 - [ ] Ajouter tests + CI/CD
 - [ ] Revoir codebase et virer les trucs pour eviter usine a gaz
 - [ ] Voir comment backup localement la bdd / avoir un truc facile a spin avec un autre provider
 
 
-# (Bad) Anki
+# [(Bad) Anki](https://badanki.onrender.com/)
 
 I'm often forgetting stuff when I solve maths problems for fun, so I thought it would be cool to vibe-code a personal knowledge management tool tailored to my needs, while also learning more about best software engineering practices, agentic coding, and (local) generative AI usage.
 
@@ -118,4 +118,5 @@ The application is designed to be deployed as a single web service on Render's f
 - Entirely vibe-coded without any kind of strong test suite / CI-CD pipeline, it's bound to break at some point lol
 - Rudimentary link between courses through tags
 - Local LLM call to generate cards *sometimes* bug because of weird JSON parsing, need to take a look / change default ollama model
+
 
