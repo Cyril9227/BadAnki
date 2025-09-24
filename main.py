@@ -168,7 +168,6 @@ class CourseContent(BaseModel):
 
 class CourseItem(BaseModel):
     path: str
-    type: str
 
 class GeneratedCard(BaseModel):
     question: str
@@ -329,7 +328,7 @@ async def api_keys_form(request: Request, user: User = Depends(get_current_activ
 @app.get("/secrets", response_class=HTMLResponse)
 async def secrets_form(request: Request, user: User = Depends(get_current_active_user)):
     csrf_token = generate_csrf_token(user['username'])
-    return templates.TemplateResponse("secrets.html", {"request": request, "secrets": user, "csrf_token": csrf_token})
+    return templates.TemplateResponse(request, "secrets.html", {"request": request, "secrets": user, "csrf_token": csrf_token})
 
 @app.post("/secrets", dependencies=[Depends(csrf_protect)])
 async def save_secrets(request: Request, user: User = Depends(get_current_active_user), telegram_chat_id: str = Form(None)):
@@ -475,10 +474,13 @@ async def api_save_course_content(item: CourseContent, conn: psycopg2.extensions
 
 @app.api_route("/api/course-item", methods=["POST", "DELETE"])
 async def api_manage_course_item(item: CourseItem, request: Request, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
+    # Infer type based on path extension
+    item_type = "file" if item.path.endswith(".md") else "folder"
+    
     if request.method == "POST":
-        crud.create_course_item_for_user(conn, item.path, item.type, user['id'])
+        crud.create_course_item_for_user(conn, item.path, item_type, user['id'])
     elif request.method == "DELETE":
-        crud.delete_course_item_for_user(conn, item.path, item.type, user['id'])
+        crud.delete_course_item_for_user(conn, item.path, item_type, user['id'])
     return {"success": True}
 
 @app.post("/api/generate-cards")
@@ -584,7 +586,7 @@ async def review(request: Request, conn: psycopg2.extensions.connection = Depend
     stats = crud.get_review_stats_for_user(conn, user['id'])
     
     if card is None:
-        return templates.TemplateResponse(request, "no_cards.html")
+        return templates.TemplateResponse(request, "no_cards.html", {"stats": stats})
 
     return templates.TemplateResponse(request, "review.html", {
         "card": card, 

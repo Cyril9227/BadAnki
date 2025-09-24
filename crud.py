@@ -156,13 +156,13 @@ def create_course_item_for_user(conn, path: str, item_type: str, user_id: int):
     try:
         if item_type == 'file':
             cursor.execute(
-                "INSERT INTO courses (path, content, user_id, type) VALUES (%s, %s, %s, 'file') ON CONFLICT (path, user_id) DO NOTHING",
+                "INSERT INTO courses (path, content, user_id) VALUES (%s, %s, %s) ON CONFLICT (path, user_id) DO NOTHING",
                 (path, "---\ntitle: New Course\ntags: \n---\n\n", user_id)
             )
         elif item_type == 'folder':
             placeholder_path = os.path.join(path, ".placeholder")
             cursor.execute(
-                "INSERT INTO courses (path, content, user_id, type) VALUES (%s, %s, %s, 'directory') ON CONFLICT (path, user_id) DO NOTHING",
+                "INSERT INTO courses (path, content, user_id) VALUES (%s, %s, %s) ON CONFLICT (path, user_id) DO NOTHING",
                 (placeholder_path, "This is a placeholder file.", user_id)
             )
         conn.commit()
