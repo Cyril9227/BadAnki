@@ -3,6 +3,7 @@
 
 - [x] Add positive feedback in the UI (mobile / Desktop) for actions : register, login, add secrets, add cards etc.
 - [x] Add basic security for users, not same username, strong password etc.
+- [ ] Check that when pple add secrets like telegram chat ID it is correctly added to database, currently can only find mine while i registered my other tg account
 - [ ] Blog
 - [ ] Ajouter tests + CI/CD
 - [ ] Revoir codebase et virer les trucs pour eviter usine a gaz
