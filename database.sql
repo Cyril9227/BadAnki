@@ -2,7 +2,10 @@
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     username TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL
+    password_hash TEXT NOT NULL,
+    telegram_chat_id TEXT,
+    gemini_api_key TEXT,
+    anthropic_api_key TEXT
 );
 
 -- Create the cards table
@@ -27,21 +30,5 @@ CREATE TABLE IF NOT EXISTS courses (
     type TEXT NOT NULL, -- 'file' or 'directory'
     updated_at TIMESTAMP,
     UNIQUE (user_id, path),
-    FOREIGN KEY (user_id) REFERENCES users (id)
-);
-
--- Create the user_api_keys table
-DROP TABLE IF EXISTS user_api_keys CASCADE;
-CREATE TABLE IF NOT EXISTS user_api_keys (
-    user_id INTEGER PRIMARY KEY,
-    gemini_api_key TEXT,
-    anthropic_api_key TEXT,
-    FOREIGN KEY (user_id) REFERENCES users (id)
-);
-
--- Create the user_secrets table
-CREATE TABLE IF NOT EXISTS user_secrets (
-    user_id INTEGER PRIMARY KEY,
-    telegram_chat_id TEXT,
     FOREIGN KEY (user_id) REFERENCES users (id)
 );

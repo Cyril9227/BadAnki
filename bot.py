@@ -13,7 +13,7 @@ from telegram.helpers import escape_markdown
 from telegram.constants import ParseMode
 from telegram.ext import Application, CommandHandler, ContextTypes
 from database import get_db_connection, release_db_connection
-from crud import get_random_card_for_user, get_user_by_username, verify_password, get_user_by_telegram_chat_id, update_telegram_chat_id
+from crud import get_random_card_for_user, get_user_by_username, verify_password, get_user_by_telegram_chat_id
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
