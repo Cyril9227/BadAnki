@@ -23,9 +23,7 @@ The workflow is basically:
 
 ## Key Features
 
-*   **Spaced Repetition System (SRS):** Utilizes an algorithm inspired by SM-2 to schedule card reviews at optimal intervals, maximizing memory retention.
-*   **Secure, Multi-User Core:** The application is built on a secure, token-based (JWT) authentication system, with isolated data for each user.
-*   **Course & Card Management:** Easily create, edit, delete or download courses and flashcards through an intuitive web interface.
+*   **Course & Card Management:** Easily create, edit, delete or download courses and flashcards through an intuitive web interface and fully responsive mobile UI.
 *   **Markdown & LaTeX Support:** Write or upload your course content and flashcards using Markdown for formatting and LaTeX for mathematical notation.
 *   **AI-Powered Card Generation:**
     *   **Multi-Provider Support:** Automatically generate flashcards from your course notes using multiple AI providers.
@@ -33,6 +31,8 @@ The workflow is basically:
         *   **Anthropic:** Use Anthropic's models for another source of AI-generated content.
         *   **Ollama (Local):** Generate cards offline using local language models like Llama 2.
     *   **Approval Workflow:** You can individually edit, delete, and approve each AI-generated card before saving them.
+*   **Spaced Repetition System (SRS):** Utilizes an algorithm inspired by SM-2 to schedule card reviews at optimal intervals, maximizing memory retention.
+*   **Secure, Multi-User Core:** The application is built on a secure, token-based (JWT) authentication system, with isolated data for each user.
 *   **Telegram Integration:** Receive daily review reminders via a dedicated Telegram bot. You can also interact with your saved cards with commands like `/random`.
 
 ## Core Technologies
@@ -41,7 +41,7 @@ The workflow is basically:
 *   **Frontend:** [Jinja2](https://jinja.palletsprojects.com/) Templates with [Bootstrap 5](https://getbootstrap.com/)
 *   **Database:** PostgreSQL (Production) / SQLite (Local)
 *   **Deployment:** [Render.com](https://render.com/) (Free Tier)
-*   **LLM Integration:** `google-generativeai`, `ollama`
+*   **LLM Integration:** `google-generativeai`, `anthropic`, `ollama`
 *   **Telegram Bot:** `python-telegram-bot`
 
 ## Project Structure
@@ -52,7 +52,6 @@ The workflow is basically:
 ├── crud.py             # Contains database create, read, update, and delete operations.
 ├── database.py         # Script to initialize the database schema.
 ├── scheduler.py        # Logic for sending daily review notifications.
-├── GEMINI.md           # Gemini session documentation.
 ├── requirements.txt    # Python dependencies.
 └── templates/          # Directory for all Jinja2 HTML templates.
     └── ...
@@ -119,3 +118,4 @@ The application is designed to be deployed as a single web service on Render's f
 - Entirely vibe-coded without any kind of strong test suite / CI-CD pipeline, it's bound to break at some point lol
 - Rudimentary link between courses through tags
 - Local LLM call to generate cards *sometimes* bug because of weird JSON parsing, need to take a look / change default ollama model
+
