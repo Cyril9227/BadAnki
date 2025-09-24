@@ -55,3 +55,7 @@ ollama
 passlib[bcrypt]
 python-jose[cryptography]
 anthropic
+pytest
+pytest-cov
+pytest-asyncio
+testcontainers

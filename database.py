@@ -1,5 +1,4 @@
 from dotenv import load_dotenv
-
 load_dotenv()
 
 import psycopg2
@@ -7,18 +6,20 @@ from psycopg2 import pool
 import os
 from datetime import datetime, timedelta
 
+
 # --- Database Configuration ---
 # This file handles all database operations
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
+
+
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL environment variable is not set.")
 
-# Create a connection pool
+
 db_pool = psycopg2.pool.SimpleConnectionPool(1, 20, dsn=DATABASE_URL)
 
 def get_db_connection():
-    """Gets a connection from the pool."""
     return db_pool.getconn()
 
 def release_db_connection(conn):
@@ -32,7 +33,8 @@ def create_database():
 
     # Read and execute the SQL file to create/update the schema
     with open('database.sql', 'r') as f:
-        cursor.execute(f.read())
+        sql_script = f.read()
+        cursor.execute(sql_script)
 
     # Do not insert sample data in production
     if os.environ.get("ENVIRONMENT") != "production":
@@ -47,7 +49,6 @@ def create_database():
                     datetime.now()
                 ),
             ]
-            # Use execute_values for efficient batch inserting with psycopg2
             from psycopg2 import extras
             extras.execute_values(
                 cursor,
