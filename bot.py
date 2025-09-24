@@ -15,18 +15,15 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 from database import get_db_connection, release_db_connection
 from crud import get_random_card_for_user, get_user_by_username, verify_password, get_user_by_telegram_chat_id, update_telegram_chat_id
 
-# --- Bot Configuration ---
-
-# Enable logging to see errors
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 
-# The URL of your FastAPI application
-# Change this to your public URL when you deploy
+# --- Configuration ---
+
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 APP_URL = os.environ.get("APP_URL", "http://127.0.0.1:8000")
 
 

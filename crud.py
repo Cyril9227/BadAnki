@@ -54,25 +54,24 @@ def create_user(conn, username: str, password: str):
 def get_user_by_telegram_chat_id(conn, chat_id: int):
     """Fetches a user by their Telegram chat ID."""
     cursor = conn.cursor(cursor_factory=extras.DictCursor)
-    cursor.execute("SELECT * FROM users WHERE telegram_chat_id = %s", (chat_id,))
+    
+    # First, get the user_id from the user_secrets table
+    cursor.execute("SELECT user_id FROM user_secrets WHERE telegram_chat_id = %s", (str(chat_id),))
+    secret = cursor.fetchone()
+    
+    if not secret:
+        cursor.close()
+        return None
+    
+    # Then, fetch the user using the user_id
+    user_id = secret['user_id']
+    cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
     user = cursor.fetchone()
+    
     cursor.close()
     return user
 
-def update_telegram_chat_id(conn, user_id: int, chat_id: int):
-    """Updates a user's Telegram chat ID."""
-    cursor = conn.cursor()
-    try:
-        cursor.execute(
-            "UPDATE users SET telegram_chat_id = %s WHERE id = %s",
-            (chat_id, user_id)
-        )
-        conn.commit()
-    except Exception as e:
-        conn.rollback()
-        raise e
-    finally:
-        cursor.close()
+
 
 # --- Course CRUD Functions ---
 
@@ -169,13 +168,13 @@ def create_course_item_for_user(conn, path: str, item_type: str, user_id: int):
     try:
         if item_type == 'file':
             cursor.execute(
-                "INSERT INTO courses (path, content, user_id) VALUES (%s, %s, %s) ON CONFLICT (path, user_id) DO NOTHING",
+                "INSERT INTO courses (path, content, user_id, type) VALUES (%s, %s, %s, 'file') ON CONFLICT (path, user_id) DO NOTHING",
                 (path, "---\ntitle: New Course\ntags: \n---\n\n", user_id)
             )
         elif item_type == 'folder':
             placeholder_path = os.path.join(path, ".placeholder")
             cursor.execute(
-                "INSERT INTO courses (path, content, user_id) VALUES (%s, %s, %s) ON CONFLICT (path, user_id) DO NOTHING",
+                "INSERT INTO courses (path, content, user_id, type) VALUES (%s, %s, %s, 'directory') ON CONFLICT (path, user_id) DO NOTHING",
                 (placeholder_path, "This is a placeholder file.", user_id)
             )
         conn.commit()
