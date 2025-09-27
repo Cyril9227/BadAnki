@@ -61,7 +61,10 @@
 {% block content %}
 <div class="d-flex flex-column flex-md-row justify-content-md-between align-items-md-center mb-3">
     <h1 class="course-title">{{ metadata.get('title', 'Untitled Course') }}</h1>
-    <a href="/edit-course/{{ request.path_params.course_path }}" class="btn btn-sm btn-primary edit-course-btn">Edit Course</a>
+    <div class="btn-group-vertical btn-group-sm" role="group" aria-label="Course Actions">
+        <a href="/edit-course/{{ request.path_params.course_path }}" class="btn btn-primary edit-course-btn">Edit Course</a>
+        <button type="button" id="download-btn" class="btn btn-info">Download File</button>
+    </div>
 </div>
 
     <!-- Tags as stylized buttons -->
@@ -115,6 +118,16 @@
         }).catch(error => {
             console.error("Error rendering course content:", error);
         });
+
+        const downloadBtn = document.getElementById('download-btn');
+        if(downloadBtn) {
+            downloadBtn.addEventListener('click', function() {
+                const coursePath = "{{ request.path_params.course_path }}";
+                if (coursePath) {
+                    window.location.href = `/api/download-course/${coursePath}`;
+                }
+            });
+        }
     });
 </script>
 {% endblock %}
