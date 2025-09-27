@@ -6,7 +6,6 @@ import json
 import logging
 import os
 import secrets
-from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 
 # Third-party
@@ -28,7 +27,7 @@ import crud
 from bot import setup_bot
 from database import get_db_connection, release_db_connection
 from scheduler import run_scheduler
-from utils.json_parsing import normalize_cards, robust_json_loads
+from utils.parsing import normalize_cards, robust_json_loads, sanitize_tags
 
 
 # --- JWT Configuration ---
@@ -51,55 +50,9 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
-logger = logging.getLogger(__name__)
-
-# --- App Lifespan ---
-async def start_bot_app(app: FastAPI):
-    """Initializes and starts the Telegram bot."""
-    bot_app = setup_bot()
-    if bot_app:
-        try:
-            await bot_app.initialize()
-            await bot_app.start()
-            app.state.bot_app = bot_app
-            if os.environ.get("ENVIRONMENT") == "production":
-                webhook_secret = TELEGRAM_WEBHOOK_SECRET
-                if not webhook_secret:
-                    logger.warning("TELEGRAM_WEBHOOK_SECRET not set for production.")
-                webhook_url = f"{os.environ.get('APP_URL')}/webhook/{webhook_secret}"
-                await bot_app.bot.set_webhook(url=webhook_url)
-                logger.info(f"Webhook set to: {webhook_url}")
-            else:
-                logger.info("Starting bot in polling mode for local development.")
-                if hasattr(bot_app, 'updater') and bot_app.updater:
-                    await bot_app.updater.start_polling()
-        except Exception as e:
-            logger.error(f"CRITICAL ERROR during bot startup: {e}", exc_info=True)
-
-async def stop_bot_app(app: FastAPI):
-    """Stops the Telegram bot gracefully."""
-    bot_app = app.state.bot_app
-    if bot_app:
-        if os.environ.get("ENVIRONMENT") == "production":
-            logger.info("Deleting webhook.")
-            await bot_app.bot.delete_webhook()
-        else:
-            logger.info("Stopping bot polling.")
-            if hasattr(bot_app, 'updater') and bot_app.updater:
-                await bot_app.updater.stop()
-        await bot_app.stop()
-        logger.info("Bot application shut down.")
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Manages the bot application's lifecycle."""
-    await start_bot_app(app)
-    yield
-    await stop_bot_app(app)
-
 
 # --- FastAPI App ---
-app = FastAPI(lifespan=lifespan)
+app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
 # --- App State ---
@@ -107,7 +60,62 @@ templates = Jinja2Templates(directory="templates")
 # across the application's lifecycle without using a global variable.
 # This is a cleaner and more robust approach for managing shared resources.
 app.state.bot_app = None
+logger = logging.getLogger(__name__)
 
+# --- App Events ---
+@app.on_event("startup")
+async def startup_event():
+    """
+    Initializes the bot application on startup and sets the webhook.
+    Using the app state is crucial for robust Gunicorn deployments.
+    """
+    bot_app = setup_bot()
+    if bot_app:
+        try:
+            await bot_app.initialize()
+            await bot_app.start()
+            
+            # Store the bot_app instance in the app's state
+            app.state.bot_app = bot_app
+            
+            # In production, set the webhook
+            if os.environ.get("ENVIRONMENT") == "production":
+                webhook_secret = TELEGRAM_WEBHOOK_SECRET
+                if not webhook_secret:
+                    logger.warning("TELEGRAM_WEBHOOK_SECRET not set. Please set this for production.")
+
+                webhook_url = f"{os.environ.get('APP_URL')}/webhook/{webhook_secret}"
+                logger.info(f"Attempting to set webhook to: {webhook_url}")
+                await bot_app.bot.set_webhook(url=webhook_url)
+                logger.info("Webhook set successfully.")
+            # In development, start polling
+            else:
+                logger.info("Starting bot in polling mode for local development.")
+                # Make sure updater is available
+                if hasattr(bot_app, 'updater') and bot_app.updater:
+                    await bot_app.updater.start_polling()
+                    logger.info("Bot started polling.")
+                else:
+                    logger.error("Bot updater not available for polling.")
+        except Exception as e:
+            logger.error(f"CRITICAL ERROR during bot startup: {e}", exc_info=True)
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    bot_app = app.state.bot_app
+    if bot_app:
+        # In production, delete the webhook
+        if os.environ.get("ENVIRONMENT") == "production":
+            logger.info("Deleting webhook.")
+            await bot_app.bot.delete_webhook()
+            logger.info("Webhook deleted.")
+        # In development, stop the polling
+        else:
+            logger.info("Stopping bot polling.")
+            if hasattr(bot_app, 'updater') and bot_app.updater:
+                await bot_app.updater.stop()
+                logger.info("Bot polling stopped.")
+        await bot_app.stop()
 
 # --- Webhook Endpoint ---
 @app.post("/webhook/{secret}")
@@ -168,6 +176,7 @@ class CourseContent(BaseModel):
 
 class CourseItem(BaseModel):
     path: str
+    type: str
 
 class GeneratedCard(BaseModel):
     question: str
@@ -323,12 +332,12 @@ def generate_cards(text: str, mode="gemini", api_key: str = None) -> list[dict]:
 
 @app.get("/api-keys", response_class=HTMLResponse)
 async def api_keys_form(request: Request, user: User = Depends(get_current_active_user)):
-    return templates.TemplateResponse(request, "api_keys.html", {"api_keys": request.state.api_keys})
+    return templates.TemplateResponse("api_keys.html", {"request": request, "api_keys": request.state.api_keys})
 
 @app.get("/secrets", response_class=HTMLResponse)
 async def secrets_form(request: Request, user: User = Depends(get_current_active_user)):
     csrf_token = generate_csrf_token(user['username'])
-    return templates.TemplateResponse(request, "secrets.html", {"request": request, "secrets": user, "csrf_token": csrf_token})
+    return templates.TemplateResponse("secrets.html", {"request": request, "secrets": user, "csrf_token": csrf_token})
 
 @app.post("/secrets", dependencies=[Depends(csrf_protect)])
 async def save_secrets(request: Request, user: User = Depends(get_current_active_user), telegram_chat_id: str = Form(None)):
@@ -347,13 +356,13 @@ TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME")
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_form(request: Request):
-    return templates.TemplateResponse(request, "login.html")
+    return templates.TemplateResponse("login.html", {"request": request})
 
 @app.post("/login")
 async def login_for_access_token(request: Request, response: Response, form_data: OAuth2PasswordRequestForm = Depends(), conn: psycopg2.extensions.connection = Depends(get_db)):
     user = crud.get_user_by_username(conn, form_data.username)
     if not user or not crud.verify_password(form_data.password, user['password_hash']):
-        return templates.TemplateResponse(request, "login.html", {"error": "Incorrect username or password"})
+        return templates.TemplateResponse("login.html", {"request": request, "error": "Incorrect username or password"})
         
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
@@ -371,20 +380,20 @@ async def logout(response: Response):
 
 @app.get("/register", response_class=HTMLResponse)
 async def register_form(request: Request, error: str = None):
-    return templates.TemplateResponse(request, "register.html", {"error": error})
+    return templates.TemplateResponse("register.html", {"request": request, "error": error})
 
 @app.post("/register")
 async def register_user(request: Request, username: str = Form(...), password: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db)):
     # Username validation
     user = crud.get_user_by_username(conn, username)
     if user:
-        return templates.TemplateResponse(request, "register.html", {"error": "Username already registered"})
+        return templates.TemplateResponse("register.html", {"request": request, "error": "Username already registered"})
 
     # Password validation
     if len(password) < 8:
-        return templates.TemplateResponse(request, "register.html", {"error": "Password must be at least 8 characters long"})
+        return templates.TemplateResponse("register.html", {"request": request, "error": "Password must be at least 8 characters long"})
     if not any(char.isdigit() for char in password):
-        return templates.TemplateResponse(request, "register.html", {"error": "Password must contain at least one number"})
+        return templates.TemplateResponse("register.html", {"request": request, "error": "Password must contain at least one number"})
 
     crud.create_user(conn, username, password)
     response = RedirectResponse(url="/login", status_code=303)
@@ -400,11 +409,11 @@ async def health_check():
 
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
-    return templates.TemplateResponse(request, "home.html", {"telegram_bot_username": TELEGRAM_BOT_USERNAME})
+    return templates.TemplateResponse("home.html", {"request": request, "telegram_bot_username": TELEGRAM_BOT_USERNAME})
 
 @app.get("/courses", response_class=HTMLResponse)
 async def list_courses(request: Request, user: User = Depends(get_current_active_user)):
-    return templates.TemplateResponse(request, "courses_list.html")
+    return templates.TemplateResponse("courses_list.html", {"request": request})
 
 @app.get("/edit-course/{course_path:path}", response_class=HTMLResponse)
 async def edit_course(request: Request, course_path: str, user: User = Depends(get_current_active_user)):
@@ -416,7 +425,8 @@ async def edit_course(request: Request, course_path: str, user: User = Depends(g
         if request.state.api_keys.get('anthropic_api_key'):
             anthropic_api_key_exists = True
     
-    return templates.TemplateResponse(request, "course_editor.html", {
+    return templates.TemplateResponse("course_editor.html", {
+        "request": request, 
         "course_path": course_path,
         "gemini_api_key_exists": gemini_api_key_exists,
         "anthropic_api_key_exists": anthropic_api_key_exists
@@ -426,7 +436,7 @@ async def edit_course(request: Request, course_path: str, user: User = Depends(g
 async def view_course(request: Request, course_path: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     course = crud.get_course_content_for_user(conn, course_path, user['id'])
     if not course or not course['content']:
-        raise HTTPException(status_code=44, detail="Course not found")
+        raise HTTPException(status_code=404, detail="Course not found")
     
     content = course['content']
     try:
@@ -435,7 +445,11 @@ async def view_course(request: Request, course_path: str, conn: psycopg2.extensi
         pass
 
     post = frontmatter.loads(content)
-    return templates.TemplateResponse(request, "course_viewer.html", {"metadata": post.metadata, "content": post.content, "course_path": course_path})
+
+    if 'tags' in post.metadata: 
+        post.metadata['tags'] = sanitize_tags(post.metadata['tags'])
+
+    return templates.TemplateResponse("course_viewer.html", {"request": request, "metadata": post.metadata, "content": post.content, "course_path": course_path})
 
 # --- API for Courses ---
 @app.get("/api/courses-tree")
@@ -474,13 +488,10 @@ async def api_save_course_content(item: CourseContent, conn: psycopg2.extensions
 
 @app.api_route("/api/course-item", methods=["POST", "DELETE"])
 async def api_manage_course_item(item: CourseItem, request: Request, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    # Infer type based on path extension
-    item_type = "file" if item.path.endswith(".md") else "folder"
-    
     if request.method == "POST":
-        crud.create_course_item_for_user(conn, item.path, item_type, user['id'])
+        crud.create_course_item_for_user(conn, item.path, item.type, user['id'])
     elif request.method == "DELETE":
-        crud.delete_course_item_for_user(conn, item.path, item_type, user['id'])
+        crud.delete_course_item_for_user(conn, item.path, item.type, user['id'])
     return {"success": True}
 
 @app.post("/api/generate-cards")
@@ -552,7 +563,7 @@ async def trigger_scheduler(secret: str):
     return JSONResponse(content={"status": "completed", "result": result})
 
 @app.get("/api/restart-bot")
-async def restart_bot(request: Request, secret: str):
+async def restart_bot(secret: str):
     """A secret-protected endpoint to manually restart the bot."""
     if secret != BOT_RESTART_SECRET:
         raise HTTPException(status_code=403, detail="Invalid secret")
@@ -560,12 +571,12 @@ async def restart_bot(request: Request, secret: str):
     logger.info("Manual bot restart triggered.")
     
     # First, shut down the existing bot gracefully
-    await stop_bot_app(request.app)
+    await shutdown_event()
     logger.info("Existing bot instance shut down.")
     
     # Now, start a new bot instance
     try:
-        await start_bot_app(request.app)
+        await startup_event()
         logger.info("New bot instance started successfully.")
         return JSONResponse(content={"status": "completed", "message": "Bot restarted successfully."})
     except Exception as e:
@@ -578,7 +589,7 @@ async def view_card(request: Request, card_id: int, conn: psycopg2.extensions.co
     card = crud.get_card_for_user(conn, card_id, user['id'])
     if card is None:
         raise HTTPException(status_code=404, detail="Card not found")
-    return templates.TemplateResponse(request, "card_viewer.html", {"card": card})
+    return templates.TemplateResponse("card_viewer.html", {"request": request, "card": card})
 
 @app.get("/review", response_class=HTMLResponse)
 async def review(request: Request, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
@@ -586,9 +597,10 @@ async def review(request: Request, conn: psycopg2.extensions.connection = Depend
     stats = crud.get_review_stats_for_user(conn, user['id'])
     
     if card is None:
-        return templates.TemplateResponse(request, "no_cards.html", {"stats": stats})
+        return templates.TemplateResponse("no_cards.html", {"request": request})
 
-    return templates.TemplateResponse(request, "review.html", {
+    return templates.TemplateResponse("review.html", {
+        "request": request, 
         "card": card, 
         "due_today_count": stats['due_today'], 
         "new_cards_count": stats['new_cards'], 
@@ -603,11 +615,11 @@ async def update_review(card_id: int, status: str = Form(...), conn: psycopg2.ex
 @app.get("/manage", response_class=HTMLResponse)
 async def manage_cards(request: Request, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     cards = crud.get_all_cards_for_user(conn, user['id'])
-    return templates.TemplateResponse(request, "manage_cards.html", {"cards": cards})
+    return templates.TemplateResponse("manage_cards.html", {"request": request, "cards": cards})
 
 @app.get("/new", response_class=HTMLResponse)
 async def new_card_form(request: Request, user: User = Depends(get_current_active_user)):
-    return templates.TemplateResponse(request, "new_card.html")
+    return templates.TemplateResponse("new_card.html", {"request": request})
 
 @app.post("/new")
 async def create_new_card(question: str = Form(...), answer: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
@@ -621,7 +633,7 @@ async def edit_card_form(request: Request, card_id: int, conn: psycopg2.extensio
     card = crud.get_card_for_user(conn, card_id, user['id'])
     if card is None:
         raise HTTPException(status_code=404, detail="Card not found")
-    return templates.TemplateResponse(request, "edit_card.html", {"card": card})
+    return templates.TemplateResponse("edit_card.html", {"request": request, "card": card})
 
 @app.post("/edit-card/{card_id}")
 async def update_existing_card(card_id: int, question: str = Form(...), answer: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):

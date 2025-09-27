@@ -7,6 +7,7 @@ import frontmatter
 from datetime import datetime, timedelta
 from psycopg2 import extras
 from passlib.context import CryptContext
+from utils.parsing import sanitize_tags
 
 # --- Spaced Repetition Constants ---
 EASE_FACTOR_MODIFIER = 0.1
@@ -18,10 +19,10 @@ INITIAL_INTERVAL = 1
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
+    return pwd_context.verify(plain_password[:72], hashed_password)
 
 def get_password_hash(password):
-    return pwd_context.hash(password)
+    return pwd_context.hash(password[:72])
 
 # --- User CRUD Functions ---
 
@@ -198,12 +199,7 @@ def get_all_tags_for_user(conn, user_id: int):
     for course in courses:
         try:
             post = frontmatter.loads(course['content'])
-            tags = post.metadata.get('tags')
-            if isinstance(tags, list):
-                all_tags.update(tags)
-            elif isinstance(tags, str):
-                # Split string by comma and strip whitespace
-                all_tags.update([tag.strip() for tag in tags.split(',')])
+            all_tags.update(sanitize_tags(post.metadata.get('tags')))
         except Exception:
             # Ignore content that can't be parsed
             continue
@@ -221,16 +217,8 @@ def get_courses_by_tag_for_user(conn, tag: str, user_id: int):
     for course in courses:
         try:
             post = frontmatter.loads(course['content'])
-            tags = post.metadata.get('tags')
-            
-            # Normalize tags to a list of strings
-            tag_list = []
-            if isinstance(tags, list):
-                tag_list = [str(t).strip() for t in tags]
-            elif isinstance(tags, str):
-                tag_list = [t.strip() for t in tags.split(',')]
-
-            if tag in tag_list:
+            tag_list = sanitize_tags(post.metadata.get('tags'))
+            if tag.lower() in tag_list:
                 course_info = {
                     'path': course['path'],
                     'title': post.metadata.get('title', os.path.basename(course['path']).replace('.md', ''))
