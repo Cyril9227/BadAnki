@@ -445,6 +445,19 @@ async def view_course(request: Request, course_path: str, conn: psycopg2.extensi
         pass
 
     post = frontmatter.loads(content)
+
+    # Normalize tags to remove duplicates and handle different formats
+    if 'tags' in post.metadata:
+        tags = post.metadata['tags']
+        tag_list = []
+        if isinstance(tags, list):
+            tag_list = [str(t).strip().lower() for t in tags]
+        elif isinstance(tags, str):
+            tag_list = [t.strip().lower() for t in tags.split(',')]
+        
+        # Remove duplicates by converting to a set and back to a list
+        post.metadata['tags'] = sorted(list(set(tag_list)))
+
     return templates.TemplateResponse("course_viewer.html", {"request": request, "metadata": post.metadata, "content": post.content, "course_path": course_path})
 
 # --- API for Courses ---

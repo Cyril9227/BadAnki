@@ -200,10 +200,10 @@ def get_all_tags_for_user(conn, user_id: int):
             post = frontmatter.loads(course['content'])
             tags = post.metadata.get('tags')
             if isinstance(tags, list):
-                all_tags.update(tags)
+                all_tags.update([str(tag).strip().lower() for tag in tags])
             elif isinstance(tags, str):
                 # Split string by comma and strip whitespace
-                all_tags.update([tag.strip() for tag in tags.split(',')])
+                all_tags.update([tag.strip().lower() for tag in tags.split(',')])
         except Exception:
             # Ignore content that can't be parsed
             continue
@@ -226,11 +226,11 @@ def get_courses_by_tag_for_user(conn, tag: str, user_id: int):
             # Normalize tags to a list of strings
             tag_list = []
             if isinstance(tags, list):
-                tag_list = [str(t).strip() for t in tags]
+                tag_list = [str(t).strip().lower() for t in tags]
             elif isinstance(tags, str):
-                tag_list = [t.strip() for t in tags.split(',')]
+                tag_list = [t.strip().lower() for t in tags.split(',')]
 
-            if tag in tag_list:
+            if tag.lower() in tag_list:
                 course_info = {
                     'path': course['path'],
                     'title': post.metadata.get('title', os.path.basename(course['path']).replace('.md', ''))
