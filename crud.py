@@ -217,15 +217,7 @@ def get_courses_by_tag_for_user(conn, tag: str, user_id: int):
     for course in courses:
         try:
             post = frontmatter.loads(course['content'])
-            tags = post.metadata.get('tags')
-            
-            # Normalize tags to a list of strings
-            tag_list = []
-            if isinstance(tags, list):
-                tag_list = [str(t).strip().lower() for t in tags]
-            elif isinstance(tags, str):
-                tag_list = [t.strip().lower() for t in tags.split(',')]
-
+            tag_list = sanitize_tags(post.metadata.get('tags'))
             if tag.lower() in tag_list:
                 course_info = {
                     'path': course['path'],
