@@ -27,7 +27,7 @@ import crud
 from bot import setup_bot
 from database import get_db_connection, release_db_connection
 from scheduler import run_scheduler
-from utils.json_parsing import normalize_cards, robust_json_loads
+from utils.parsing import normalize_cards, robust_json_loads
 
 
 # --- JWT Configuration ---
