@@ -7,6 +7,7 @@ import frontmatter
 from datetime import datetime, timedelta
 from psycopg2 import extras
 from passlib.context import CryptContext
+from utils.parsing import sanitize_tags
 
 # --- Spaced Repetition Constants ---
 EASE_FACTOR_MODIFIER = 0.1
@@ -198,12 +199,7 @@ def get_all_tags_for_user(conn, user_id: int):
     for course in courses:
         try:
             post = frontmatter.loads(course['content'])
-            tags = post.metadata.get('tags')
-            if isinstance(tags, list):
-                all_tags.update([str(tag).strip().lower() for tag in tags])
-            elif isinstance(tags, str):
-                # Split string by comma and strip whitespace
-                all_tags.update([tag.strip().lower() for tag in tags.split(',')])
+            all_tags.update(sanitize_tags(post.metadata.get('tags')))
         except Exception:
             # Ignore content that can't be parsed
             continue
