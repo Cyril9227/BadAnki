@@ -249,7 +249,7 @@ def test_create_and_list_course_file(client):
     auth_client = authenticate_client(client, "coursetest2", "password123")
     
     # Create a file
-    response_create = auth_client.post("/api/course-item", json={"path": "test.md"})
+    response_create = auth_client.post("/api/course-item", json={"path": "test.md", "type": "file"})
     assert response_create.status_code == 200
     assert response_create.json() == {"success": True}
 
@@ -266,7 +266,7 @@ def test_create_and_list_course_folder(client):
     auth_client = authenticate_client(client, "coursetest3", "password123")
     
     # Create a folder
-    response_create = auth_client.post("/api/course-item", json={"path": "my_folder"})
+    response_create = auth_client.post("/api/course-item", json={"path": "my_folder", "type": "directory"})
     assert response_create.status_code == 200
     assert response_create.json() == {"success": True}
 
@@ -281,10 +281,10 @@ def test_create_and_list_course_folder(client):
 
 def test_delete_course_file(client):
     auth_client = authenticate_client(client, "coursetest4", "password123")
-    auth_client.post("/api/course-item", json={"path": "test_to_delete.md"})
+    auth_client.post("/api/course-item", json={"path": "test_to_delete.md", "type": "file"})
 
     # Delete the file
-    response_delete = auth_client.request("DELETE", "/api/course-item", json={"path": "test_to_delete.md"})
+    response_delete = auth_client.request("DELETE", "/api/course-item", json={"path": "test_to_delete.md", "type": "file"})
     assert response_delete.status_code == 200
     assert response_delete.json() == {"success": True}
 
@@ -295,10 +295,10 @@ def test_delete_course_file(client):
 
 def test_delete_course_folder(client):
     auth_client = authenticate_client(client, "coursetest5", "password123")
-    auth_client.post("/api/course-item", json={"path": "folder_to_delete"})
+    auth_client.post("/api/course-item", json={"path": "folder_to_delete", "type": "directory"})
 
     # Delete the folder
-    response_delete = auth_client.request("DELETE", "/api/course-item", json={"path": "folder_to_delete"})
+    response_delete = auth_client.request("DELETE", "/api/course-item", json={"path": "folder_to_delete", "type": "directory"})
     assert response_delete.status_code == 200
     assert response_delete.json() == {"success": True}
 
