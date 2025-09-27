@@ -333,7 +333,11 @@ async def api_keys_form(request: Request, user: User = Depends(get_current_activ
 @app.get("/secrets", response_class=HTMLResponse)
 async def secrets_form(request: Request, user: User = Depends(get_current_active_user)):
     csrf_token = generate_csrf_token(user['username'])
-    return templates.TemplateResponse(request, "secrets.html", {"secrets": user, "csrf_token": csrf_token})
+    return templates.TemplateResponse(request, "secrets.html", {
+        "secrets": user, 
+        "csrf_token": csrf_token,
+        "telegram_bot_username": TELEGRAM_BOT_USERNAME
+    })
 
 @app.post("/secrets", dependencies=[Depends(csrf_protect)])
 async def save_secrets(request: Request, user: User = Depends(get_current_active_user), telegram_chat_id: str = Form(None)):
