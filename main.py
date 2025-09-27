@@ -27,7 +27,7 @@ import crud
 from bot import setup_bot
 from database import get_db_connection, release_db_connection
 from scheduler import run_scheduler
-from utils.json_parsing import normalize_cards, robust_json_loads
+from utils.parsing import normalize_cards, robust_json_loads, sanitize_tags
 
 
 # --- JWT Configuration ---
@@ -445,6 +445,10 @@ async def view_course(request: Request, course_path: str, conn: psycopg2.extensi
         pass
 
     post = frontmatter.loads(content)
+
+    if 'tags' in post.metadata: 
+        post.metadata['tags'] = sanitize_tags(post.metadata['tags'])
+
     return templates.TemplateResponse("course_viewer.html", {"request": request, "metadata": post.metadata, "content": post.content, "course_path": course_path})
 
 # --- API for Courses ---
