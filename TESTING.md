@@ -6,14 +6,37 @@ This document outlines the testing strategy for the Anki Clone application. The 
 
 MAKE SURE TO NEVER, EVER INTERACT WITH PRODUCTION DATABASE. EVERYTHING MUST BE HANDLED WITH `from testcontainers.postgres import PostgresContainer`
 
-Database Schema Inconsistencies
-Your database schema in database.sql has different field names than what your CRUD functions expect. For example:
+The production database and the code interacting with it seems out of sync. Need to adapt the code and tests to reflect the state of production database : 
 
-CRUD expects ease_factor but schema has easiness_factor
-CRUD expects interval but schema has repetition_level
-Missing fields like telegram_chat_id in users table, updated_at in courses table
 
-Remove every mention of sqlite for testing in database.py
+badiankidb=> \dt
+               List of relations
+ Schema |    Name     | Type  |      Owner
+--------+-------------+-------+-----------------
+ public | cards       | table | badiankidb_user
+ public | course_tags | table | badiankidb_user
+ public | courses     | table | badiankidb_user
+ public | tags        | table | badiankidb_user
+ public | users       | table | badiankidb_user
+
+
+
+ badiankidb=> \d courses
+                                        Table "public.courses"
+   Column   |            Type             | Collation | Nullable |               Default
+------------+-----------------------------+-----------+----------+-------------------------------------
+ id         | integer                     |           | not null | nextval('courses_id_seq'::regclass)
+ user_id    | integer                     |           | not null |
+ path       | text                        |           | not null |
+ content    | text                        |           |          |
+ updated_at | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+Indexes:
+    "courses_pkey" PRIMARY KEY, btree (id)
+    "courses_user_id_path_key" UNIQUE CONSTRAINT, btree (user_id, path)
+Foreign-key constraints:
+    "courses_user_id_fkey" FOREIGN KEY (user_id) REFERENCES users(id)
+
+
 
 
 ## 1. API Endpoint Tests (Integration Tests)
@@ -86,3 +109,26 @@ These tests will focus on the functions in `crud.py`. We will mock the database 
 
 -   [ ] `get_users_with_due_cards`: Test that the function correctly identifies users with due cards.
 -   [ ] `run_scheduler`: Test the main scheduler logic (mocking the Telegram Bot).
+
+## 6. Debugging Session (2025-09-26)
+
+### Progress
+1.  **Initial `KeyError: 0` Failures:** The initial test run showed a large number of failures with `KeyError: 0`. This was diagnosed as a mismatch between the database cursor configuration in the test environment and the application code. The tests were using `RealDictCursor` (returning dictionary-like rows) while the application code in `crud.py` sometimes expected tuples.
+2.  **Cursor Correction:** The issue was resolved by removing the global `cursor_factory` from the `db_conn` fixture in `tests/test_api.py` and instead explicitly using `cursor_factory=DictCursor` within the specific test functions and helpers that required dictionary-style access to database rows.
+3.  **Spaced Repetition Logic:** Corrected a bug in the `update_card_for_user` function in `crud.py` where the `due_date` was not being correctly calculated, causing the `test_update_review_status` to fail.
+4.  **Deprecation Warnings:** Fixed several `DeprecationWarning`s in `main.py` related to the `TemplateResponse` signature, ensuring the `request` object is passed as the first parameter.
+
+### Remaining Challenges
+After fixing the initial issues, a new set of failures appeared:
+
+1.  **`psycopg2.errors.ForeignKeyViolation`:** Multiple tests related to creating courses and cards are failing because the `user_id` is not being correctly passed to the `INSERT` statements. This points to an underlying issue where the `user` object, retrieved from the request state, is likely a tuple instead of a dictionary-like object, causing `user['id']` to fail.
+    -   **Next Step:** The highest priority is to ensure that all `crud.py` functions that fetch user data return dictionary-like rows. This involves adding `cursor_factory=extras.DictCursor` to every `conn.cursor()` call in `crud.py` where data is being read.
+
+2.  **`TypeError: tuple indices must be integers or slices, not str`:** This occurs in `test_save_api_keys` and `test_save_secrets`. It's a direct symptom of the same problem causing the foreign key violations. The code is attempting to access `user['id']` on a tuple.
+    -   **Next Step:** This will be resolved by the same fix mentioned above.
+
+3.  **`AssertionError` in `test_update_card` and `test_delete_card`:** These tests are failing because the database state after the update/delete operation is not what the test expects. This is likely a side effect of the inconsistent `user` object and cursor issues.
+    -   **Next Step:** After fixing the primary cursor issue in `crud.py`, these tests should be re-run and re-evaluated. The fix might resolve them automatically.
+
+4.  **`AssertionError` in `test_get_review_page_with_due_card`:** The test fails because the expected question text ("Review Q") is not found in the HTML response. This could be due to the card not being created correctly (due to the foreign key issue) or a problem with how the review page template is rendering the data.
+    -   **Next Step:** Investigate after the foreign key violation is fixed.
