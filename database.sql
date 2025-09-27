@@ -27,7 +27,6 @@ CREATE TABLE IF NOT EXISTS courses (
     user_id INTEGER NOT NULL,
     path TEXT NOT NULL,
     content TEXT,
-    type TEXT NOT NULL, -- 'file' or 'directory'
     updated_at TIMESTAMP,
     UNIQUE (user_id, path),
     FOREIGN KEY (user_id) REFERENCES users (id)
