@@ -1,29 +1,51 @@
+import os
+import psycopg2.pool
+from psycopg2.extensions import connection
 from dotenv import load_dotenv
 
 load_dotenv()
 
-import psycopg2
-from psycopg2 import pool
-import os
-from datetime import datetime, timedelta
+# --- Database Connection Pool ---
+# We use a connection pool to manage database connections efficiently.
+# The pool is initialized lazily to avoid connection issues during app startup
+# or in test environments where the DATABASE_URL might not be immediately available.
 
-# --- Database Configuration ---
-# This file handles all database operations
+db_pool = None
 
-DATABASE_URL = os.environ.get("DATABASE_URL")
-if not DATABASE_URL:
-    raise ValueError("DATABASE_URL environment variable is not set.")
+def get_db_pool():
+    """Initializes and returns the database connection pool."""
+    global db_pool
+    if db_pool is None:
+        DATABASE_URL = os.environ.get("DATABASE_URL")
+        if not DATABASE_URL:
+            raise ValueError("DATABASE_URL environment variable is not set.")
+        
+        # In a test environment, we might need a smaller pool
+        min_conn = 1 if os.environ.get("ENVIRONMENT") == "test" else 5
+        max_conn = 2 if os.environ.get("ENVIRONMENT") == "test" else 20
+        
+        db_pool = psycopg2.pool.SimpleConnectionPool(
+            min_conn, 
+            max_conn, 
+            dsn=DATABASE_URL
+        )
+    return db_pool
 
-# Create a connection pool
-db_pool = psycopg2.pool.SimpleConnectionPool(1, 20, dsn=DATABASE_URL)
-
-def get_db_connection():
+def get_db_connection() -> connection:
     """Gets a connection from the pool."""
-    return db_pool.getconn()
+    return get_db_pool().getconn()
 
-def release_db_connection(conn):
+def release_db_connection(conn: connection):
     """Releases a connection back to the pool."""
-    db_pool.putconn(conn)
+    get_db_pool().putconn(conn)
+
+def close_db_pool():
+    """Closes all connections in the pool."""
+    global db_pool
+    if db_pool:
+        db_pool.closeall()
+        db_pool = None
+        print("Database connection pool closed.")
 
 def create_database():
     """Creates and updates the database schema by executing the database.sql file."""
@@ -32,7 +54,8 @@ def create_database():
 
     # Read and execute the SQL file to create/update the schema
     with open('database.sql', 'r') as f:
-        cursor.execute(f.read())
+        sql_script = f.read()
+        cursor.execute(sql_script)
 
     # Do not insert sample data in production
     if os.environ.get("ENVIRONMENT") != "production":
@@ -47,7 +70,6 @@ def create_database():
                     datetime.now()
                 ),
             ]
-            # Use execute_values for efficient batch inserting with psycopg2
             from psycopg2 import extras
             extras.execute_values(
                 cursor,
