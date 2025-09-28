@@ -5,11 +5,11 @@
 - [x] Add basic security for users, not same username, strong password etc.
 - [x] Check that when pple add secrets like telegram chat ID it is correctly added to database, currently can only find mine while i registered my other tg account
 - [ ] Blog
-- [ ] Ajouter tests + CI/CD
+- [x] Ajouter tests + CI/CD
 - [ ] Revoir codebase et virer les trucs pour eviter usine a gaz
 - [x] Voir comment backup localement la bdd / avoir un truc facile a spin avec un autre provider (script sont faits dans /utils, a demander tuto avec postgres)
-- [ ] Ajouter le bouton download dans /courses et pas seulement /courses-editor
-- [ ] Voir si sur mobile on peut avoir un plus joli preview de question / reponse pour les cartes
+- [x] Ajouter le bouton download dans /courses et pas seulement /courses-editor
+- [x] Voir si sur mobile on peut avoir un plus joli preview de question / reponse pour les cartes
 
 
 # [(Bad) Anki](https://badanki.onrender.com/)
@@ -120,5 +120,6 @@ The application is designed to be deployed as a single web service on Render's f
 - Entirely vibe-coded without any kind of strong test suite / CI-CD pipeline, it's bound to break at some point lol
 - Rudimentary link between courses through tags
 - Local LLM call to generate cards *sometimes* bug because of weird JSON parsing, need to take a look / change default ollama model
+
 
 
