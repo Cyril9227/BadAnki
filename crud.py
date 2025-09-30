@@ -160,7 +160,7 @@ def create_course_item_for_user(conn, path: str, item_type: str, user_id: int):
                 "INSERT INTO courses (path, content, user_id) VALUES (%s, %s, %s) ON CONFLICT (path, user_id) DO NOTHING",
                 (path, "---\ntitle: New Course\ntags: \n---\n\n", user_id)
             )
-        elif item_type == 'directory':
+        elif item_type in ['directory', 'folder']:
             placeholder_path = os.path.join(path, ".placeholder")
             cursor.execute(
                 "INSERT INTO courses (path, content, user_id) VALUES (%s, %s, %s) ON CONFLICT (path, user_id) DO NOTHING",
@@ -178,7 +178,7 @@ def delete_course_item_for_user(conn, path: str, item_type: str, user_id: int):
     try:
         if item_type == 'file':
             cursor.execute("DELETE FROM courses WHERE path = %s AND user_id = %s", (path, user_id))
-        elif item_type == 'directory':
+        elif item_type in ['directory', 'folder']:
             placeholder_path = os.path.join(path, ".placeholder")
             cursor.execute("DELETE FROM courses WHERE (path = %s OR path LIKE %s) AND user_id = %s", (placeholder_path, f"{path}/%", user_id))
         conn.commit()
