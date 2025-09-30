@@ -1,41 +1,21 @@
+# (Bad) Anki: A Smart Flashcard App
 
-## TO-DO 
+(Bad) Anki is a web-based, simplified clone of the popular Anki flashcard application, designed to help you study and remember information efficiently. It leverages a spaced repetition system (SRS) inspired by the SM-2 algorithm to optimize your learning process. The application is built with a modern Python backend, a simple and effective frontend, and includes powerful features like AI-powered card generation and Telegram integration for daily review reminders.
 
-- [x] Add positive feedback in the UI (mobile / Desktop) for actions : register, login, add secrets, add cards etc.
-- [x] Add basic security for users, not same username, strong password etc.
-- [x] Check that when pple add secrets like telegram chat ID it is correctly added to database, currently can only find mine while i registered my other tg account
-- [ ] Blog
-- [x] Ajouter tests + CI/CD
-- [ ] Revoir codebase et virer les trucs pour eviter usine a gaz
-- [x] Voir comment backup localement la bdd / avoir un truc facile a spin avec un autre provider (script sont faits dans /utils, a demander tuto avec postgres)
-- [x] Ajouter le bouton download dans /courses et pas seulement /courses-editor
-- [x] Voir si sur mobile on peut avoir un plus joli preview de question / reponse pour les cartes
+The workflow is simple and powerful:
 
-
-# [(Bad) Anki](https://badanki.onrender.com/)
-
-I'm often forgetting stuff when I solve maths problems for fun, so I thought it would be cool to vibe-code a personal knowledge management tool tailored to my needs, while also learning more about best software engineering practices, agentic coding, and (local) generative AI usage.
-
-I think this project covers each aim quite well: I get some kind of Anki clone connected to my Telegram that forces me to remember maths concepts, theorems etc. while I also get to experiment with a wide range of skills: frontend, backend, database & multi-users management, cloud deployment, cron jobs, Telegram bot scripting, as well as using generative AI through API providers or locally via Ollama.
-
-The workflow is basically: 
-
->learn something cool → write or upload a Markdown file (with LaTeX support) → use any AI provider or local Ollama to generate relevant Anki cards → delete / edit / approve AI-generated cards → cards are added to the database and the spaced repetition algorithm decides which ones are due for review → I get a daily ping on Telegram with a link to the relevant cards due for review.
-
+> Learn something cool → write or upload a Markdown file (with LaTeX support) → use an AI provider (Gemini, Anthropic) or a local Ollama instance to generate relevant Anki cards → review, edit, and approve the AI-generated cards → the cards are added to your deck, and the spaced repetition algorithm schedules them for review → receive a daily reminder on Telegram with a link to the cards that are due.
 
 ## Key Features
 
-*   **Course & Card Management:** Easily create, edit, delete or download courses and flashcards through an intuitive web interface and fully responsive mobile UI.
-*   **Markdown & LaTeX Support:** Write or upload your course content and flashcards using Markdown for formatting and LaTeX for mathematical notation.
+*   **Course & Card Management:** Easily create, edit, delete, and download courses and flashcards through an intuitive and mobile-responsive web interface.
+*   **Markdown & LaTeX Support:** Write your course content and flashcards using Markdown for formatting and LaTeX for mathematical and scientific notation.
 *   **AI-Powered Card Generation:**
-    *   **Multi-Provider Support:** Automatically generate flashcards from your course notes using multiple AI providers.
-        *   **Gemini:** Leverage Google's Gemini Pro for high-quality card generation.
-        *   **Anthropic:** Use Anthropic's models for another source of AI-generated content.
-        *   **Ollama (Local):** Generate cards offline using local language models like Llama 2.
-    *   **Approval Workflow:** You can individually edit, delete, and approve each AI-generated card before saving them.
+    *   **Multi-Provider Support:** Automatically generate flashcards from your course notes using multiple AI providers, including Google's Gemini, Anthropic's Claude, and local models via Ollama.
+    *   **Approval Workflow:** Review, edit, and approve each AI-generated card before it's added to your deck, ensuring the quality of your study material.
 *   **Spaced Repetition System (SRS):** Utilizes an algorithm inspired by SM-2 to schedule card reviews at optimal intervals, maximizing memory retention.
-*   **Secure, Multi-User Core:** The application is built on a secure, token-based (JWT) authentication system, with isolated data for each user.
-*   **Telegram Integration:** Receive daily review reminders via a dedicated Telegram bot. You can also interact with your saved cards with commands like `/random`.
+*   **Secure, Multi-User Core:** Built on a secure, token-based (JWT) authentication system, ensuring that your data is private and isolated.
+*   **Telegram Integration:** Receive daily review reminders via a dedicated Telegram bot. You can also interact with your cards using commands like `/random` to get a random card.
 
 ## Core Technologies
 
@@ -47,6 +27,7 @@ The workflow is basically:
 *   **Telegram Bot:** `python-telegram-bot`
 
 ## Project Structure
+
 ```
 /
 ├── main.py             # The main FastAPI application file.
@@ -75,7 +56,7 @@ The workflow is basically:
     ```
 
 3.  **Set up environment variables:**
-    Create a `.env` file in the project root. You will need to provide your own `SECRET_KEY`, and other keys for external services.
+    Create a `.env` file in the project root. You will need to provide your own `SECRET_KEY`, `DATABASE_URL`, and other keys for external services.
 
 4.  **Initialize the database:**
     ```bash
@@ -86,7 +67,7 @@ The workflow is basically:
     ```bash
     uvicorn main:app --reload
     ```
-    The application will be available at `http://127.0.0.1:8000`.
+    The application will be available at `http://1227.0.0.1:8000`.
 
 6.  **Run the Telegram Bot (for local testing):**
     The bot can be tested independently by running:
@@ -96,7 +77,7 @@ The workflow is basically:
 
 ## Deployment on Render (Free Tier)
 
-The application is designed to be deployed as a single web service on Render's free tier (or equivalent).
+The application is designed to be deployed as a single web service on Render's free tier.
 
 *   **Start Command:** To ensure the Telegram bot's webhook initializes correctly, you must use a single Gunicorn worker. Set your start command on the Render dashboard to:
     ```
@@ -109,17 +90,31 @@ The application is designed to be deployed as a single web service on Render's f
     ```
     You must set a `SCHEDULER_SECRET` environment variable for this to work.
 
+## Database Management
+
+The project includes scripts for backing up and restoring the PostgreSQL database.
+
+*   **Backup:** To create a full backup of the database, run the following command:
+    ```bash
+    python utils/full_backup.py
+    ```
+    This will create a timestamped backup file in the project's root directory.
+
+*   **Restore:** To restore the database from a backup file, run:
+    ```bash
+    python utils/full_restore.py <backup-file.sql>
+    ```
+
 ## Next Steps
 
-*   **Modern Frontend with Next.js:** Plan and execute a complete rewrite of the frontend using Next.js and TypeScript, leveraging a component-based architecture for a modern, fast, and maintainable UI.
-*   **Code Quality & Security Audit:** Review and refactor the codebase to improve "snappiness", security, readability, and maintainability.
+*   **Add Unit Tests & CI/CD:** Implement a testing framework (like `pytest`) to create unit and integration tests for the backend API. Set up a CI/CD pipeline (e.g., using GitHub Actions) to automatically run tests on each push.
+*   **Code Quality & Security Audit:** Perform a thorough review of the codebase to identify areas for improvement, including refactoring, ensuring consistent coding style, and verifying that all external inputs are properly sanitized.
+*   **CSRF Protection:** Implement CSRF protection across the application to prevent cross-site request forgery attacks.
+*   **Modern Frontend with Next.js:** Plan and execute a complete rewrite of the frontend using Next.js and TypeScript for a more modern, fast, and maintainable UI.
 
+## Caveats
 
-## Caveats 
-- Only handles markdown files, would be sweet to have it also parse PDF files etc.
-- Entirely vibe-coded without any kind of strong test suite / CI-CD pipeline, it's bound to break at some point lol
-- Rudimentary link between courses through tags
-- Local LLM call to generate cards *sometimes* bug because of weird JSON parsing, need to take a look / change default ollama model
-
-
-
+*   Currently only handles Markdown files. Support for other formats like PDFs could be added in the future.
+*   The project was developed without a strong test suite or CI/CD pipeline, so there may be some undiscovered bugs.
+*   The link between courses is based on a rudimentary tagging system.
+*   Local LLM calls for card generation can sometimes fail due to JSON parsing issues.
