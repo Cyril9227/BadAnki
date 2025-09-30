@@ -107,8 +107,7 @@ The project includes scripts for backing up and restoring the PostgreSQL databas
 
 ## Next Steps
 
-*   **Add Unit Tests & CI/CD:** Implement a testing framework (like `pytest`) to create unit and integration tests for the backend API. Set up a CI/CD pipeline (e.g., using GitHub Actions) to automatically run tests on each push.
-*   **Code Quality & Security Audit:** Perform a thorough review of the codebase to identify areas for improvement, including refactoring, ensuring consistent coding style, and verifying that all external inputs are properly sanitized.
+*   **Code Quality, Security Audit & Performance Optimization:** Perform a thorough review of the codebase to identify areas for improvement, including refactoring, ensuring consistent coding style, and verifying that all external inputs are properly sanitized.
 *   **CSRF Protection:** Implement CSRF protection across the application to prevent cross-site request forgery attacks.
 *   **Modern Frontend with Next.js:** Plan and execute a complete rewrite of the frontend using Next.js and TypeScript for a more modern, fast, and maintainable UI.
 
