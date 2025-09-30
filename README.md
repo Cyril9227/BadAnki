@@ -1,4 +1,4 @@
-# (Bad) Anki: A Smart Flashcard App
+# [(Bad) Anki](https://badanki.onrender.com/)
 
 (Bad) Anki is a web-based, adaptation of the popular Anki flashcard application, designed to help you study and remember information efficiently. It leverages a spaced repetition system (SRS) inspired by the SM-2 algorithm to optimize your learning process. The application is built with a modern Python backend, a simple and effective frontend, and includes powerful features like AI-powered card generation and Telegram integration for daily review reminders.
 
