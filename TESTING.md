@@ -2,11 +2,6 @@
 
 This document outlines the testing strategy for the Anki Clone application. The goal is to ensure the application is robust, reliable, and free of regressions. We will use `pytest` as the testing framework and `httpx` for testing the FastAPI endpoints.
 
-# IMPORTANT 
-
-MAKE SURE TO NEVER, EVER INTERACT WITH PRODUCTION DATABASE. EVERYTHING MUST BE HANDLED WITH `from testcontainers.postgres import PostgresContainer`
-
-
 ## 1. API Endpoint Tests (Integration Tests)
 
 These tests will cover the main user flows and API interactions. We will use a separate test database to avoid interfering with development data.
@@ -78,5 +73,6 @@ These tests will focus on the functions in `crud.py`. We will mock the database 
 -   [x] `get_users_with_due_cards`: Test that the function correctly identifies users with due cards.
 -   [x] `run_scheduler`: Test the main scheduler logic (mocking the Telegram Bot).
 
-# Next Steps :
-- Implement CI/CD via github actions 
+# 6. CI/CD
+
+-   [x] Implement CI/CD via github actions.
