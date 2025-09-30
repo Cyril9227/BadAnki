@@ -1,6 +1,6 @@
 # (Bad) Anki: A Smart Flashcard App
 
-(Bad) Anki is a web-based, simplified clone of the popular Anki flashcard application, designed to help you study and remember information efficiently. It leverages a spaced repetition system (SRS) inspired by the SM-2 algorithm to optimize your learning process. The application is built with a modern Python backend, a simple and effective frontend, and includes powerful features like AI-powered card generation and Telegram integration for daily review reminders.
+(Bad) Anki is a web-based, adaptation of the popular Anki flashcard application, designed to help you study and remember information efficiently. It leverages a spaced repetition system (SRS) inspired by the SM-2 algorithm to optimize your learning process. The application is built with a modern Python backend, a simple and effective frontend, and includes powerful features like AI-powered card generation and Telegram integration for daily review reminders.
 
 The workflow is simple and powerful:
 
@@ -115,6 +115,6 @@ The project includes scripts for backing up and restoring the PostgreSQL databas
 ## Caveats
 
 *   Currently only handles Markdown files. Support for other formats like PDFs could be added in the future.
-*   The project was developed without a strong test suite or CI/CD pipeline, so there may be some undiscovered bugs.
+*   Vibe coded ! There may be some undiscovered bugs.
 *   The link between courses is based on a rudimentary tagging system.
 *   Local LLM calls for card generation can sometimes fail due to JSON parsing issues.
