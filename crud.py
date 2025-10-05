@@ -252,8 +252,6 @@ def get_review_stats_for_user(conn, user_id: int):
     return stats
 
 
-
-
 def get_all_cards_for_user(conn, user_id: int):
     cursor = conn.cursor(cursor_factory=extras.DictCursor)
     cursor.execute("SELECT * FROM cards WHERE user_id = %s ORDER BY due_date", (user_id,))

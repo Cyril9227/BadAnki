@@ -15,7 +15,6 @@ CREATE TABLE IF NOT EXISTS cards (
     question TEXT NOT NULL,
     answer TEXT NOT NULL,
     due_date TIMESTAMP NOT NULL,
-    last_reviewed TIMESTAMP,
     interval INTEGER NOT NULL DEFAULT 0,
     ease_factor REAL NOT NULL DEFAULT 2.5,
     FOREIGN KEY (user_id) REFERENCES users (id)
