@@ -28,5 +28,4 @@ __pycache__/
 
 # Course content
 /courses/
-*.sql
 *.csv

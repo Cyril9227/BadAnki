@@ -23,7 +23,7 @@ def run_pg_dump():
         user = parsed_url.username
         password = parsed_url.password
         host = parsed_url.hostname
-        port = parsed_url.port
+        port = 5432
 
         # Create a timestamp for the backup file
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
