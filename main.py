@@ -368,8 +368,16 @@ async def login_for_access_token(request: Request, response: Response, form_data
     access_token = create_access_token(
         data={"sub": user['username']}, expires_delta=access_token_expires
     )
+    
+    # --- Debugging ---
+    logger.info(f"Generated access token: {access_token}")
+    
     response = RedirectResponse(url="/courses", status_code=303)
     response.set_cookie(key="access_token", value=access_token, httponly=True)
+    
+    # --- Debugging ---
+    logger.info(f"Response headers: {response.headers}")
+    
     return response
 
 @app.get("/logout")
