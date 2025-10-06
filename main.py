@@ -149,6 +149,7 @@ async def db_session_middleware(request: Request, call_next):
     """
     conn = None
     try:
+        logger.info("Acquiring database connection from pool.")
         conn = get_db_connection()
         request.state.db = conn
         user = await get_current_user(request, conn)
@@ -158,6 +159,7 @@ async def db_session_middleware(request: Request, call_next):
         response = await call_next(request)
     finally:
         if conn:
+            logger.info("Releasing database connection back to pool.")
             release_db_connection(conn)
     return response
 
@@ -216,15 +218,24 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
 async def get_current_user(request: Request, conn: psycopg2.extensions.connection):
     token = request.cookies.get("access_token")
     if not token:
+        logger.info("No access token found in cookies.")
         return None
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
         if username is None:
+            logger.warning("Token payload is missing 'sub' (username).")
             return None
-    except JWTError:
+    except JWTError as e:
+        logger.error(f"JWT decoding error: {e}")
         return None
+    
+    logger.info(f"Token decoded successfully for username: {username}")
     user = crud.get_user_by_username(conn, username=username)
+    if user:
+        logger.info(f"Found user in database: {user['username']}")
+    else:
+        logger.warning(f"User not found in database for username: {username}")
     return user
 
 def generate_csrf_token(session_id: str):
@@ -359,9 +370,11 @@ async def login_form(request: Request):
     return templates.TemplateResponse(request, "login.html")
 
 @app.post("/login")
-async def login_for_access_token(request: Request, response: Response, form_data: OAuth2PasswordRequestForm = Depends(), conn: psycopg2.extensions.connection = Depends(get_db)):
+async def login_for_access_token(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), conn: psycopg2.extensions.connection = Depends(get_db)):
+    logger.info("Attempting to log in user.")
     user = crud.get_user_by_username(conn, form_data.username)
     if not user or not crud.verify_password(form_data.password, user['password_hash']):
+        logger.warning("Login failed for user: %s", form_data.username)
         return templates.TemplateResponse(request, "login.html", {"error": "Incorrect username or password"})
         
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -369,14 +382,13 @@ async def login_for_access_token(request: Request, response: Response, form_data
         data={"sub": user['username']}, expires_delta=access_token_expires
     )
     
-    # --- Debugging ---
-    logger.info(f"Generated access token: {access_token}")
+    logger.info(f"Successfully generated access token for user: {user['username']}")
+    logger.debug(f"Access Token: {access_token}") # Use debug for sensitive info
     
     response = RedirectResponse(url="/courses", status_code=303)
     response.set_cookie(key="access_token", value=access_token, httponly=True)
     
-    # --- Debugging ---
-    logger.info(f"Response headers: {response.headers}")
+    logger.info(f"Redirecting user to /courses. Response headers: {response.headers}")
     
     return response
 
@@ -421,6 +433,7 @@ async def root(request: Request):
 
 @app.get("/courses", response_class=HTMLResponse)
 async def list_courses(request: Request, user: User = Depends(get_current_active_user)):
+    logger.info(f"User '{user['username']}' successfully accessed /courses page.")
     return templates.TemplateResponse(request, "courses_list.html")
 
 @app.get("/edit-course/{course_path:path}", response_class=HTMLResponse)
