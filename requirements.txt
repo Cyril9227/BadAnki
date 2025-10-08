@@ -59,4 +59,4 @@ anthropic
 pytest
 pytest-cov
 pytest-asyncio
-testcontainers
+testcontainersrequests
