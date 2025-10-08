@@ -42,10 +42,6 @@ if not SECRET_KEY:
 if not SCHEDULER_SECRET:
     raise ValueError("No SCHEDULER_SECRET set. Please set this environment variable.")
 
-BOT_RESTART_SECRET = os.environ.get("BOT_RESTART_SECRET")
-if not BOT_RESTART_SECRET:
-    raise ValueError("No BOT_RESTART_SECRET set. Please set this environment variable.")
-
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
@@ -565,24 +561,6 @@ async def trigger_scheduler(secret: str):
     
     result = await run_scheduler()
     return JSONResponse(content={"status": "completed", "result": result})
-
-@app.get("/api/restart-bot")
-async def restart_bot(request: Request, secret: str):
-    """A secret-protected endpoint to manually restart the bot."""
-    if secret != BOT_RESTART_SECRET:
-        raise HTTPException(status_code=403, detail="Invalid secret")
-    
-    logger.info("Manual bot restart triggered via API.")
-    
-    # In a serverless environment, the bot is stateless.
-    # This endpoint can be used to confirm that the webhook is correctly configured
-    # and the application is responsive. A true "restart" is not applicable.
-    return JSONResponse(
-        content={
-            "status": "acknowledged",
-            "message": "The bot runs in a stateless environment. It initializes on each incoming message, so a manual restart is not required. This response confirms the API is active."
-        }
-    )
 
 # --- Card Management Routes ---
 @app.get("/card/{card_id}", response_class=HTMLResponse)
