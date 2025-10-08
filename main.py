@@ -564,20 +564,58 @@ async def trigger_scheduler(secret: str):
     return JSONResponse(content={"status": "completed", "result": result})
 
 @app.get("/api/restart-bot")
-async def restart_bot(secret: str):
+async def restart_bot(request: Request, secret: str):
     """A secret-protected endpoint to manually restart the bot."""
     if secret != BOT_RESTART_SECRET:
         raise HTTPException(status_code=403, detail="Invalid secret")
     
     logger.info("Manual bot restart triggered via API.")
-    # With the lifespan manager, the bot will be gracefully shut down and
-    # restarted automatically when the server process is restarted.
-    # For a manual restart without restarting the server, a more complex
-    # mechanism would be needed, but for now, we rely on the server restart.
-    logger.info("Relying on server restart to trigger lifespan manager for bot reboot.")
-    return JSONResponse(
-        content={"status": "acknowledged", "message": "Bot restart is handled by the server's lifespan manager. Restart the server to see the effect."}
-    )
+    
+    # 1. Get the current bot application
+    bot_app = request.app.state.bot_app
+    
+    # 2. Shut down the existing bot gracefully
+    if bot_app:
+        logger.info("Shutting down the existing bot...")
+        try:
+            if os.environ.get("ENVIRONMENT") != "production":
+                if hasattr(bot_app, 'updater') and bot_app.updater and bot_app.updater.is_running:
+                    await bot_app.updater.stop()
+            await bot_app.stop()
+            logger.info("Existing bot shut down successfully.")
+        except Exception as e:
+            logger.error(f"Error shutting down the bot: {e}", exc_info=True)
+            # Continue anyway, as we are trying to restart
+    
+    # 3. Start a new bot instance
+    logger.info("Starting a new bot instance...")
+    try:
+        new_bot_app = setup_bot()
+        await new_bot_app.initialize()
+        await new_bot_app.start()
+        
+        if os.environ.get("ENVIRONMENT") == "production":
+            webhook_secret = TELEGRAM_WEBHOOK_SECRET
+            webhook_url = f"{os.environ.get('APP_URL')}/webhook/{webhook_secret}"
+            await new_bot_app.bot.set_webhook(url=webhook_url)
+            logger.info(f"Webhook set for new bot instance: {webhook_url}")
+        else:
+            if hasattr(new_bot_app, 'updater') and new_bot_app.updater:
+                await new_bot_app.updater.start_polling()
+                logger.info("New bot instance started polling.")
+
+        # 4. Replace the old bot instance in the app state
+        request.app.state.bot_app = new_bot_app
+        logger.info("New bot instance is now active.")
+        
+        return JSONResponse(
+            content={"status": "success", "message": "Bot has been restarted successfully."}
+        )
+    except Exception as e:
+        logger.error(f"CRITICAL ERROR during bot restart: {e}", exc_info=True)
+        # If restart fails, clear the state to prevent a broken bot from running
+        request.app.state.bot_app = None
+        raise HTTPException(status_code=500, detail=f"Failed to restart the bot: {e}")
 
 # --- Card Management Routes ---
 @app.get("/card/{card_id}", response_class=HTMLResponse)
