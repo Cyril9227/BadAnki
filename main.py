@@ -52,47 +52,9 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
-# --- App Lifespan Management ---
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """
-    Manages the application's lifespan events.
-    For Vercel serverless, we only set the webhook during startup.
-    """
-    # --- Startup Logic ---
-    if os.environ.get("ENVIRONMENT") == "production":
-        try:
-            # For serverless, we just need to set the webhook once
-            bot_app = get_bot_application()
-            if bot_app:
-                await bot_app.initialize()
-                webhook_secret = TELEGRAM_WEBHOOK_SECRET
-                if not webhook_secret:
-                    logger.warning("TELEGRAM_WEBHOOK_SECRET not set for production.")
-                    webhook_secret = "default_secret"  # Fallback
-                
-                webhook_url = f"{os.environ.get('APP_URL')}/webhook/{webhook_secret}"
-                logger.info(f"Setting webhook to: {webhook_url}")
-                
-                # We only need the bot object to set the webhook, no need to initialize the full app
-                await bot_app.bot.set_webhook(url=webhook_url, drop_pending_updates=True)
-                logger.info("Webhook set successfully.")
-            else:
-                logger.error("Failed to create bot application for webhook setup.")
-        except Exception as e:
-            logger.error(f"Error during webhook setup: {e}", exc_info=True)
-    else:
-        logger.info("Local development mode - webhook not set.")
-    
-    yield
-    
-    # --- Shutdown Logic ---
-    # In serverless environments, shutdown is handled automatically
-    logger.info("Application shutdown.")
-
 
 # --- FastAPI App ---
-app = FastAPI(lifespan=lifespan)
+app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
@@ -142,6 +104,20 @@ async def webhook(request: Request, secret: str):
     except Exception as e:
         logger.error(f"Error processing webhook update: {e}", exc_info=True)
         return Response(status_code=500)
+
+
+@app.get("/api/ensure-webhook")
+async def ensure_webhook():
+    bot_app = get_bot_application()
+    await bot_app.initialize()
+    webhook_url = f"{os.environ.get('APP_URL')}/webhook/{os.environ.get('TELEGRAM_WEBHOOK_SECRET')}"
+    info = await bot_app.bot.get_webhook_info()
+
+    if info.url != webhook_url:
+        await bot_app.bot.set_webhook(url=webhook_url, drop_pending_updates=False)
+        return {"status": "webhook (re)set", "url": webhook_url}
+    else:
+        return {"status": "already correct", "url": info.url}
 
 
 # --- Middleware ---
