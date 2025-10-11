@@ -11,6 +11,14 @@
     ],
     "routes": [
         {
+            "src": "/api/cron",
+            "dest": "api/cron.py"
+        },
+        {
+            "src": "/webhook/(.*)",
+            "dest": "main.py"
+        },
+        {
             "src": "/(.*)",
             "dest": "main.py"
         }
@@ -20,5 +28,8 @@
             "path": "/api/cron",
             "schedule": "0 9 * * *"
         }
-    ]
+    ],
+    "env": {
+        "ENVIRONMENT": "production"
+    }
 }

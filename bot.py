@@ -113,6 +113,13 @@ def setup_bot():
 
     return application
 
+def get_bot_application():
+    """
+    Get or create a bot application instance.
+    For serverless environments, this creates a fresh instance each time.
+    """
+    return setup_bot()
+
 if __name__ == "__main__":
     logger.info("Starting bot in standalone polling mode...")
     bot_app = setup_bot()

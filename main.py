@@ -26,7 +26,7 @@ from telegram import Update
 
 # Local application
 import crud
-from bot import setup_bot
+from bot import get_bot_application
 from database import get_db_connection, release_db_connection
 from scheduler import run_scheduler
 from utils.parsing import normalize_cards, robust_json_loads, sanitize_tags
@@ -37,6 +37,7 @@ SECRET_KEY = os.environ.get("SECRET_KEY")
 SCHEDULER_SECRET = os.environ.get("SCHEDULER_SECRET")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET")
+TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME")
 
 if not SECRET_KEY:
     raise ValueError("No SECRET_KEY set for JWT. Please set this environment variable.")
@@ -49,55 +50,48 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 # --- App Lifespan Management ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Manages the application's lifespan events, specifically for initializing
-    and shutting down the Telegram bot.
+    Manages the application's lifespan events.
+    For Vercel serverless, we only set the webhook during startup.
     """
     # --- Startup Logic ---
-    bot_app = setup_bot()
-    if bot_app:
+    if os.environ.get("ENVIRONMENT") == "production":
         try:
-            await bot_app.initialize()
-            await bot_app.start()
-            app.state.bot_app = bot_app
-            
-            if os.environ.get("ENVIRONMENT") == "production":
+            # For serverless, we just need to set the webhook once
+            bot_app = get_bot_application()
+            if bot_app:
+                await bot_app.initialize()
+                
                 webhook_secret = TELEGRAM_WEBHOOK_SECRET
                 if not webhook_secret:
                     logger.warning("TELEGRAM_WEBHOOK_SECRET not set for production.")
+                    webhook_secret = "default_secret"  # Fallback
+                
                 webhook_url = f"{os.environ.get('APP_URL')}/webhook/{webhook_secret}"
                 logger.info(f"Setting webhook to: {webhook_url}")
-                await bot_app.bot.set_webhook(url=webhook_url)
+                
+                await bot_app.bot.set_webhook(url=webhook_url, drop_pending_updates=True)
                 logger.info("Webhook set successfully.")
+                
+                # Clean up after setting webhook
+                await bot_app.shutdown()
             else:
-                logger.info("Starting bot in polling mode for local development.")
-                if hasattr(bot_app, 'updater') and bot_app.updater:
-                    await bot_app.updater.start_polling()
-                    logger.info("Bot started polling.")
-                else:
-                    logger.error("Bot updater not available for polling.")
+                logger.error("Failed to create bot application for webhook setup.")
         except Exception as e:
-            logger.error(f"CRITICAL ERROR during bot startup: {e}", exc_info=True)
+            logger.error(f"Error during webhook setup: {e}", exc_info=True)
+    else:
+        logger.info("Local development mode - webhook not set.")
     
     yield
     
     # --- Shutdown Logic ---
-    bot_app = app.state.bot_app
-    if bot_app:
-        if os.environ.get("ENVIRONMENT") == "production":
-            logger.info("Deleting webhook.")
-            await bot_app.bot.delete_webhook()
-            logger.info("Webhook deleted.")
-        else:
-            logger.info("Stopping bot polling.")
-            if hasattr(bot_app, 'updater') and bot_app.updater:
-                await bot_app.updater.stop()
-                logger.info("Bot polling stopped.")
-        await bot_app.stop()
+    # In serverless environments, shutdown is handled automatically
+    logger.info("Application shutdown.")
 
 
 # --- FastAPI App ---
@@ -105,40 +99,52 @@ app = FastAPI(lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-# --- App State ---
-# We use the app state to store the bot instance, ensuring it's available
-# across the application's lifecycle without using a global variable.
-# This is a cleaner and more robust approach for managing shared resources.
-app.state.bot_app = None
 
 # --- Webhook Endpoint ---
 @app.post("/webhook/{secret}")
 async def webhook(request: Request, secret: str):
+    """
+    Handle incoming Telegram webhook updates.
+    This is called by Telegram servers when users interact with the bot.
+    """
     logger.info("Webhook endpoint was hit!")
+    
     # Validate the secret
-    expected_secret = TELEGRAM_WEBHOOK_SECRET
-    if not expected_secret or not secrets.compare_digest(secret, expected_secret):
+    expected_secret = TELEGRAM_WEBHOOK_SECRET or "default_secret"
+    if not secrets.compare_digest(secret, expected_secret):
         logger.warning("Invalid secret received in webhook request.")
         raise HTTPException(status_code=403, detail="Invalid secret")
     
-    bot_app = request.app.state.bot_app
-    if not bot_app:
-        logger.warning("Bot not found in state, initializing for this request (serverless environment).")
-        bot_app = setup_bot()
-        await bot_app.initialize()
-        # Do not save to state, as the state is not persistent across serverless invocations.
-
     try:
+        # Get the update data from Telegram
         data = await request.json()
+        logger.info(f"Received webhook data: {json.dumps(data, indent=2)}")
+        
+        # Create a fresh bot application for this request (serverless pattern)
+        bot_app = get_bot_application()
+        if not bot_app:
+            logger.error("Failed to create bot application")
+            return Response(status_code=500)
+        
+        # Initialize the bot for this request
+        await bot_app.initialize()
+        
+        # Parse the update
         update = Update.de_json(data, bot_app.bot)
-        # In a serverless environment, we process the update directly 
-        # instead of putting it on a queue for a long-running process.
+        
+        # Process the update through the bot's handlers
         await bot_app.process_update(update)
-        logger.info("Successfully processed webhook and handled update directly.")
+        
+        logger.info("Successfully processed webhook update.")
+        
+        # Clean up
+        await bot_app.shutdown()
+        
+        return Response(status_code=200)
+        
     except Exception as e:
         logger.error(f"Error processing webhook update: {e}", exc_info=True)
-    
-    return Response(status_code=200)
+        return Response(status_code=500)
 
 
 # --- Middleware ---
@@ -351,9 +357,6 @@ async def save_secrets(request: Request, user: User = Depends(get_current_active
     crud.save_secrets_for_user(request.state.db, user['id'], telegram_chat_id)
     return JSONResponse(content={"success": True})
 
-
-
-TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME")
 
 # --- FastAPI Routes ---
 
