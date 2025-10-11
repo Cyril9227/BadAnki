@@ -51,7 +51,6 @@ async def review(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Sorry, something went wrong.")
 
 
-
 async def random_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Sends a random card to a registered user."""
     logger.info(f"Received /random command from chat_id: {update.message.chat_id}")
