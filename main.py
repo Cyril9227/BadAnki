@@ -65,8 +65,6 @@ async def lifespan(app: FastAPI):
             # For serverless, we just need to set the webhook once
             bot_app = get_bot_application()
             if bot_app:
-                await bot_app.initialize()
-                
                 webhook_secret = TELEGRAM_WEBHOOK_SECRET
                 if not webhook_secret:
                     logger.warning("TELEGRAM_WEBHOOK_SECRET not set for production.")
@@ -75,11 +73,9 @@ async def lifespan(app: FastAPI):
                 webhook_url = f"{os.environ.get('APP_URL')}/webhook/{webhook_secret}"
                 logger.info(f"Setting webhook to: {webhook_url}")
                 
+                # We only need the bot object to set the webhook, no need to initialize the full app
                 await bot_app.bot.set_webhook(url=webhook_url, drop_pending_updates=True)
                 logger.info("Webhook set successfully.")
-                
-                # Clean up after setting webhook
-                await bot_app.shutdown()
             else:
                 logger.error("Failed to create bot application for webhook setup.")
         except Exception as e:
