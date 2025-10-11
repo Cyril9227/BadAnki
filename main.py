@@ -107,7 +107,9 @@ async def webhook(request: Request, secret: str):
 
 
 @app.get("/api/ensure-webhook")
-async def ensure_webhook():
+async def ensure_webhook(secret: str):
+    if secret != os.environ.get("SCHEDULER_SECRET"):
+        raise HTTPException(status_code=403, detail="Invalid secret")
     bot_app = get_bot_application()
     await bot_app.initialize()
     webhook_url = f"{os.environ.get('APP_URL')}/webhook/{os.environ.get('TELEGRAM_WEBHOOK_SECRET')}"
