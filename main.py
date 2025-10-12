@@ -358,10 +358,15 @@ async def login_form(request: Request):
 
 @app.post("/login")
 async def login_for_access_token(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), conn: psycopg2.extensions.connection = Depends(get_db)):
+    login_identifier = form_data.username
+    if "@" in login_identifier:
+        email_for_supabase = login_identifier
+    else:
+        email_for_supabase = f"{login_identifier}@bad-anki-user.com"
+        
     try:
-        # Step 1: Try to sign in with Supabase
         auth_response = supabase.auth.sign_in_with_password({
-            "email": f"{form_data.username}@example.com",
+            "email": email_for_supabase,
             "password": form_data.password
         })
         
@@ -392,39 +397,51 @@ async def register_form(request: Request, error: str = None):
 
 @app.post("/register")
 async def register_user(request: Request, username: str = Form(...), password: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db)):
-    # Password validation (do this first)
+    # Password validation
     if len(password) < 8:
         return templates.TemplateResponse(request, "register.html", {"error": "Password must be at least 8 characters long"})
     if not any(char.isdigit() for char in password):
         return templates.TemplateResponse(request, "register.html", {"error": "Password must contain at least one number"})
 
+    is_email = "@" in username
+    email_for_supabase = username if is_email else f"{username}@bad-anki-user.com"
+    username_for_profile = username
+
     try:
         # Step 1: Create the user in Supabase Auth
         auth_response = supabase.auth.sign_up({
-            "email": f"{username}@example.com", # Supabase requires an email
+            "email": email_for_supabase,
             "password": password,
             "options": {
                 "data": {
-                    "username": username
+                    "username": username_for_profile
                 }
             }
         })
         
         auth_user = auth_response.user
         if not auth_user:
-            # This case handles if the user already exists in Supabase
-            return templates.TemplateResponse(request, "register.html", {"error": "Username already registered"})
+            return templates.TemplateResponse(request, "register.html", {"error": "User already registered or invalid email"})
 
         # Step 2: Create the corresponding profile in our database
-        crud.create_profile(conn, username, auth_user.id)
+        crud.create_profile(conn, username_for_profile, auth_user.id)
 
         response = RedirectResponse(url="/login", status_code=303)
-        response.set_cookie(key="flash", value="success:Registered successfully! Please log in.", max_age=5)
+        
+        # Set a helpful flash message
+        if not is_email:
+            flash_message = f"success:Registered! Your recovery email is {email_for_supabase}. Please log in."
+        else:
+            flash_message = "success:Registered successfully! Please log in."
+        response.set_cookie(key="flash", value=flash_message, max_age=10)
+        
         return response
 
     except Exception as e:
         logger.error(f"Registration error: {e}")
-        # A generic error for cases where the Supabase call fails for other reasons
+        # Check for a more specific Supabase error if possible
+        if "already registered" in str(e).lower():
+             return templates.TemplateResponse(request, "register.html", {"error": "This username or email is already registered."})
         return templates.TemplateResponse(request, "register.html", {"error": "An unexpected error occurred during registration."})
 
 
