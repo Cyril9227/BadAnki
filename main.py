@@ -106,10 +106,9 @@ async def webhook(request: Request, secret: str):
         return Response(status_code=500)
 
 
-@app.get("/api/ensure-webhook")
-async def ensure_webhook(secret: str):
-    if secret != os.environ.get("SCHEDULER_SECRET"):
-        raise HTTPException(status_code=403, detail="Invalid secret")
+
+async def _ensure_webhook():
+    """Helper function to ensure the Telegram webhook is set correctly."""
     bot_app = get_bot_application()
     await bot_app.initialize()
     webhook_url = f"{os.environ.get('APP_URL')}/webhook/{os.environ.get('TELEGRAM_WEBHOOK_SECRET')}"
@@ -120,6 +119,14 @@ async def ensure_webhook(secret: str):
         return {"status": "webhook (re)set", "url": webhook_url}
     else:
         return {"status": "already correct", "url": info.url}
+
+
+@app.get("/api/ensure-webhook")
+async def ensure_webhook(secret: str):
+    if secret != os.environ.get("SCHEDULER_SECRET"):
+        raise HTTPException(status_code=403, detail="Invalid secret")
+    return await _ensure_webhook()
+
 
 
 # --- Middleware ---
@@ -539,8 +546,11 @@ async def trigger_scheduler(secret: str):
     if secret != SCHEDULER_SECRET:
         raise HTTPException(status_code=403, detail="Invalid secret")
     
+    webhook_status = await _ensure_webhook()
+    logger.info(f"Webhook status: {webhook_status}")
+    
     result = await run_scheduler()
-    return JSONResponse(content={"status": "completed", "result": result})
+    return JSONResponse(content={"status": "completed", "result": result, "webhook_status": webhook_status})
 
 # --- Card Management Routes ---
 @app.get("/card/{card_id}", response_class=HTMLResponse)
