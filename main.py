@@ -362,7 +362,7 @@ async def login_for_access_token(request: Request, form_data: OAuth2PasswordRequ
     if "@" in login_identifier:
         email_for_supabase = login_identifier
     else:
-        email_for_supabase = f"{login_identifier}@bad-anki-user.com"
+        email_for_supabase = f"{login_identifier}@gmail.com"
         
     try:
         auth_response = supabase.auth.sign_in_with_password({
