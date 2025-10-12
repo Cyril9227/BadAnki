@@ -2,7 +2,6 @@
 CREATE TABLE IF NOT EXISTS profiles (
     id SERIAL PRIMARY KEY,
     username TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
     telegram_chat_id TEXT,
     gemini_api_key TEXT,
     anthropic_api_key TEXT,

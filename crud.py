@@ -16,14 +16,6 @@ INITIAL_INTERVAL = 1
 
 # --- User CRUD Functions ---
 
-def get_profile_by_username(conn, username: str):
-    """Fetches a user by their username."""
-    cursor = conn.cursor(cursor_factory=extras.DictCursor)
-    cursor.execute("SELECT * FROM profiles WHERE username = %s", (username,))
-    user = cursor.fetchone()
-    cursor.close()
-    return user
-
 def get_profile_by_auth_id(conn, auth_user_id: str):
     """Fetches a profile using the Supabase auth user ID."""
     cursor = conn.cursor(cursor_factory=extras.DictCursor)
