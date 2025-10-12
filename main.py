@@ -439,8 +439,10 @@ async def register_user(
         if not auth_response.user:
             return templates.TemplateResponse(request, "register.html", {"error": "Email already registered or invalid."})
 
-        # Create corresponding local profile
-        crud.create_profile(conn, username=email.split("@")[0], auth_user_id=auth_response.user.id)
+        # Create corresponding local profile if it doesn't exist
+        profile = crud.get_profile_by_auth_id(conn, auth_response.user.id)
+        if not profile:
+            crud.create_profile(conn, username=email.split("@")[0], auth_user_id=auth_response.user.id)
 
         # Redirect to login with flash
         response = RedirectResponse(url="/login", status_code=303)
