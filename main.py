@@ -404,7 +404,7 @@ async def register_user(request: Request, username: str = Form(...), password: s
         return templates.TemplateResponse(request, "register.html", {"error": "Password must contain at least one number"})
 
     is_email = "@" in username
-    email_for_supabase = username if is_email else f"{username}@bad-anki-user.com"
+    email_for_supabase = username if is_email else f"{username}@gmail.com"
     username_for_profile = username
 
     try:
