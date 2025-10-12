@@ -52,12 +52,10 @@ watchfiles==1.1.0
 websockets==15.0.1
 psycopg2-binary
 ollama
-passlib==1.7.4
-bcrypt==4.0.1
-python-jose[cryptography]
 anthropic
 pytest
 pytest-cov
 pytest-asyncio
 testcontainers
 requests
+supabase

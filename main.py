@@ -20,6 +20,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
+from supabase import create_client, Client
 from jose import JWTError, jwt
 from pydantic import BaseModel
 from telegram import Update
@@ -32,17 +33,19 @@ from scheduler import run_scheduler
 from utils.parsing import normalize_cards, robust_json_loads, sanitize_tags
 
 
-# --- JWT Configuration ---
+# --- Supabase & JWT Configuration ---
 SECRET_KEY = os.environ.get("SECRET_KEY")
 SCHEDULER_SECRET = os.environ.get("SCHEDULER_SECRET")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET")
 TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME")
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
-if not SECRET_KEY:
-    raise ValueError("No SECRET_KEY set for JWT. Please set this environment variable.")
-if not SCHEDULER_SECRET:
-    raise ValueError("No SCHEDULER_SECRET set. Please set this environment variable.")
+if not all([SECRET_KEY, SCHEDULER_SECRET, SUPABASE_URL, SUPABASE_KEY]):
+    raise ValueError("One or more critical environment variables are not set.")
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
@@ -106,7 +109,6 @@ async def webhook(request: Request, secret: str):
         return Response(status_code=500)
 
 
-
 async def _ensure_webhook():
     """Helper function to ensure the Telegram webhook is set correctly."""
     bot_app = get_bot_application()
@@ -151,9 +153,10 @@ async def db_session_middleware(request: Request, call_next):
     return response
 
 # --- Pydantic Models ---
-class User(BaseModel):
+class Profile(BaseModel):
     id: int
     username: str
+    auth_user_id: str | None = None
 
 class CourseContent(BaseModel):
     path: str
@@ -192,44 +195,18 @@ def get_db(request: Request):
 
 # --- Authentication ---
 
-def create_access_token(data: dict, expires_delta: timedelta | None = None):
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
-
-async def get_current_user(request: Request, conn: psycopg2.extensions.connection):
+@app.get("/logout")
+async def logout(request: Request, response: Response):
     token = request.cookies.get("access_token")
-    if not token:
-        return None
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
-            return None
-    except JWTError:
-        return None
-    user = crud.get_user_by_username(conn, username=username)
-    return user
-
-def generate_csrf_token(session_id: str):
-    """Generate a CSRF token."""
-    return jwt.encode({"session_id": session_id}, SECRET_KEY, algorithm=ALGORITHM)
-
-async def csrf_protect(request: Request):
-    """A dependency to protect against CSRF attacks."""
-    if request.method == "POST":
-        csrf_token = request.headers.get("X-CSRF-Token")
-        if not csrf_token:
-            raise HTTPException(status_code=403, detail="Missing CSRF token")
+    if token:
         try:
-            jwt.decode(csrf_token, SECRET_KEY, algorithms=[ALGORITHM])
-        except JWTError:
-            raise HTTPException(status_code=403, detail="Invalid CSRF token")
+            supabase.auth.sign_out(token)
+        except Exception as e:
+            logger.error(f"Supabase sign out failed: {e}")
+    
+    response = RedirectResponse(url="/", status_code=303)
+    response.delete_cookie("access_token")
+    return response
 
 async def get_current_active_user(request: Request):
     if not request.state.user:
@@ -348,20 +325,69 @@ async def login_form(request: Request):
 
 @app.post("/login")
 async def login_for_access_token(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), conn: psycopg2.extensions.connection = Depends(get_db)):
-    user = crud.get_user_by_username(conn, form_data.username)
-    if not user or not crud.verify_password(form_data.password, user['password_hash']):
-        return templates.TemplateResponse(request, "login.html", {"error": "Incorrect username or password"})
+    try:
+        # Step 1: Try to sign in with Supabase
+        auth_response = supabase.auth.sign_in_with_password({
+            "email": f"{form_data.username}@example.com",
+            "password": form_data.password
+        })
         
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user['username']}, expires_delta=access_token_expires
-    )
-    response = RedirectResponse(url="/courses", status_code=303)
-    response.set_cookie(key="access_token", value=access_token, httponly=True)
-    return response
+        access_token = auth_response.session.access_token
+        response = RedirectResponse(url="/courses", status_code=303)
+        response.set_cookie(key="access_token", value=access_token, httponly=True)
+        return response
+
+    except Exception:
+        # Step 2: If Supabase login fails, try the old method (gradual migration)
+        profile = crud.get_profile_by_username(conn, form_data.username)
+        
+        if not profile or not crud.verify_password(form_data.password, profile['password_hash']):
+            return templates.TemplateResponse(request, "login.html", {"error": "Incorrect username or password"})
+        
+        # Step 3: User is valid, but not in Supabase. Let's migrate them.
+        try:
+            # Use the admin client to create the user without sending a confirmation email
+            admin_auth_response = supabase.auth.admin.create_user({
+                "email": f"{form_data.username}@example.com",
+                "password": form_data.password,
+                "email_confirm": True, # Auto-confirm the email
+                "user_metadata": {"username": form_data.username}
+            })
+            new_auth_user = admin_auth_response.user
+            
+            # Link the new Supabase user to our existing profile
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE profiles SET auth_user_id = %s WHERE id = %s",
+                (new_auth_user.id, profile['id'])
+            )
+            conn.commit()
+            cursor.close()
+
+            # Now, sign them in to get a session token
+            auth_response = supabase.auth.sign_in_with_password({
+                "email": f"{form_data.username}@example.com",
+                "password": form_data.password
+            })
+            
+            access_token = auth_response.session.access_token
+            response = RedirectResponse(url="/courses", status_code=303)
+            response.set_cookie(key="access_token", value=access_token, httponly=True)
+            return response
+
+        except Exception as migration_error:
+            logger.error(f"Error during user migration to Supabase: {migration_error}")
+            return templates.TemplateResponse(request, "login.html", {"error": "Could not migrate account. Please contact support."})
 
 @app.get("/logout")
-async def logout(response: Response):
+async def logout(request: Request, response: Response):
+    token = request.cookies.get("access_token")
+    if token:
+        try:
+            supabase.auth.sign_out(token)
+        except Exception as e:
+            logger.error(f"Supabase sign out failed: {e}")
+    
     response = RedirectResponse(url="/", status_code=303)
     response.delete_cookie("access_token")
     return response
@@ -372,21 +398,40 @@ async def register_form(request: Request, error: str = None):
 
 @app.post("/register")
 async def register_user(request: Request, username: str = Form(...), password: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db)):
-    # Username validation
-    user = crud.get_user_by_username(conn, username)
-    if user:
-        return templates.TemplateResponse(request, "register.html", {"error": "Username already registered"})
-
-    # Password validation
+    # Password validation (do this first)
     if len(password) < 8:
         return templates.TemplateResponse(request, "register.html", {"error": "Password must be at least 8 characters long"})
     if not any(char.isdigit() for char in password):
         return templates.TemplateResponse(request, "register.html", {"error": "Password must contain at least one number"})
 
-    crud.create_user(conn, username, password)
-    response = RedirectResponse(url="/login", status_code=303)
-    response.set_cookie(key="flash", value="success:Registered successfully! Please log in.", max_age=5)
-    return response
+    try:
+        # Step 1: Create the user in Supabase Auth
+        auth_response = supabase.auth.sign_up({
+            "email": f"{username}@example.com", # Supabase requires an email
+            "password": password,
+            "options": {
+                "data": {
+                    "username": username
+                }
+            }
+        })
+        
+        auth_user = auth_response.user
+        if not auth_user:
+            # This case handles if the user already exists in Supabase
+            return templates.TemplateResponse(request, "register.html", {"error": "Username already registered"})
+
+        # Step 2: Create the corresponding profile in our database
+        crud.create_profile(conn, username, auth_user.id)
+
+        response = RedirectResponse(url="/login", status_code=303)
+        response.set_cookie(key="flash", value="success:Registered successfully! Please log in.", max_age=5)
+        return response
+
+    except Exception as e:
+        logger.error(f"Registration error: {e}")
+        # A generic error for cases where the Supabase call fails for other reasons
+        return templates.TemplateResponse(request, "register.html", {"error": "An unexpected error occurred during registration."})
 
 
 @app.get("/health", response_class=JSONResponse)

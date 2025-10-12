@@ -6,7 +6,6 @@ import os
 import frontmatter
 from datetime import datetime, timedelta
 from psycopg2 import extras
-from passlib.context import CryptContext
 from utils.parsing import sanitize_tags
 
 # --- Spaced Repetition Constants ---
@@ -15,33 +14,32 @@ MIN_EASE_FACTOR = 1.3
 EASE_FACTOR_PENALTY = 0.2
 INITIAL_INTERVAL = 1
 
-# --- Password Hashing ---
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
-
-def get_password_hash(password):
-    return pwd_context.hash(password)
-
 # --- User CRUD Functions ---
 
-def get_user_by_username(conn, username: str):
+def get_profile_by_username(conn, username: str):
     """Fetches a user by their username."""
     cursor = conn.cursor(cursor_factory=extras.DictCursor)
-    cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
+    cursor.execute("SELECT * FROM profiles WHERE username = %s", (username,))
     user = cursor.fetchone()
     cursor.close()
     return user
 
-def create_user(conn, username: str, password: str):
-    """Creates a new user with a hashed password."""
-    hashed_password = get_password_hash(password)
+def get_profile_by_auth_id(conn, auth_user_id: str):
+    """Fetches a profile using the Supabase auth user ID."""
+    cursor = conn.cursor(cursor_factory=extras.DictCursor)
+    cursor.execute("SELECT * FROM profiles WHERE auth_user_id = %s", (auth_user_id,))
+    profile = cursor.fetchone()
+    cursor.close()
+    return profile
+
+def create_profile(conn, username: str, auth_user_id: str):
+    """Creates a new profile linked to a Supabase auth user."""
     cursor = conn.cursor()
     try:
+        # The password hash is no longer stored here
         cursor.execute(
-            "INSERT INTO users (username, password_hash) VALUES (%s, %s) RETURNING id",
-            (username, hashed_password)
+            "INSERT INTO profiles (username, auth_user_id) VALUES (%s, %s) RETURNING id",
+            (username, auth_user_id)
         )
         user_id = cursor.fetchone()[0]
         conn.commit()
@@ -55,7 +53,7 @@ def create_user(conn, username: str, password: str):
 def get_user_by_telegram_chat_id(conn, chat_id: int):
     """Fetches a user by their Telegram chat ID."""
     cursor = conn.cursor(cursor_factory=extras.DictCursor)
-    cursor.execute("SELECT * FROM users WHERE telegram_chat_id = %s", (str(chat_id),))
+    cursor.execute("SELECT * FROM profiles WHERE telegram_chat_id = %s", (str(chat_id),))
     user = cursor.fetchone()
     cursor.close()
     return user
@@ -340,7 +338,7 @@ def save_api_keys_for_user(conn, user_id: int, gemini_api_key: str, anthropic_ap
     try:
         cursor.execute(
             """
-            UPDATE users
+            UPDATE profiles
             SET gemini_api_key = %s, anthropic_api_key = %s
             WHERE id = %s
             """,
@@ -359,7 +357,7 @@ def save_secrets_for_user(conn, user_id: int, telegram_chat_id: str):
     try:
         cursor.execute(
             """
-            UPDATE users
+            UPDATE profiles
             SET telegram_chat_id = %s
             WHERE id = %s
             """,
