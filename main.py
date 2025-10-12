@@ -352,97 +352,120 @@ async def save_secrets(request: Request, user: User = Depends(get_current_active
 
 # --- FastAPI Routes ---
 
+# --- Auth Routes (Supabase email-based login/register) ---
+
+from fastapi import Form
+
 @app.get("/login", response_class=HTMLResponse)
 async def login_form(request: Request):
-    return templates.TemplateResponse(request, "login.html")
+    """Display login form."""
+    return templates.TemplateResponse(request, "login.html", {"error": None})
 
 @app.post("/login")
-async def login_for_access_token(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), conn: psycopg2.extensions.connection = Depends(get_db)):
-    login_identifier = form_data.username
-    if "@" in login_identifier:
-        email_for_supabase = login_identifier
-    else:
-        email_for_supabase = f"{login_identifier}@gmail.com"
-        
+async def login_user(
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...),
+    conn: psycopg2.extensions.connection = Depends(get_db)
+):
+    """Authenticate user with Supabase Auth (email + password)."""
     try:
         auth_response = supabase.auth.sign_in_with_password({
-            "email": email_for_supabase,
-            "password": form_data.password
+            "email": email,
+            "password": password
         })
-        
+
+        # Check if login succeeded
+        if not auth_response or not getattr(auth_response, "session", None):
+            return templates.TemplateResponse(
+                request, "login.html", {"error": "Invalid email or password"}
+            )
+
+        # Fetch Supabase user info
+        auth_user = auth_response.user
+        if not auth_user:
+            return templates.TemplateResponse(
+                request, "login.html", {"error": "Login failed — no user found"}
+            )
+
+        # Ensure we have a matching profile in local DB
+        profile = crud.get_profile_by_auth_id(conn, auth_user.id)
+        if not profile:
+            crud.create_profile(conn, username=auth_user.email.split("@")[0], auth_user_id=auth_user.id)
+
+        # Set cookie for session
         access_token = auth_response.session.access_token
         response = RedirectResponse(url="/courses", status_code=303)
-        response.set_cookie(key="access_token", value=access_token, httponly=True)
+        response.set_cookie(
+            key="access_token",
+            value=access_token,
+            httponly=True,
+            max_age=3600 * 24 * 7,  # 1 week
+            samesite="lax"
+        )
         return response
 
-    except Exception:
-        return templates.TemplateResponse(request, "login.html", {"error": "Incorrect username or password"})
+    except Exception as e:
+        logger.error(f"Supabase login failed: {e}", exc_info=True)
+        return templates.TemplateResponse(request, "login.html", {"error": "Invalid email or password"})
 
-@app.get("/logout")
-async def logout(request: Request, response: Response):
-    token = request.cookies.get("access_token")
-    if token:
-        try:
-            supabase.auth.sign_out(token)
-        except Exception as e:
-            logger.error(f"Supabase sign out failed: {e}")
-    
-    response = RedirectResponse(url="/", status_code=303)
-    response.delete_cookie("access_token")
-    return response
 
 @app.get("/register", response_class=HTMLResponse)
-async def register_form(request: Request, error: str = None):
-    return templates.TemplateResponse(request, "register.html", {"error": error})
+async def register_form(request: Request):
+    """Display registration form."""
+    return templates.TemplateResponse(request, "register.html", {"error": None})
+
 
 @app.post("/register")
-async def register_user(request: Request, username: str = Form(...), password: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db)):
+async def register_user(
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...),
+    conn: psycopg2.extensions.connection = Depends(get_db)
+):
+    """Register new user via Supabase Auth + local profile."""
     # Password validation
     if len(password) < 8:
         return templates.TemplateResponse(request, "register.html", {"error": "Password must be at least 8 characters long"})
     if not any(char.isdigit() for char in password):
         return templates.TemplateResponse(request, "register.html", {"error": "Password must contain at least one number"})
 
-    is_email = "@" in username
-    email_for_supabase = username if is_email else f"{username}@gmail.com"
-    username_for_profile = username
-
     try:
-        # Step 1: Create the user in Supabase Auth
         auth_response = supabase.auth.sign_up({
-            "email": email_for_supabase,
+            "email": email,
             "password": password,
-            "options": {
-                "data": {
-                    "username": username_for_profile
-                }
-            }
         })
-        
-        auth_user = auth_response.user
-        if not auth_user:
-            return templates.TemplateResponse(request, "register.html", {"error": "User already registered or invalid email"})
 
-        # Step 2: Create the corresponding profile in our database
-        crud.create_profile(conn, username_for_profile, auth_user.id)
+        if not auth_response.user:
+            return templates.TemplateResponse(request, "register.html", {"error": "Email already registered or invalid."})
 
+        # Create corresponding local profile
+        crud.create_profile(conn, username=email.split("@")[0], auth_user_id=auth_response.user.id)
+
+        # Redirect to login with flash
         response = RedirectResponse(url="/login", status_code=303)
-        
-        # Set a helpful flash message
-        if not is_email:
-            flash_message = f"success:Registered! Your recovery email is {email_for_supabase}. Please log in."
-        else:
-            flash_message = "success:Registered successfully! Please log in."
-        response.set_cookie(key="flash", value=flash_message, max_age=10)
-        
+        response.set_cookie("flash", "success:Registered successfully! Please log in.", max_age=10)
         return response
 
     except Exception as e:
-        logger.error(f"Registration error: {e}")
-        # Check for a more specific Supabase error if possible
-        if "already registered" in str(e).lower():
-             return templates.TemplateResponse(request, "register.html", {"error": "This username or email is already registered."})
-        return templates.TemplateResponse(request, "register.html", {"error": "An unexpected error occurred during registration."})
+        logger.error(f"Registration error: {e}", exc_info=True)
+        return templates.TemplateResponse(request, "register.html", {"error": "Registration failed — check your email or try again."})
+
+
+@app.get("/logout")
+async def logout(request: Request):
+    """Log the user out of Supabase and clear session cookie."""
+    token = request.cookies.get("access_token")
+    if token:
+        try:
+            supabase.auth.sign_out(token)
+        except Exception as e:
+            logger.warning(f"Supabase sign-out error: {e}")
+
+    response = RedirectResponse(url="/login", status_code=303)
+    response.delete_cookie("access_token")
+    response.set_cookie("flash", "success:Logged out successfully.", max_age=5)
+    return response
 
 
 @app.get("/health", response_class=JSONResponse)
