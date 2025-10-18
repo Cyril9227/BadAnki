@@ -4,6 +4,7 @@ from psycopg2 import pool
 from psycopg2.extras import register_uuid
 from psycopg2.extensions import connection
 from dotenv import load_dotenv
+from datetime import datetime
 
 load_dotenv()
 
@@ -18,6 +19,11 @@ def init_db_pool():
         # Register the UUID adapter globally for all connections
         register_uuid()
 
+def get_db_pool():
+    """Returns the connection pool, initializing it if necessary."""
+    if db_pool is None:
+        init_db_pool()
+    return db_pool
 
 def get_db_connection() -> connection:
     """Gets a connection from the pool."""
