@@ -62,7 +62,7 @@
 <div class="d-flex flex-column flex-md-row justify-content-md-between align-items-md-center mb-3">
     <h1 class="course-title">{{ metadata.get('title', 'Untitled Course') }}</h1>
     <div class="btn-group-vertical btn-group-sm" role="group" aria-label="Course Actions">
-        <a href="/edit-course/{{ request.path_params.course_path }}" class="btn btn-primary edit-course-btn">Edit Course</a>
+        <a href="/edit-course/{{ course_path | urlencode }}" class="btn btn-primary edit-course-btn">Edit Course</a>
         <button type="button" id="download-btn" class="btn btn-info">Download File</button>
     </div>
 </div>
@@ -122,9 +122,12 @@
         const downloadBtn = document.getElementById('download-btn');
         if(downloadBtn) {
             downloadBtn.addEventListener('click', function() {
-                const coursePath = "{{ request.path_params.course_path }}";
+                const coursePath = "{{ course_path }}";
+                console.log("Download button clicked. Raw course path:", coursePath);
                 if (coursePath) {
-                    window.location.href = `/api/download-course/${coursePath}`;
+                    const finalUrl = `/api/download-course/${encodeURIComponent(coursePath)}`;
+                    console.log("Constructed download URL:", finalUrl);
+                    window.location.href = finalUrl;
                 }
             });
         }
