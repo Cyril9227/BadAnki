@@ -2,6 +2,7 @@ import os
 import psycopg2
 from psycopg2 import pool
 from psycopg2.extras import register_uuid
+from psycopg2.extensions import connection
 from dotenv import load_dotenv
 
 load_dotenv()
