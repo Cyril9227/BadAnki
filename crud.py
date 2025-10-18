@@ -25,16 +25,26 @@ def get_profile_by_auth_id(conn, auth_user_id: str):
     return profile
 
 def create_profile(conn, username: str, auth_user_id: str):
-    """Creates a new profile linked to a Supabase auth user."""
+    """
+    Creates a new profile linked to a Supabase auth user.
+    This function is idempotent and safe from race conditions.
+    """
     cursor = conn.cursor()
     try:
-        # The password hash is no longer stored here
         cursor.execute(
-            "INSERT INTO profiles (username, auth_user_id) VALUES (%s, %s) RETURNING id",
+            "INSERT INTO profiles (username, auth_user_id) VALUES (%s, %s) RETURNING auth_user_id",
             (username, auth_user_id)
         )
         user_id = cursor.fetchone()[0]
         conn.commit()
+        return user_id
+    except psycopg2.errors.UniqueViolation:
+        # This handles race conditions where another request creates the profile
+        # between the check and the insert. It also handles the case where the
+        # 'id' sequence is out of sync.
+        conn.rollback()
+        cursor.execute("SELECT auth_user_id FROM profiles WHERE auth_user_id = %s", (auth_user_id,))
+        user_id = cursor.fetchone()[0]
         return user_id
     except Exception as e:
         conn.rollback()
@@ -324,7 +334,7 @@ def save_generated_cards_for_user(conn, cards: list, user_id: int):
 
 # --- API Key and Secrets CRUD Functions ---
 
-def save_api_keys_for_user(conn, user_id: int, gemini_api_key: str, anthropic_api_key: str):
+def save_api_keys_for_user(conn, user_id: str, gemini_api_key: str, anthropic_api_key: str):
     """Saves or updates the API keys for a specific user."""
     cursor = conn.cursor()
     try:
@@ -332,7 +342,7 @@ def save_api_keys_for_user(conn, user_id: int, gemini_api_key: str, anthropic_ap
             """
             UPDATE profiles
             SET gemini_api_key = %s, anthropic_api_key = %s
-            WHERE id = %s
+            WHERE auth_user_id = %s
             """,
             (gemini_api_key, anthropic_api_key, user_id)
         )
@@ -343,7 +353,7 @@ def save_api_keys_for_user(conn, user_id: int, gemini_api_key: str, anthropic_ap
     finally:
         cursor.close()
 
-def save_secrets_for_user(conn, user_id: int, telegram_chat_id: str):
+def save_secrets_for_user(conn, user_id: str, telegram_chat_id: str):
     """Saves or updates the Telegram chat ID for a specific user."""
     cursor = conn.cursor()
     try:
@@ -351,7 +361,7 @@ def save_secrets_for_user(conn, user_id: int, telegram_chat_id: str):
             """
             UPDATE profiles
             SET telegram_chat_id = %s
-            WHERE id = %s
+            WHERE auth_user_id = %s
             """,
             (telegram_chat_id, user_id)
         )

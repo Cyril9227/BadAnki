@@ -156,9 +156,8 @@ async def db_session_middleware(request: Request, call_next):
 
 # --- Pydantic Models ---
 class User(BaseModel):
-    id: int
+    auth_user_id: uuid.UUID
     username: str
-    auth_user_id: Optional[uuid.UUID]
     telegram_chat_id: Optional[str] = None
     gemini_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
@@ -272,7 +271,7 @@ def generate_cards(text: str, mode="gemini", api_key: str = None) -> list[dict]:
         2.  **Focus:** Concentrate on the core concepts, definitions, and key formulas. Avoid trivial details.
         3.  **LaTeX:** Use LaTeX for all mathematical formulas. Enclose inline math with `$` and block math with `$$`.
         4.  **Format:** Return ONLY a raw JSON object with a "cards" key, containing a list of objects, each with "question" and "answer" keys. Do not include markdown formatting like ```json.
-        5.  **JSON Escaping:** CRITICALLY IMPORTANT: Ensure that any backslashes `\\` within the question or answer strings are properly escaped as `\\\\`. This is essential for valid JSON, especially for LaTeX content like `\\\\frac` or `\\\\mathbb`.
+        5.  **JSON Escaping:** CRITICALLY IMPORTANT: Ensure that any backslashes `\\` within the question or answer strings are properly escaped as `\\`. This is essential for valid JSON, especially for LaTeX content like `\\frac` or `\\mathbb`.
 
         **Text to Analyze:**
         ---
@@ -346,7 +345,7 @@ async def save_secrets(request: Request, user: User = Depends(get_current_active
     if telegram_chat_id == "":
         telegram_chat_id = None
         
-    crud.save_secrets_for_user(request.state.db, user.id, telegram_chat_id)
+    crud.save_secrets_for_user(request.state.db, user.auth_user_id, telegram_chat_id)
     return JSONResponse(content={"success": True})
 
 
@@ -502,7 +501,7 @@ async def edit_course(request: Request, course_path: str, user: User = Depends(g
 
 @app.get("/courses/{course_path:path}", response_class=HTMLResponse)
 async def view_course(request: Request, course_path: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    course = crud.get_course_content_for_user(conn, course_path, user.id)
+    course = crud.get_course_content_for_user(conn, course_path, user.auth_user_id)
     if not course or not course['content']:
         raise HTTPException(status_code=404, detail="Course not found")
     
@@ -522,11 +521,11 @@ async def view_course(request: Request, course_path: str, conn: psycopg2.extensi
 # --- API for Courses ---
 @app.get("/api/courses-tree")
 async def api_get_courses_tree(conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    return crud.get_courses_tree_for_user(conn, user.id)
+    return crud.get_courses_tree_for_user(conn, user.auth_user_id)
 
 @app.get("/api/download-course/{course_path:path}")
 async def download_course(course_path: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    course = crud.get_course_content_for_user(conn, course_path, user.id)
+    course = crud.get_course_content_for_user(conn, course_path, user.auth_user_id)
     if not course:
         raise HTTPException(status_code=404, detail="File not found")
     
@@ -544,22 +543,22 @@ async def download_course(course_path: str, conn: psycopg2.extensions.connection
 
 @app.get("/api/course-content/{course_path:path}", response_class=JSONResponse)
 async def api_get_course_content(course_path: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    course = crud.get_course_content_for_user(conn, course_path, user.id)
+    course = crud.get_course_content_for_user(conn, course_path, user.auth_user_id)
     if not course:
         raise HTTPException(status_code=404, detail="File not found")
     return JSONResponse(content=course['content'])
 
 @app.post("/api/course-content")
 async def api_save_course_content(item: CourseContent, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    crud.save_course_content_for_user(conn, item.path, item.content, user.id)
+    crud.save_course_content_for_user(conn, item.path, item.content, user.auth_user_id)
     return {"success": True}
 
 @app.api_route("/api/course-item", methods=["POST", "DELETE"])
 async def api_manage_course_item(item: CourseItem, request: Request, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     if request.method == "POST":
-        crud.create_course_item_for_user(conn, item.path, item.type, user.id)
+        crud.create_course_item_for_user(conn, item.path, item.type, user.auth_user_id)
     elif request.method == "DELETE":
-        crud.delete_course_item_for_user(conn, item.path, item.type, user.id)
+        crud.delete_course_item_for_user(conn, item.path, item.type, user.auth_user_id)
     return {"success": True}
 
 @app.post("/api/generate-cards")
@@ -602,23 +601,23 @@ async def api_generate_cards_anthropic(request: Request, data: CourseContentForG
 
 @app.post("/api/save-cards")
 async def api_save_cards(data: GeneratedCards, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    crud.save_generated_cards_for_user(conn, data.cards, user.id)
+    crud.save_generated_cards_for_user(conn, data.cards, user.auth_user_id)
     return {"success": True, "message": f"{len(data.cards)} cards saved successfully."}
 
 @app.get("/api/tags")
 async def api_get_tags(conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    tags = crud.get_all_tags_for_user(conn, user.id)
+    tags = crud.get_all_tags_for_user(conn, user.auth_user_id)
     return JSONResponse(content=tags)
 
 @app.post("/api/save-api-keys")
 async def api_save_api_keys(data: ApiKeys, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    crud.save_api_keys_for_user(conn, user.id, data.gemini_api_key, data.anthropic_api_key)
+    crud.save_api_keys_for_user(conn, user.auth_user_id, data.gemini_api_key, data.anthropic_api_key)
     return {"success": True}
 
 # --- Tag-based Views ---
 @app.get("/tags/{tag_name}", response_class=HTMLResponse)
 async def view_courses_by_tag(request: Request, tag_name: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    courses = crud.get_courses_by_tag_for_user(conn, tag_name, user.id)
+    courses = crud.get_courses_by_tag_for_user(conn, tag_name, user.auth_user_id)
     return templates.TemplateResponse(request, "tag_courses.html", {"tag": tag_name, "courses": courses})
 
 # --- Scheduler ---
@@ -636,15 +635,15 @@ async def trigger_scheduler(secret: str):
 # --- Card Management Routes ---
 @app.get("/card/{card_id}", response_class=HTMLResponse)
 async def view_card(request: Request, card_id: int, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    card = crud.get_card_for_user(conn, card_id, user.id)
+    card = crud.get_card_for_user(conn, card_id, user.auth_user_id)
     if card is None:
         raise HTTPException(status_code=404, detail="Card not found")
     return templates.TemplateResponse(request, "card_viewer.html", {"card": card})
 
 @app.get("/review", response_class=HTMLResponse)
 async def review(request: Request, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    card = crud.get_review_cards_for_user(conn, user.id)
-    stats = crud.get_review_stats_for_user(conn, user.id)
+    card = crud.get_review_cards_for_user(conn, user.auth_user_id)
+    stats = crud.get_review_stats_for_user(conn, user.auth_user_id)
     
     if card is None:
         return templates.TemplateResponse(request, "no_cards.html")
@@ -658,12 +657,12 @@ async def review(request: Request, conn: psycopg2.extensions.connection = Depend
 
 @app.post("/review/{card_id}")
 async def update_review(card_id: int, status: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    crud.update_card_for_user(conn, card_id, user.id, status == "remembered")
+    crud.update_card_for_user(conn, card_id, user.auth_user_id, status == "remembered")
     return RedirectResponse(url="/review", status_code=303)
 
 @app.get("/manage", response_class=HTMLResponse)
 async def manage_cards(request: Request, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    cards = crud.get_all_cards_for_user(conn, user.id)
+    cards = crud.get_all_cards_for_user(conn, user.auth_user_id)
     return templates.TemplateResponse(request, "manage_cards.html", {"cards": cards})
 
 @app.get("/new", response_class=HTMLResponse)
@@ -672,26 +671,26 @@ async def new_card_form(request: Request, user: User = Depends(get_current_activ
 
 @app.post("/new")
 async def create_new_card(question: str = Form(...), answer: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    crud.create_card_for_user(conn, question, answer, user.id)
+    crud.create_card_for_user(conn, question, answer, user.auth_user_id)
     response = RedirectResponse(url="/", status_code=303)
     response.set_cookie(key="flash", value="success:Card created successfully!", max_age=5)
     return response
 
 @app.get("/edit-card/{card_id}", response_class=HTMLResponse)
 async def edit_card_form(request: Request, card_id: int, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    card = crud.get_card_for_user(conn, card_id, user.id)
+    card = crud.get_card_for_user(conn, card_id, user.auth_user_id)
     if card is None:
         raise HTTPException(status_code=404, detail="Card not found")
     return templates.TemplateResponse(request, "edit_card.html", {"card": card})
 
 @app.post("/edit-card/{card_id}")
 async def update_existing_card(card_id: int, question: str = Form(...), answer: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    crud.update_card_content_for_user(conn, card_id, user.id, question, answer)
+    crud.update_card_content_for_user(conn, card_id, user.auth_user_id, question, answer)
     return RedirectResponse(url="/manage", status_code=303)
 
 @app.post("/delete/{card_id}")
 async def delete_card(card_id: int, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    crud.delete_card_for_user(conn, card_id, user.id)
+    crud.delete_card_for_user(conn, card_id, user.auth_user_id)
     response = RedirectResponse(url="/manage", status_code=303)
     response.set_cookie(key="flash", value="success:Card deleted successfully!", max_age=5)
     return response
