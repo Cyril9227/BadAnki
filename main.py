@@ -521,8 +521,10 @@ async def edit_course(request: Request, course_path: str, user: User = Depends(g
 
 @app.get("/courses/{course_path:path}", response_class=HTMLResponse)
 async def view_course(request: Request, course_path: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    course_path = unquote(course_path)
-    course = crud.get_course_content_for_user(conn, course_path, auth_user_id=user.auth_user_id)
+    logger.info(f"view_course received path: {course_path}")
+    decoded_course_path = unquote(course_path)
+    logger.info(f"view_course decoded path: {decoded_course_path}")
+    course = crud.get_course_content_for_user(conn, decoded_course_path, auth_user_id=user.auth_user_id)
     if not course or not course['content']:
         raise HTTPException(status_code=404, detail="Course not found")
     
@@ -537,7 +539,7 @@ async def view_course(request: Request, course_path: str, conn: psycopg2.extensi
     if 'tags' in post.metadata: 
         post.metadata['tags'] = sanitize_tags(post.metadata['tags'])
 
-    return templates.TemplateResponse(request, "course_viewer.html", {"metadata": post.metadata, "content": post.content, "course_path": course_path})
+    return templates.TemplateResponse(request, "course_viewer.html", {"metadata": post.metadata, "content": post.content, "course_path": decoded_course_path})
 
 # --- API for Courses ---
 @app.get("/api/courses-tree")
@@ -546,21 +548,23 @@ async def api_get_courses_tree(conn: psycopg2.extensions.connection = Depends(ge
 
 @app.get("/api/download-course/{course_path:path}")
 async def download_course(course_path: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    course_path = unquote(course_path)
-    course = crud.get_course_content_for_user(conn, course_path, auth_user_id=user.auth_user_id)
+    logger.info(f"download_course received path: {course_path}")
+    decoded_course_path = unquote(course_path)
+    logger.info(f"download_course decoded path: {decoded_course_path}")
+    course = crud.get_course_content_for_user(conn, decoded_course_path, auth_user_id=user.auth_user_id)
     if not course:
         raise HTTPException(status_code=404, detail="File not found")
     
     content = course['content']
     # Ensure the filename is safe and has a .md extension
-    safe_filename = os.path.basename(course_path)
+    safe_filename = os.path.basename(decoded_course_path)
     if not safe_filename.endswith('.md'):
         safe_filename += '.md'
         
     return Response(
         content=content,
         media_type="text/markdown",
-        headers={"Content-Disposition": f"attachment; filename={safe_filename}"}
+        headers={"Content-Disposition": f"attachment; filename=\"{safe_filename}\""}
     )
 
 @app.get("/api/course-content/{course_path:path}", response_class=JSONResponse)

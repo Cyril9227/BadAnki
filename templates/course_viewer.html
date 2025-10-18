@@ -123,8 +123,11 @@
         if(downloadBtn) {
             downloadBtn.addEventListener('click', function() {
                 const coursePath = "{{ course_path }}";
+                console.log("Download button clicked. Raw course path:", coursePath);
                 if (coursePath) {
-                    window.location.href = `/api/download-course/${encodeURIComponent(coursePath)}`;
+                    const finalUrl = `/api/download-course/${encodeURIComponent(coursePath)}`;
+                    console.log("Constructed download URL:", finalUrl);
+                    window.location.href = finalUrl;
                 }
             });
         }
