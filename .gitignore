@@ -8,9 +8,6 @@ GEMINI.md
 __pycache__/
 *.pyc
 
-# Ignore database file
-*.db
-
 # Ignore environment file with secrets
 .env
 
