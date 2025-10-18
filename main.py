@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Optional
 import uuid
+from urllib.parse import unquote
 
 # Third-party
 import frontmatter
@@ -503,6 +504,7 @@ async def list_courses(request: Request, user: User = Depends(get_current_active
 
 @app.get("/edit-course/{course_path:path}", response_class=HTMLResponse)
 async def edit_course(request: Request, course_path: str, user: User = Depends(get_current_active_user)):
+    course_path = unquote(course_path)
     gemini_api_key_exists = False
     anthropic_api_key_exists = False
     if request.state.api_keys:
@@ -519,7 +521,7 @@ async def edit_course(request: Request, course_path: str, user: User = Depends(g
 
 @app.get("/courses/{course_path:path}", response_class=HTMLResponse)
 async def view_course(request: Request, course_path: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    logger.info(f"Attempting to view course with path: '{course_path}' for user_id: '{user.auth_user_id}'")
+    course_path = unquote(course_path)
     course = crud.get_course_content_for_user(conn, course_path, auth_user_id=user.auth_user_id)
     if not course or not course['content']:
         raise HTTPException(status_code=404, detail="Course not found")
@@ -544,6 +546,7 @@ async def api_get_courses_tree(conn: psycopg2.extensions.connection = Depends(ge
 
 @app.get("/api/download-course/{course_path:path}")
 async def download_course(course_path: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
+    course_path = unquote(course_path)
     course = crud.get_course_content_for_user(conn, course_path, auth_user_id=user.auth_user_id)
     if not course:
         raise HTTPException(status_code=404, detail="File not found")
@@ -562,6 +565,7 @@ async def download_course(course_path: str, conn: psycopg2.extensions.connection
 
 @app.get("/api/course-content/{course_path:path}", response_class=JSONResponse)
 async def api_get_course_content(course_path: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
+    course_path = unquote(course_path)
     course = crud.get_course_content_for_user(conn, course_path, auth_user_id=user.auth_user_id)
     if not course:
         raise HTTPException(status_code=404, detail="File not found")
