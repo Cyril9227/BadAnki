@@ -388,9 +388,7 @@ async def login_user(
             )
 
         # Ensure we have a matching profile in local DB
-        profile = crud.get_profile_by_auth_id(conn, auth_user.id)
-        if not profile:
-            crud.create_profile(conn, username=auth_user.email.split("@")[0], auth_user_id=auth_user.id)
+        crud.create_profile(conn, username=auth_user.email, auth_user_id=auth_user.id)
 
         # Set cookie for session
         access_token = auth_response.session.access_token
@@ -438,10 +436,9 @@ async def register_user(
         if not auth_response.user:
             return templates.TemplateResponse(request, "register.html", {"error": "Email already registered or invalid."})
 
-        # Create corresponding local profile if it doesn't exist
-        profile = crud.get_profile_by_auth_id(conn, auth_response.user.id)
-        if not profile:
-            crud.create_profile(conn, username=email.split("@")[0], auth_user_id=auth_response.user.id)
+        # Create a corresponding local profile.
+        # This is idempotent, so it's safe to call even if the profile already exists.
+        crud.create_profile(conn, username=email, auth_user_id=auth_response.user.id)
 
         # Redirect to login with flash
         response = RedirectResponse(url="/login", status_code=303)
