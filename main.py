@@ -440,9 +440,30 @@ async def register_user(
         # This is idempotent, so it's safe to call even if the profile already exists.
         crud.create_profile(conn, username=email, auth_user_id=auth_response.user.id)
 
-        # Redirect to login with flash
-        response = RedirectResponse(url="/login", status_code=303)
-        response.set_cookie("flash", "success:Registered successfully! Please log in.", max_age=10)
+        # --- Auto-login after registration ---
+        # Sign in the user to create a session immediately
+        auto_login_response = supabase.auth.sign_in_with_password({
+            "email": email,
+            "password": password
+        })
+
+        if not auto_login_response.session:
+            # This is unlikely but handle it just in case
+            logger.error("Auto-login failed after registration.")
+            response = RedirectResponse(url="/login", status_code=303)
+            response.set_cookie("flash", "success:Registered! Please log in.", max_age=10)
+            return response
+
+        # Set the access token cookie and redirect to the main app
+        access_token = auto_login_response.session.access_token
+        response = RedirectResponse(url="/courses", status_code=303)
+        response.set_cookie(
+            key="access_token",
+            value=access_token,
+            httponly=True,
+            max_age=3600 * 24 * 7,  # 1 week
+            samesite="lax"
+        )
         return response
 
     except Exception as e:

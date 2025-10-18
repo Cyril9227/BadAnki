@@ -1,36 +1,22 @@
 import os
-import psycopg2.pool
-from psycopg2.extensions import connection
+import psycopg2
+from psycopg2 import pool
+from psycopg2.extras import register_uuid
 from dotenv import load_dotenv
-from datetime import datetime
 
 load_dotenv()
 
-# --- Database Connection Pool ---
-# We use a connection pool to manage database connections efficiently.
-# The pool is initialized lazily to avoid connection issues during app startup
-# or in test environments where the DATABASE_URL might not be immediately available.
-
 db_pool = None
 
-def get_db_pool():
-    """Initializes and returns the database connection pool."""
+def init_db_pool():
+    """Initializes the database connection pool and registers the UUID adapter."""
     global db_pool
     if db_pool is None:
-        DATABASE_URL = os.environ.get("DATABASE_URL")
-        if not DATABASE_URL:
-            raise ValueError("DATABASE_URL environment variable is not set.")
-        
-        # In a test environment, we might need a smaller pool
-        min_conn = 1 if os.environ.get("ENVIRONMENT") == "test" else 5
-        max_conn = 2 if os.environ.get("ENVIRONMENT") == "test" else 20
-        
-        db_pool = psycopg2.pool.SimpleConnectionPool(
-            min_conn, 
-            max_conn, 
-            dsn=DATABASE_URL
-        )
-    return db_pool
+        db_url = os.environ.get("DATABASE_URL")
+        db_pool = psycopg2.pool.SimpleConnectionPool(1, 20, dsn=db_url)
+        # Register the UUID adapter globally for all connections
+        register_uuid()
+
 
 def get_db_connection() -> connection:
     """Gets a connection from the pool."""
