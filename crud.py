@@ -33,20 +33,18 @@ def create_profile(conn, username: str, auth_user_id: str):
     cursor = conn.cursor()
     try:
         cursor.execute(
-            "INSERT INTO profiles (username, auth_user_id) VALUES (%s, %s) RETURNING auth_user_id",
+            "INSERT INTO profiles (username, auth_user_id) VALUES (%s, %s)",
             (username, auth_user_id)
         )
-        user_id = cursor.fetchone()[0]
         conn.commit()
-        return user_id
+        return auth_user_id
     except psycopg2.errors.UniqueViolation:
         # This handles race conditions where another request creates the profile
-        # between the check and the insert. It also handles the case where the
-        # 'id' sequence is out of sync.
+        # between the check and the insert.
         conn.rollback()
         cursor.execute("SELECT auth_user_id FROM profiles WHERE auth_user_id = %s", (auth_user_id,))
-        user_id = cursor.fetchone()[0]
-        return user_id
+        existing_user_id = cursor.fetchone()[0]
+        return existing_user_id
     except Exception as e:
         conn.rollback()
         raise e
@@ -65,12 +63,12 @@ def get_user_by_telegram_chat_id(conn, chat_id: int):
 
 # --- Course CRUD Functions ---
 
-def get_courses_tree_for_user(conn, user_id: int):
+def get_courses_tree_for_user(conn, auth_user_id: str):
     """
     Builds a hierarchical tree of courses for a specific user.
     """
     cursor = conn.cursor(cursor_factory=extras.DictCursor)
-    cursor.execute("SELECT path, content FROM courses WHERE user_id = %s ORDER BY path", (user_id,))
+    cursor.execute("SELECT path, content FROM courses WHERE user_id = %s ORDER BY path", (auth_user_id,))
     courses = cursor.fetchall()
     cursor.close()
 
@@ -126,14 +124,14 @@ def get_courses_tree_for_user(conn, user_id: int):
 
     return sorted(root_nodes, key=lambda x: x['name'])
 
-def get_course_content_for_user(conn, course_path: str, user_id: int):
+def get_course_content_for_user(conn, course_path: str, auth_user_id: str):
     cursor = conn.cursor(cursor_factory=extras.DictCursor)
-    cursor.execute("SELECT content FROM courses WHERE path = %s AND user_id = %s", (course_path, user_id))
+    cursor.execute("SELECT content FROM courses WHERE path = %s AND user_id = %s", (course_path, auth_user_id))
     course = cursor.fetchone()
     cursor.close()
     return course
 
-def save_course_content_for_user(conn, path: str, content: str, user_id: int):
+def save_course_content_for_user(conn, path: str, content: str, auth_user_id: str):
     cursor = conn.cursor()
     try:
         cursor.execute(
@@ -144,7 +142,7 @@ def save_course_content_for_user(conn, path: str, content: str, user_id: int):
                 content = EXCLUDED.content,
                 updated_at = EXCLUDED.updated_at
             """,
-            (path, content, user_id, datetime.now())
+            (path, content, auth_user_id, datetime.now())
         )
         conn.commit()
     except Exception as e:
@@ -153,19 +151,19 @@ def save_course_content_for_user(conn, path: str, content: str, user_id: int):
     finally:
         cursor.close()
 
-def create_course_item_for_user(conn, path: str, item_type: str, user_id: int):
+def create_course_item_for_user(conn, path: str, item_type: str, auth_user_id: str):
     cursor = conn.cursor()
     try:
         if item_type == 'file':
             cursor.execute(
                 "INSERT INTO courses (path, content, user_id) VALUES (%s, %s, %s) ON CONFLICT (path, user_id) DO NOTHING",
-                (path, "---\ntitle: New Course\ntags: \n---\n\n", user_id)
+                (path, "---\ntitle: New Course\ntags: \n---\n\n", auth_user_id)
             )
         elif item_type in ['directory', 'folder']:
             placeholder_path = os.path.join(path, ".placeholder")
             cursor.execute(
                 "INSERT INTO courses (path, content, user_id) VALUES (%s, %s, %s) ON CONFLICT (path, user_id) DO NOTHING",
-                (placeholder_path, "This is a placeholder file.", user_id)
+                (placeholder_path, "This is a placeholder file.", auth_user_id)
             )
         conn.commit()
     except Exception as e:
@@ -174,14 +172,14 @@ def create_course_item_for_user(conn, path: str, item_type: str, user_id: int):
     finally:
         cursor.close()
 
-def delete_course_item_for_user(conn, path: str, item_type: str, user_id: int):
+def delete_course_item_for_user(conn, path: str, item_type: str, auth_user_id: str):
     cursor = conn.cursor()
     try:
         if item_type == 'file':
-            cursor.execute("DELETE FROM courses WHERE path = %s AND user_id = %s", (path, user_id))
+            cursor.execute("DELETE FROM courses WHERE path = %s AND user_id = %s", (path, auth_user_id))
         elif item_type in ['directory', 'folder']:
             placeholder_path = os.path.join(path, ".placeholder")
-            cursor.execute("DELETE FROM courses WHERE (path = %s OR path LIKE %s) AND user_id = %s", (placeholder_path, f"{path}/%", user_id))
+            cursor.execute("DELETE FROM courses WHERE (path = %s OR path LIKE %s) AND user_id = %s", (placeholder_path, f"{path}/%", auth_user_id))
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -189,10 +187,10 @@ def delete_course_item_for_user(conn, path: str, item_type: str, user_id: int):
     finally:
         cursor.close()
 
-def get_all_tags_for_user(conn, user_id: int):
+def get_all_tags_for_user(conn, auth_user_id: str):
     """Fetches all unique tags for a user from their courses."""
     cursor = conn.cursor(cursor_factory=extras.DictCursor)
-    cursor.execute("SELECT content FROM courses WHERE user_id = %s", (user_id,))
+    cursor.execute("SELECT content FROM courses WHERE user_id = %s", (auth_user_id,))
     courses = cursor.fetchall()
     cursor.close()
 
@@ -207,10 +205,10 @@ def get_all_tags_for_user(conn, user_id: int):
             
     return sorted(list(all_tags))
 
-def get_courses_by_tag_for_user(conn, tag: str, user_id: int):
+def get_courses_by_tag_for_user(conn, tag: str, auth_user_id: str):
     """Fetches all courses for a user that have a specific tag."""
     cursor = conn.cursor(cursor_factory=extras.DictCursor)
-    cursor.execute("SELECT path, content FROM courses WHERE user_id = %s", (user_id,))
+    cursor.execute("SELECT path, content FROM courses WHERE user_id = %s", (auth_user_id,))
     courses = cursor.fetchall()
     cursor.close()
 
@@ -232,14 +230,14 @@ def get_courses_by_tag_for_user(conn, tag: str, user_id: int):
 
 # --- Card CRUD Functions ---
 
-def get_review_cards_for_user(conn, user_id: int):
+def get_review_cards_for_user(conn, auth_user_id: str):
     cursor = conn.cursor(cursor_factory=extras.DictCursor)
-    cursor.execute("SELECT * FROM cards WHERE user_id = %s AND due_date <= %s ORDER BY due_date LIMIT 1", (user_id, datetime.now()))
+    cursor.execute("SELECT * FROM cards WHERE user_id = %s AND due_date <= %s ORDER BY due_date LIMIT 1", (auth_user_id, datetime.now()))
     card = cursor.fetchone()
     cursor.close()
     return card
 
-def get_review_stats_for_user(conn, user_id: int):
+def get_review_stats_for_user(conn, auth_user_id: str):
     cursor = conn.cursor(cursor_factory=extras.DictCursor)
     query = """
     SELECT
@@ -247,22 +245,22 @@ def get_review_stats_for_user(conn, user_id: int):
         (SELECT COUNT(*) FROM cards WHERE user_id = %s AND interval = 1 AND ease_factor = 2.5) AS new_cards,
         (SELECT COUNT(*) FROM cards WHERE user_id = %s) AS total_cards;
     """
-    cursor.execute(query, (user_id, datetime.now(), user_id, user_id))
+    cursor.execute(query, (auth_user_id, datetime.now(), auth_user_id, auth_user_id))
     stats = cursor.fetchone()
     cursor.close()
     return stats
 
 
-def get_all_cards_for_user(conn, user_id: int):
+def get_all_cards_for_user(conn, auth_user_id: str):
     cursor = conn.cursor(cursor_factory=extras.DictCursor)
-    cursor.execute("SELECT * FROM cards WHERE user_id = %s ORDER BY due_date", (user_id,))
+    cursor.execute("SELECT * FROM cards WHERE user_id = %s ORDER BY due_date", (auth_user_id,))
     cards = cursor.fetchall()
     cursor.close()
     return cards
 
-def update_card_for_user(conn, card_id: int, user_id: int, remembered: bool):
+def update_card_for_user(conn, card_id: int, auth_user_id: str, remembered: bool):
     cursor = conn.cursor(cursor_factory=extras.DictCursor)
-    cursor.execute("SELECT * FROM cards WHERE id = %s AND user_id = %s", (card_id, user_id))
+    cursor.execute("SELECT * FROM cards WHERE id = %s AND user_id = %s", (card_id, auth_user_id))
     card = cursor.fetchone()
     if not card:
         cursor.close()
@@ -281,46 +279,46 @@ def update_card_for_user(conn, card_id: int, user_id: int, remembered: bool):
     conn.commit()
     cursor.close()
 
-def create_card_for_user(conn, question: str, answer: str, user_id: int):
+def create_card_for_user(conn, question: str, answer: str, auth_user_id: str):
     cursor = conn.cursor()
     cursor.execute(
         "INSERT INTO cards (question, answer, due_date, user_id) VALUES (%s, %s, %s, %s)",
-        (question, answer, datetime.now(), user_id)
+        (question, answer, datetime.now(), auth_user_id)
     )
     conn.commit()
     cursor.close()
 
-def get_card_for_user(conn, card_id: int, user_id: int):
+def get_card_for_user(conn, card_id: int, auth_user_id: str):
     cursor = conn.cursor(cursor_factory=extras.DictCursor)
-    cursor.execute("SELECT * FROM cards WHERE id = %s AND user_id = %s", (card_id, user_id))
+    cursor.execute("SELECT * FROM cards WHERE id = %s AND user_id = %s", (card_id, auth_user_id))
     card = cursor.fetchone()
     cursor.close()
     return card
 
-def update_card_content_for_user(conn, card_id: int, user_id: int, question: str, answer: str):
+def update_card_content_for_user(conn, card_id: int, auth_user_id: str, question: str, answer: str):
     cursor = conn.cursor()
-    cursor.execute("UPDATE cards SET question = %s, answer = %s WHERE id = %s AND user_id = %s", (question, answer, card_id, user_id))
+    cursor.execute("UPDATE cards SET question = %s, answer = %s WHERE id = %s AND user_id = %s", (question, answer, card_id, auth_user_id))
     conn.commit()
     cursor.close()
 
-def delete_card_for_user(conn, card_id: int, user_id: int):
+def delete_card_for_user(conn, card_id: int, auth_user_id: str):
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM cards WHERE id = %s AND user_id = %s", (card_id, user_id))
+    cursor.execute("DELETE FROM cards WHERE id = %s AND user_id = %s", (card_id, auth_user_id))
     conn.commit()
     cursor.close()
 
-def get_random_card_for_user(conn, user_id: int):
+def get_random_card_for_user(conn, auth_user_id: str):
     """Fetches a random card from the database for a specific user."""
     cursor = conn.cursor(cursor_factory=extras.DictCursor)
-    cursor.execute("SELECT * FROM cards WHERE user_id = %s ORDER BY RANDOM() LIMIT 1", (user_id,))
+    cursor.execute("SELECT * FROM cards WHERE user_id = %s ORDER BY RANDOM() LIMIT 1", (auth_user_id,))
     card = cursor.fetchone()
     cursor.close()
     return card
 
-def save_generated_cards_for_user(conn, cards: list, user_id: int):
+def save_generated_cards_for_user(conn, cards: list, auth_user_id: str):
     cursor = conn.cursor()
     try:
-        card_data = [(card.question, card.answer, datetime.now(), user_id) for card in cards]
+        card_data = [(card.question, card.answer, datetime.now(), auth_user_id) for card in cards]
         extras.execute_values(
             cursor,
             "INSERT INTO cards (question, answer, due_date, user_id) VALUES %s",

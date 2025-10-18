@@ -519,7 +519,7 @@ async def edit_course(request: Request, course_path: str, user: User = Depends(g
 
 @app.get("/courses/{course_path:path}", response_class=HTMLResponse)
 async def view_course(request: Request, course_path: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    course = crud.get_course_content_for_user(conn, course_path, user.auth_user_id)
+    course = crud.get_course_content_for_user(conn, course_path, auth_user_id=user.auth_user_id)
     if not course or not course['content']:
         raise HTTPException(status_code=404, detail="Course not found")
     
@@ -539,11 +539,11 @@ async def view_course(request: Request, course_path: str, conn: psycopg2.extensi
 # --- API for Courses ---
 @app.get("/api/courses-tree")
 async def api_get_courses_tree(conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    return crud.get_courses_tree_for_user(conn, user.auth_user_id)
+    return crud.get_courses_tree_for_user(conn, auth_user_id=user.auth_user_id)
 
 @app.get("/api/download-course/{course_path:path}")
 async def download_course(course_path: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    course = crud.get_course_content_for_user(conn, course_path, user.auth_user_id)
+    course = crud.get_course_content_for_user(conn, course_path, auth_user_id=user.auth_user_id)
     if not course:
         raise HTTPException(status_code=404, detail="File not found")
     
@@ -561,22 +561,22 @@ async def download_course(course_path: str, conn: psycopg2.extensions.connection
 
 @app.get("/api/course-content/{course_path:path}", response_class=JSONResponse)
 async def api_get_course_content(course_path: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    course = crud.get_course_content_for_user(conn, course_path, user.auth_user_id)
+    course = crud.get_course_content_for_user(conn, course_path, auth_user_id=user.auth_user_id)
     if not course:
         raise HTTPException(status_code=404, detail="File not found")
     return JSONResponse(content=course['content'])
 
 @app.post("/api/course-content")
 async def api_save_course_content(item: CourseContent, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    crud.save_course_content_for_user(conn, item.path, item.content, user.auth_user_id)
+    crud.save_course_content_for_user(conn, item.path, item.content, auth_user_id=user.auth_user_id)
     return {"success": True}
 
 @app.api_route("/api/course-item", methods=["POST", "DELETE"])
 async def api_manage_course_item(item: CourseItem, request: Request, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     if request.method == "POST":
-        crud.create_course_item_for_user(conn, item.path, item.type, user.auth_user_id)
+        crud.create_course_item_for_user(conn, item.path, item.type, auth_user_id=user.auth_user_id)
     elif request.method == "DELETE":
-        crud.delete_course_item_for_user(conn, item.path, item.type, user.auth_user_id)
+        crud.delete_course_item_for_user(conn, item.path, item.type, auth_user_id=user.auth_user_id)
     return {"success": True}
 
 @app.post("/api/generate-cards")
@@ -624,7 +624,7 @@ async def api_save_cards(data: GeneratedCards, conn: psycopg2.extensions.connect
 
 @app.get("/api/tags")
 async def api_get_tags(conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    tags = crud.get_all_tags_for_user(conn, user.auth_user_id)
+    tags = crud.get_all_tags_for_user(conn, auth_user_id=user.auth_user_id)
     return JSONResponse(content=tags)
 
 @app.post("/api/save-api-keys")
@@ -635,7 +635,7 @@ async def api_save_api_keys(data: ApiKeys, conn: psycopg2.extensions.connection 
 # --- Tag-based Views ---
 @app.get("/tags/{tag_name}", response_class=HTMLResponse)
 async def view_courses_by_tag(request: Request, tag_name: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    courses = crud.get_courses_by_tag_for_user(conn, tag_name, user.auth_user_id)
+    courses = crud.get_courses_by_tag_for_user(conn, tag_name, auth_user_id=user.auth_user_id)
     return templates.TemplateResponse(request, "tag_courses.html", {"tag": tag_name, "courses": courses})
 
 # --- Scheduler ---
