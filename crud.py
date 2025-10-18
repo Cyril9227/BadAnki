@@ -4,6 +4,7 @@
 
 import os
 import frontmatter
+import psycopg2
 from datetime import datetime, timedelta
 from psycopg2 import extras
 from utils.parsing import sanitize_tags
