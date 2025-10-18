@@ -519,6 +519,7 @@ async def edit_course(request: Request, course_path: str, user: User = Depends(g
 
 @app.get("/courses/{course_path:path}", response_class=HTMLResponse)
 async def view_course(request: Request, course_path: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
+    logger.info(f"Attempting to view course with path: '{course_path}' for user_id: '{user.auth_user_id}'")
     course = crud.get_course_content_for_user(conn, course_path, auth_user_id=user.auth_user_id)
     if not course or not course['content']:
         raise HTTPException(status_code=404, detail="Course not found")
