@@ -248,8 +248,12 @@ def test_logout(mock_get_user, mock_sign_out, client, db_conn):
     assert response.status_code == 303
     assert response.headers["location"] == "/"
     
-    # Check cookie is gone
-    assert "access_token" not in client.cookies
+    # Check that the 'set-cookie' header is correctly formatted to delete the cookie
+    set_cookie_header = response.headers.get("set-cookie")
+    assert set_cookie_header is not None
+    assert "access_token=;" in set_cookie_header
+    assert "Max-Age=0" in set_cookie_header
+    
     mock_sign_out.assert_called_once()
 
 # --- Course Management Tests ---
