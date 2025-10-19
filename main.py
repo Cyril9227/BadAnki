@@ -504,19 +504,32 @@ async def list_courses(request: Request, user: User = Depends(get_current_active
 
 @app.get("/edit-course/{course_path:path}", response_class=HTMLResponse)
 async def edit_course(request: Request, course_path: str, user: User = Depends(get_current_active_user)):
+    logger.info(f"Entering edit_course with path: {course_path}")
     gemini_api_key_exists = False
     anthropic_api_key_exists = False
-    if request.state.api_keys:
-        if request.state.api_keys.get('gemini_api_key'):
-            gemini_api_key_exists = True
-        if request.state.api_keys.get('anthropic_api_key'):
-            anthropic_api_key_exists = True
     
-    return templates.TemplateResponse(request, "course_editor.html", {
-        "course_path": course_path,
-        "gemini_api_key_exists": gemini_api_key_exists,
-        "anthropic_api_key_exists": anthropic_api_key_exists
-    })
+    try:
+        logger.info(f"api_keys object type: {type(request.state.api_keys)}")
+        logger.info(f"api_keys object value: {request.state.api_keys}")
+        
+        if request.state.api_keys:
+            # Correctly access attributes on the Pydantic User model
+            if request.state.api_keys.gemini_api_key:
+                gemini_api_key_exists = True
+            if request.state.api_keys.anthropic_api_key:
+                anthropic_api_key_exists = True
+        
+        logger.info(f"API key presence: Gemini={gemini_api_key_exists}, Anthropic={anthropic_api_key_exists}")
+
+        return templates.TemplateResponse(request, "course_editor.html", {
+            "course_path": course_path,
+            "gemini_api_key_exists": gemini_api_key_exists,
+            "anthropic_api_key_exists": anthropic_api_key_exists
+        })
+        
+    except Exception as e:
+        logger.error(f"CRITICAL ERROR in edit_course: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred while loading the course editor.")
 
 @app.get("/courses/{course_path:path}", response_class=HTMLResponse)
 async def view_course(request: Request, course_path: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
@@ -598,7 +611,7 @@ async def api_generate_cards(request: Request, data: CourseContentForGeneration,
     
     api_key = None
     if request.state.api_keys:
-        api_key = request.state.api_keys.get('gemini_api_key')
+        api_key = request.state.api_keys.gemini_api_key
 
     generated_cards = generate_cards(data.content, mode="gemini", api_key=api_key)
     if not generated_cards:
@@ -622,7 +635,7 @@ async def api_generate_cards_anthropic(request: Request, data: CourseContentForG
     
     api_key = None
     if request.state.api_keys:
-        api_key = request.state.api_keys.get('anthropic_api_key')
+        api_key = request.state.api_keys.anthropic_api_key
 
     generated_cards = generate_cards(data.content, mode="anthropic", api_key=api_key)
     if not generated_cards:
