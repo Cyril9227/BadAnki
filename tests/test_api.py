@@ -246,7 +246,7 @@ def test_logout(mock_get_user, mock_sign_out, client, db_conn):
     
     # Check redirect to login page
     assert response.status_code == 303
-    assert response.headers["location"] == "/login"
+    assert response.headers["location"] == "/"
     
     # Check cookie is gone
     assert "access_token" not in client.cookies
@@ -380,7 +380,7 @@ def test_create_card(mock_get_user, client, db_conn):
         follow_redirects=False
     )
     assert response.status_code == 303
-    assert response.headers["location"] == "/login"
+    assert response.headers["location"] == "/"
 
     # Verify the card was created in the database
     cur = db_conn.cursor()
