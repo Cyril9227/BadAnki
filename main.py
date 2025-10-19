@@ -504,14 +504,11 @@ async def list_courses(request: Request, user: User = Depends(get_current_active
 
 @app.get("/edit-course/{course_path:path}", response_class=HTMLResponse)
 async def edit_course(request: Request, course_path: str, user: User = Depends(get_current_active_user)):
-    logger.info(f"Entering edit_course with path: {course_path}")
+    course_path = unquote(course_path)
     gemini_api_key_exists = False
     anthropic_api_key_exists = False
     
     try:
-        logger.info(f"api_keys object type: {type(request.state.api_keys)}")
-        logger.info(f"api_keys object value: {request.state.api_keys}")
-        
         if request.state.api_keys:
             # Correctly access attributes on the Pydantic User model
             if request.state.api_keys.gemini_api_key:
@@ -519,8 +516,6 @@ async def edit_course(request: Request, course_path: str, user: User = Depends(g
             if request.state.api_keys.anthropic_api_key:
                 anthropic_api_key_exists = True
         
-        logger.info(f"API key presence: Gemini={gemini_api_key_exists}, Anthropic={anthropic_api_key_exists}")
-
         return templates.TemplateResponse(request, "course_editor.html", {
             "course_path": course_path,
             "gemini_api_key_exists": gemini_api_key_exists,
@@ -533,7 +528,7 @@ async def edit_course(request: Request, course_path: str, user: User = Depends(g
 
 @app.get("/courses/{course_path:path}", response_class=HTMLResponse)
 async def view_course(request: Request, course_path: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    logger.info(f"view_course received path: {course_path}")
+    course_path = unquote(course_path)
     course = crud.get_course_content_for_user(conn, course_path, auth_user_id=user.auth_user_id)
     if not course or not course['content']:
         raise HTTPException(status_code=404, detail="Course not found")
@@ -558,7 +553,7 @@ async def api_get_courses_tree(conn: psycopg2.extensions.connection = Depends(ge
 
 @app.get("/api/download-course/{course_path:path}")
 async def download_course(course_path: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    logger.info(f"download_course received path: {course_path}")
+    course_path = unquote(course_path)
     course = crud.get_course_content_for_user(conn, course_path, auth_user_id=user.auth_user_id)
     if not course:
         raise HTTPException(status_code=404, detail="File not found")
@@ -586,6 +581,7 @@ async def download_course(course_path: str, conn: psycopg2.extensions.connection
 
 @app.get("/api/course-content/{course_path:path}", response_class=JSONResponse)
 async def api_get_course_content(course_path: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
+    course_path = unquote(course_path)
     course = crud.get_course_content_for_user(conn, course_path, auth_user_id=user.auth_user_id)
     if not course:
         raise HTTPException(status_code=404, detail="File not found")
