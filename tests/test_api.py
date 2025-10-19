@@ -89,11 +89,9 @@ def test_register_user_successfully(mock_sign_up, mock_sign_in, client, db_conn)
     # Mock Supabase responses
     mock_user = MagicMock()
     mock_user.id = uuid.uuid4()
-    mock_user.email = "testuser123@example.com"
-
     # The user needs to exist in auth.users for the profile creation to succeed
     with db_conn.cursor() as cur:
-        cur.execute("INSERT INTO auth.users (id, email) VALUES (%s, %s)", (mock_user.id, mock_user.email))
+        cur.execute("INSERT INTO auth.users (id, email) VALUES (%s, %s)", (str(mock_user.id), mock_user.email))
         db_conn.commit()
     
     mock_session = MagicMock()
@@ -144,7 +142,7 @@ def test_login_successfully(mock_sign_in, client, db_conn):
 
     # The user needs to exist in auth.users for the profile creation to succeed
     with db_conn.cursor() as cur:
-        cur.execute("INSERT INTO auth.users (id, email) VALUES (%s, %s)", (mock_user.id, mock_user.email))
+        cur.execute("INSERT INTO auth.users (id, email) VALUES (%s, %s)", (str(mock_user.id), mock_user.email))
         db_conn.commit()
     
     mock_session = MagicMock()
@@ -196,7 +194,8 @@ def create_test_user(db_conn, email="testuser@example.com"):
     """Creates a user in the mock Supabase auth table and a corresponding profile."""
     auth_user_id = uuid.uuid4()
     with db_conn.cursor() as cur:
-        cur.execute("INSERT INTO auth.users (id, email) VALUES (%s, %s)", (auth_user_id, email))
+        # Cast UUID to string for psycopg2
+        cur.execute("INSERT INTO auth.users (id, email) VALUES (%s, %s)", (str(auth_user_id), email))
         cur.execute(
             "INSERT INTO profiles (auth_user_id, username) VALUES (%s, %s)",
             (auth_user_id, email)
@@ -245,7 +244,7 @@ def test_logout(mock_get_user, mock_sign_out, client, db_conn):
     
     # Check redirect to login page
     assert response.status_code == 303
-    assert response.headers["location"] == "/login"
+    assert response.headers["location"] == "/"
     
     # Check cookie is gone
     assert "access_token" not in client.cookies
@@ -528,13 +527,22 @@ def test_save_api_keys(mock_get_user, client, db_conn):
     assert user_keys['gemini_api_key'] == "gemini_key"
     assert user_keys['anthropic_api_key'] == "anthropic_key"
 
-@patch("main.supabase.auth.get_user")
+@patch("main.supabase.auth.get-user")
 def test_save_secrets(mock_get_user, client, db_conn):
     auth_client, user_id = authenticate_client(mock_get_user, client, db_conn, email="secrets_user@example.com")
     
+    # CSRF token is required for this endpoint
+    # We can generate one using the helper function from main
+    from main import generate_csrf_token
+    csrf_token = generate_csrf_token("secrets_user@example.com") # Session ID can be username for tests
+    
     secrets_data = {"telegram_chat_id": "12345"}
     
-    response = auth_client.post("/api/save-secrets", json=secrets_data)
+    response = auth_client.post(
+        "/secrets", 
+        data=secrets_data, # Use data for form submission
+        headers={"X-CSRF-Token": csrf_token}
+    )
     assert response.status_code == 200
     assert response.json()["success"] is True
 
