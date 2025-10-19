@@ -81,8 +81,8 @@ def robust_json_loads(raw: str) -> Any:
 
     # Fallback: pre-escape single backslashes that precede letters.
     # This handles cases like "\frac", "\theta", "\times" (including those that start with f,t,...)
-    # Pattern explanation: (?<!\\) ensure the backslash is not already escaped.
-    s_escaped = re.sub(r'(?<!\\)\\(?=[A-Za-z])', r'\\\\', s)
+    # The original pattern `(?<!\\)\\(?=[A-Za-z])` was replaced for being less robust.
+    s_escaped = re.sub(r'\\([a-zA-Z])', r'\\\\\1', s)
 
     # Try parsing the escaped form
     parsed = json.loads(s_escaped)  # let exception propagate if this truly fails
