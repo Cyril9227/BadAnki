@@ -85,7 +85,7 @@ def truncate_tables(db_conn):
 # --- Tests ---
 @patch("main.supabase.auth.sign_up")
 @patch("main.supabase.auth.sign_in_with_password")
-def test_register_user_successfully(mock_sign_up, mock_sign_in, client, db_conn):
+def test_register_user_successfully(mock_sign_in, mock_sign_up, client, db_conn):
     # Mock Supabase responses
     mock_user = MagicMock()
     mock_user.id = uuid.uuid4()
@@ -198,7 +198,7 @@ def create_test_user(db_conn, email="testuser@example.com"):
         cur.execute("INSERT INTO auth.users (id, email) VALUES (%s, %s)", (str(auth_user_id), email))
         cur.execute(
             "INSERT INTO profiles (auth_user_id, username) VALUES (%s, %s)",
-            (auth_user_id, email)
+            (str(auth_user_id), email)
         )
         db_conn.commit()
     return auth_user_id
@@ -244,7 +244,7 @@ def test_logout(mock_get_user, mock_sign_out, client, db_conn):
     
     # Check redirect to login page
     assert response.status_code == 303
-    assert response.headers["location"] == "/"
+    assert response.headers["location"] == "/login"
     
     # Check cookie is gone
     assert "access_token" not in client.cookies
@@ -527,7 +527,7 @@ def test_save_api_keys(mock_get_user, client, db_conn):
     assert user_keys['gemini_api_key'] == "gemini_key"
     assert user_keys['anthropic_api_key'] == "anthropic_key"
 
-@patch("main.supabase.auth.get-user")
+@patch("main.supabase.auth.get_user")
 def test_save_secrets(mock_get_user, client, db_conn):
     auth_client, user_id = authenticate_client(mock_get_user, client, db_conn, email="secrets_user@example.com")
     
