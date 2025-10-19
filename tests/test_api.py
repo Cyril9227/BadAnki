@@ -88,11 +88,13 @@ def truncate_tables(db_conn):
 def test_register_user_successfully(mock_sign_in, mock_sign_up, client, db_conn):
     # Mock Supabase responses
     mock_user = MagicMock()
-        mock_user.email = "testuser123@example.com"
-        # The user needs to exist in auth.users for the profile creation to succeed
-        with db_conn.cursor() as cur:
-            cur.execute("INSERT INTO auth.users (id, email) VALUES (%s, %s)", (str(mock_user.id), mock_user.email))
-            db_conn.commit()
+    mock_user.id = uuid.uuid4()
+    mock_user.email = "testuser123@example.com"
+
+    # The user needs to exist in auth.users for the profile creation to succeed
+    with db_conn.cursor() as cur:
+        cur.execute("INSERT INTO auth.users (id, email) VALUES (%s, %s)", (str(mock_user.id), mock_user.email))
+        db_conn.commit()
     
     mock_session = MagicMock()
     mock_session.access_token = "fake-token"
@@ -140,7 +142,6 @@ def test_login_successfully(mock_sign_in, client, db_conn):
     mock_user.id = uuid.uuid4()
     mock_user.email = "loginuser@example.com"
 
-    mock_user.email = "loginuser@example.com"
     # The user needs to exist in auth.users for the profile creation to succeed
     with db_conn.cursor() as cur:
         cur.execute("INSERT INTO auth.users (id, email) VALUES (%s, %s)", (str(mock_user.id), mock_user.email))
