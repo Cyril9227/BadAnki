@@ -13,7 +13,7 @@ from telegram.helpers import escape_markdown
 from telegram.constants import ParseMode
 from telegram.ext import Application, CommandHandler, ContextTypes
 from database import get_db_connection, release_db_connection
-from crud import get_random_card_for_user, get_user_by_username, verify_password, get_user_by_telegram_chat_id
+from crud import get_random_card_for_user, get_user_by_telegram_chat_id
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -61,8 +61,8 @@ async def random_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = get_user_by_telegram_chat_id(conn, chat_id)
 
         if user:
-            logger.info(f"User found for chat_id {chat_id}: user_id {user['id']}")
-            card = get_random_card_for_user(conn, user['id'])
+            logger.info(f"User found for chat_id {chat_id}: user_id {user['auth_user_id']}")
+            card = get_random_card_for_user(conn, user['auth_user_id'])
             if card:
                 # Prepare the message with MarkdownV2
                 question_text = escape_markdown(card['question'], version=2)

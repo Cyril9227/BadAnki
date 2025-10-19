@@ -7,22 +7,6 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_USER: user
-          POSTGRES_PASSWORD: password
-          POSTGRES_DB: testdb
-        ports:
-          - 5432:5432
-        # Add a health check to ensure the service is ready before tests run
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
     steps:
     - uses: actions/checkout@v4
 
@@ -39,11 +23,12 @@ jobs:
     - name: Run Tests
       run: pytest
       env:
-        # The DATABASE_URL is constructed using the service details
-        DATABASE_URL: "postgresql://user:password@localhost:5432/testdb"
         # Set other environment variables required by the tests
         ENVIRONMENT: "test"
         SECRET_KEY: ${{ secrets.SECRET_KEY }}
         SCHEDULER_SECRET: ${{ secrets.SCHEDULER_SECRET }}
         BOT_RESTART_SECRET: ${{ secrets.BOT_RESTART_SECRET }}
         TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
+        # Dummy Supabase credentials for test environment
+        SUPABASE_URL: "http://localhost:8000"
+        SUPABASE_KEY: "dummy-key"

@@ -8,6 +8,9 @@ import os
 import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
+from typing import Optional
+import uuid
+from urllib.parse import unquote, quote
 
 # Third-party
 import frontmatter
@@ -20,6 +23,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
+from supabase import create_client, Client
 from jose import JWTError, jwt
 from pydantic import BaseModel
 from telegram import Update
@@ -32,17 +36,19 @@ from scheduler import run_scheduler
 from utils.parsing import normalize_cards, robust_json_loads, sanitize_tags
 
 
-# --- JWT Configuration ---
+# --- Supabase & JWT Configuration ---
 SECRET_KEY = os.environ.get("SECRET_KEY")
 SCHEDULER_SECRET = os.environ.get("SCHEDULER_SECRET")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET")
 TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME")
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
-if not SECRET_KEY:
-    raise ValueError("No SECRET_KEY set for JWT. Please set this environment variable.")
-if not SCHEDULER_SECRET:
-    raise ValueError("No SCHEDULER_SECRET set. Please set this environment variable.")
+if not all([SECRET_KEY, SCHEDULER_SECRET, SUPABASE_URL, SUPABASE_KEY]):
+    raise ValueError("One or more critical environment variables are not set.")
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
@@ -106,7 +112,6 @@ async def webhook(request: Request, secret: str):
         return Response(status_code=500)
 
 
-
 async def _ensure_webhook():
     """Helper function to ensure the Telegram webhook is set correctly."""
     bot_app = get_bot_application()
@@ -152,8 +157,11 @@ async def db_session_middleware(request: Request, call_next):
 
 # --- Pydantic Models ---
 class User(BaseModel):
-    id: int
+    auth_user_id: uuid.UUID
     username: str
+    telegram_chat_id: Optional[str] = None
+    gemini_api_key: Optional[str] = None
+    anthropic_api_key: Optional[str] = None
 
 class CourseContent(BaseModel):
     path: str
@@ -191,45 +199,47 @@ def get_db(request: Request):
     return request.state.db
 
 # --- Authentication ---
-
-def create_access_token(data: dict, expires_delta: timedelta | None = None):
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
-
-async def get_current_user(request: Request, conn: psycopg2.extensions.connection):
+async def get_current_user(request: Request, conn: psycopg2.extensions.connection) -> Optional[User]:
     token = request.cookies.get("access_token")
     if not token:
         return None
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
-            return None
-    except JWTError:
+        user_response = supabase.auth.get_user(token)
+        auth_user = user_response.user
+        if auth_user:
+            profile = crud.get_profile_by_auth_id(conn, auth_user.id)
+            if profile:
+                return User(**profile)
+    except Exception:
         return None
-    user = crud.get_user_by_username(conn, username=username)
-    return user
+    return None
 
-def generate_csrf_token(session_id: str):
+def generate_csrf_token(session_id: str) -> str:
     """Generate a CSRF token."""
-    return jwt.encode({"session_id": session_id}, SECRET_KEY, algorithm=ALGORITHM)
+    return jwt.encode({"session_id": session_id, "exp": datetime.utcnow() + timedelta(minutes=30)}, SECRET_KEY, algorithm=ALGORITHM)
 
 async def csrf_protect(request: Request):
-    """A dependency to protect against CSRF attacks."""
-    if request.method == "POST":
-        csrf_token = request.headers.get("X-CSRF-Token")
-        if not csrf_token:
-            raise HTTPException(status_code=403, detail="Missing CSRF token")
+    """CSRF protection dependency."""
+    csrf_token = request.headers.get("X-CSRF-Token")
+    if not csrf_token:
+        raise HTTPException(status_code=403, detail="Missing CSRF token")
+    try:
+        jwt.decode(csrf_token, SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError:
+        raise HTTPException(status_code=403, detail="Invalid CSRF token")
+
+@app.get("/logout")
+async def logout(request: Request, response: Response):
+    token = request.cookies.get("access_token")
+    if token:
         try:
-            jwt.decode(csrf_token, SECRET_KEY, algorithms=[ALGORITHM])
-        except JWTError:
-            raise HTTPException(status_code=403, detail="Invalid CSRF token")
+            supabase.auth.sign_out(token)
+        except Exception as e:
+            logger.error(f"Supabase sign out failed: {e}")
+    
+    response = RedirectResponse(url="/", status_code=303)
+    response.delete_cookie("access_token")
+    return response
 
 async def get_current_active_user(request: Request):
     if not request.state.user:
@@ -262,7 +272,7 @@ def generate_cards(text: str, mode="gemini", api_key: str = None) -> list[dict]:
         2.  **Focus:** Concentrate on the core concepts, definitions, and key formulas. Avoid trivial details.
         3.  **LaTeX:** Use LaTeX for all mathematical formulas. Enclose inline math with `$` and block math with `$$`.
         4.  **Format:** Return ONLY a raw JSON object with a "cards" key, containing a list of objects, each with "question" and "answer" keys. Do not include markdown formatting like ```json.
-        5.  **JSON Escaping:** CRITICALLY IMPORTANT: Ensure that any backslashes `\\` within the question or answer strings are properly escaped as `\\\\`. This is essential for valid JSON, especially for LaTeX content like `\\\\frac` or `\\\\mathbb`.
+        5.  **JSON Escaping:** CRITICALLY IMPORTANT: Ensure that any backslashes `\\` within the question or answer strings are properly escaped as `\\`. This is essential for valid JSON, especially for LaTeX content like `\\frac` or `\\mathbb`.
 
         **Text to Analyze:**
         ---
@@ -277,7 +287,7 @@ def generate_cards(text: str, mode="gemini", api_key: str = None) -> list[dict]:
             
             genai.configure(api_key=api_key)
             model = genai.GenerativeModel(
-                model_name="gemini-flash-latest", 
+                model_name="gemini-2.5-pro-latest", 
                 safety_settings=safety_settings, 
                 generation_config=generation_config
             )
@@ -323,7 +333,7 @@ async def api_keys_form(request: Request, user: User = Depends(get_current_activ
 
 @app.get("/secrets", response_class=HTMLResponse)
 async def secrets_form(request: Request, user: User = Depends(get_current_active_user)):
-    csrf_token = generate_csrf_token(user['username'])
+    csrf_token = generate_csrf_token(user.username)
     return templates.TemplateResponse(request, "secrets.html", {
         "secrets": user, 
         "csrf_token": csrf_token,
@@ -336,56 +346,145 @@ async def save_secrets(request: Request, user: User = Depends(get_current_active
     if telegram_chat_id == "":
         telegram_chat_id = None
         
-    crud.save_secrets_for_user(request.state.db, user['id'], telegram_chat_id)
+    crud.save_secrets_for_user(request.state.db, user.auth_user_id, telegram_chat_id)
     return JSONResponse(content={"success": True})
 
 
 # --- FastAPI Routes ---
 
+# --- Auth Routes (Supabase email-based login/register) ---
+
+from fastapi import Form
+
 @app.get("/login", response_class=HTMLResponse)
 async def login_form(request: Request):
-    return templates.TemplateResponse(request, "login.html")
+    """Display login form."""
+    return templates.TemplateResponse(request, "login.html", {"error": None})
 
 @app.post("/login")
-async def login_for_access_token(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), conn: psycopg2.extensions.connection = Depends(get_db)):
-    user = crud.get_user_by_username(conn, form_data.username)
-    if not user or not crud.verify_password(form_data.password, user['password_hash']):
-        return templates.TemplateResponse(request, "login.html", {"error": "Incorrect username or password"})
-        
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user['username']}, expires_delta=access_token_expires
-    )
-    response = RedirectResponse(url="/courses", status_code=303)
-    response.set_cookie(key="access_token", value=access_token, httponly=True)
-    return response
+async def login_user(
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...),
+    conn: psycopg2.extensions.connection = Depends(get_db)
+):
+    """Authenticate user with Supabase Auth (email + password)."""
+    try:
+        auth_response = supabase.auth.sign_in_with_password({
+            "email": email,
+            "password": password
+        })
 
-@app.get("/logout")
-async def logout(response: Response):
-    response = RedirectResponse(url="/", status_code=303)
-    response.delete_cookie("access_token")
-    return response
+        # Check if login succeeded
+        if not auth_response or not getattr(auth_response, "session", None):
+            return templates.TemplateResponse(
+                request, "login.html", {"error": "Invalid email or password"}
+            )
+
+        # Fetch Supabase user info
+        auth_user = auth_response.user
+        if not auth_user:
+            return templates.TemplateResponse(
+                request, "login.html", {"error": "Login failed — no user found"}
+            )
+
+        # Ensure we have a matching profile in local DB
+        crud.create_profile(conn, username=auth_user.email, auth_user_id=auth_user.id)
+
+        # Set cookie for session
+        access_token = auth_response.session.access_token
+        response = RedirectResponse(url="/courses", status_code=303)
+        response.set_cookie(
+            key="access_token",
+            value=access_token,
+            httponly=True,
+            max_age=3600 * 24 * 7,  # 1 week
+            samesite="lax"
+        )
+        return response
+
+    except Exception as e:
+        logger.error(f"Supabase login failed: {e}", exc_info=True)
+        return templates.TemplateResponse(request, "login.html", {"error": "Invalid email or password"})
+
 
 @app.get("/register", response_class=HTMLResponse)
-async def register_form(request: Request, error: str = None):
-    return templates.TemplateResponse(request, "register.html", {"error": error})
+async def register_form(request: Request):
+    """Display registration form."""
+    return templates.TemplateResponse(request, "register.html", {"error": None})
+
 
 @app.post("/register")
-async def register_user(request: Request, username: str = Form(...), password: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db)):
-    # Username validation
-    user = crud.get_user_by_username(conn, username)
-    if user:
-        return templates.TemplateResponse(request, "register.html", {"error": "Username already registered"})
-
+async def register_user(
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...),
+    conn: psycopg2.extensions.connection = Depends(get_db)
+):
+    """Register new user via Supabase Auth + local profile."""
     # Password validation
     if len(password) < 8:
         return templates.TemplateResponse(request, "register.html", {"error": "Password must be at least 8 characters long"})
     if not any(char.isdigit() for char in password):
         return templates.TemplateResponse(request, "register.html", {"error": "Password must contain at least one number"})
 
-    crud.create_user(conn, username, password)
+    try:
+        auth_response = supabase.auth.sign_up({
+            "email": email,
+            "password": password,
+        })
+
+        if not auth_response.user:
+            return templates.TemplateResponse(request, "register.html", {"error": "Email already registered or invalid."})
+
+        # Create a corresponding local profile.
+        # This is idempotent, so it's safe to call even if the profile already exists.
+        crud.create_profile(conn, username=email, auth_user_id=auth_response.user.id)
+
+        # --- Auto-login after registration ---
+        # Sign in the user to create a session immediately
+        auto_login_response = supabase.auth.sign_in_with_password({
+            "email": email,
+            "password": password
+        })
+
+        if not auto_login_response.session:
+            # This is unlikely but handle it just in case
+            logger.error("Auto-login failed after registration.")
+            response = RedirectResponse(url="/login", status_code=303)
+            response.set_cookie("flash", "success:Registered! Please log in.", max_age=10)
+            return response
+
+        # Set the access token cookie and redirect to the main app
+        access_token = auto_login_response.session.access_token
+        response = RedirectResponse(url="/courses", status_code=303)
+        response.set_cookie(
+            key="access_token",
+            value=access_token,
+            httponly=True,
+            max_age=3600 * 24 * 7,  # 1 week
+            samesite="lax"
+        )
+        return response
+
+    except Exception as e:
+        logger.error(f"Registration error: {e}", exc_info=True)
+        return templates.TemplateResponse(request, "register.html", {"error": "Registration failed — check your email or try again."})
+
+
+@app.get("/logout")
+async def logout(request: Request):
+    """Log the user out of Supabase and clear session cookie."""
+    token = request.cookies.get("access_token")
+    if token:
+        try:
+            supabase.auth.sign_out(token)
+        except Exception as e:
+            logger.warning(f"Supabase sign-out error: {e}")
+
     response = RedirectResponse(url="/login", status_code=303)
-    response.set_cookie(key="flash", value="success:Registered successfully! Please log in.", max_age=5)
+    response.delete_cookie("access_token")
+    response.set_cookie("flash", "success:Logged out successfully.", max_age=5)
     return response
 
 
@@ -405,23 +504,32 @@ async def list_courses(request: Request, user: User = Depends(get_current_active
 
 @app.get("/edit-course/{course_path:path}", response_class=HTMLResponse)
 async def edit_course(request: Request, course_path: str, user: User = Depends(get_current_active_user)):
+    course_path = unquote(course_path)
     gemini_api_key_exists = False
     anthropic_api_key_exists = False
-    if request.state.api_keys:
-        if request.state.api_keys.get('gemini_api_key'):
-            gemini_api_key_exists = True
-        if request.state.api_keys.get('anthropic_api_key'):
-            anthropic_api_key_exists = True
     
-    return templates.TemplateResponse(request, "course_editor.html", {
-        "course_path": course_path,
-        "gemini_api_key_exists": gemini_api_key_exists,
-        "anthropic_api_key_exists": anthropic_api_key_exists
-    })
+    try:
+        if request.state.api_keys:
+            # Correctly access attributes on the Pydantic User model
+            if request.state.api_keys.gemini_api_key:
+                gemini_api_key_exists = True
+            if request.state.api_keys.anthropic_api_key:
+                anthropic_api_key_exists = True
+        
+        return templates.TemplateResponse(request, "course_editor.html", {
+            "course_path": course_path,
+            "gemini_api_key_exists": gemini_api_key_exists,
+            "anthropic_api_key_exists": anthropic_api_key_exists
+        })
+        
+    except Exception as e:
+        logger.error(f"CRITICAL ERROR in edit_course: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred while loading the course editor.")
 
 @app.get("/courses/{course_path:path}", response_class=HTMLResponse)
 async def view_course(request: Request, course_path: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    course = crud.get_course_content_for_user(conn, course_path, user['id'])
+    course_path = unquote(course_path)
+    course = crud.get_course_content_for_user(conn, course_path, auth_user_id=user.auth_user_id)
     if not course or not course['content']:
         raise HTTPException(status_code=404, detail="Course not found")
     
@@ -441,44 +549,55 @@ async def view_course(request: Request, course_path: str, conn: psycopg2.extensi
 # --- API for Courses ---
 @app.get("/api/courses-tree")
 async def api_get_courses_tree(conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    return crud.get_courses_tree_for_user(conn, user['id'])
+    return crud.get_courses_tree_for_user(conn, auth_user_id=user.auth_user_id)
 
 @app.get("/api/download-course/{course_path:path}")
 async def download_course(course_path: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    course = crud.get_course_content_for_user(conn, course_path, user['id'])
+    course_path = unquote(course_path)
+    course = crud.get_course_content_for_user(conn, course_path, auth_user_id=user.auth_user_id)
     if not course:
         raise HTTPException(status_code=404, detail="File not found")
     
     content = course['content']
-    # Ensure the filename is safe and has a .md extension
-    safe_filename = os.path.basename(course_path)
-    if not safe_filename.endswith('.md'):
-        safe_filename += '.md'
+    
+    # Create a safe filename for the Content-Disposition header
+    filename = os.path.basename(course_path)
+    if not filename.endswith('.md'):
+        filename += '.md'
         
+    # For cross-browser compatibility with special characters, we create a complex header.
+    # 1. A simple ASCII version of the filename for older browsers.
+    ascii_filename = filename.encode('ascii', 'ignore').decode()
+    # 2. The properly URL-encoded UTF-8 version for modern browsers.
+    utf8_filename = quote(filename)
+    
+    disposition = f'attachment; filename="{ascii_filename}"; filename*=UTF-8\'\'{utf8_filename}'
+    
     return Response(
         content=content,
         media_type="text/markdown",
-        headers={"Content-Disposition": f"attachment; filename={safe_filename}"}
+        headers={"Content-Disposition": disposition}
     )
 
 @app.get("/api/course-content/{course_path:path}", response_class=JSONResponse)
 async def api_get_course_content(course_path: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    course = crud.get_course_content_for_user(conn, course_path, user['id'])
+    course_path = unquote(course_path)
+    course = crud.get_course_content_for_user(conn, course_path, auth_user_id=user.auth_user_id)
     if not course:
         raise HTTPException(status_code=404, detail="File not found")
     return JSONResponse(content=course['content'])
 
 @app.post("/api/course-content")
 async def api_save_course_content(item: CourseContent, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    crud.save_course_content_for_user(conn, item.path, item.content, user['id'])
+    crud.save_course_content_for_user(conn, item.path, item.content, auth_user_id=user.auth_user_id)
     return {"success": True}
 
 @app.api_route("/api/course-item", methods=["POST", "DELETE"])
 async def api_manage_course_item(item: CourseItem, request: Request, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     if request.method == "POST":
-        crud.create_course_item_for_user(conn, item.path, item.type, user['id'])
+        crud.create_course_item_for_user(conn, item.path, item.type, auth_user_id=user.auth_user_id)
     elif request.method == "DELETE":
-        crud.delete_course_item_for_user(conn, item.path, item.type, user['id'])
+        crud.delete_course_item_for_user(conn, item.path, item.type, auth_user_id=user.auth_user_id)
     return {"success": True}
 
 @app.post("/api/generate-cards")
@@ -488,7 +607,7 @@ async def api_generate_cards(request: Request, data: CourseContentForGeneration,
     
     api_key = None
     if request.state.api_keys:
-        api_key = request.state.api_keys.get('gemini_api_key')
+        api_key = request.state.api_keys.gemini_api_key
 
     generated_cards = generate_cards(data.content, mode="gemini", api_key=api_key)
     if not generated_cards:
@@ -512,7 +631,7 @@ async def api_generate_cards_anthropic(request: Request, data: CourseContentForG
     
     api_key = None
     if request.state.api_keys:
-        api_key = request.state.api_keys.get('anthropic_api_key')
+        api_key = request.state.api_keys.anthropic_api_key
 
     generated_cards = generate_cards(data.content, mode="anthropic", api_key=api_key)
     if not generated_cards:
@@ -521,23 +640,23 @@ async def api_generate_cards_anthropic(request: Request, data: CourseContentForG
 
 @app.post("/api/save-cards")
 async def api_save_cards(data: GeneratedCards, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    crud.save_generated_cards_for_user(conn, data.cards, user['id'])
+    crud.save_generated_cards_for_user(conn, data.cards, user.auth_user_id)
     return {"success": True, "message": f"{len(data.cards)} cards saved successfully."}
 
 @app.get("/api/tags")
 async def api_get_tags(conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    tags = crud.get_all_tags_for_user(conn, user['id'])
+    tags = crud.get_all_tags_for_user(conn, auth_user_id=user.auth_user_id)
     return JSONResponse(content=tags)
 
 @app.post("/api/save-api-keys")
 async def api_save_api_keys(data: ApiKeys, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    crud.save_api_keys_for_user(conn, user['id'], data.gemini_api_key, data.anthropic_api_key)
+    crud.save_api_keys_for_user(conn, user.auth_user_id, data.gemini_api_key, data.anthropic_api_key)
     return {"success": True}
 
 # --- Tag-based Views ---
 @app.get("/tags/{tag_name}", response_class=HTMLResponse)
 async def view_courses_by_tag(request: Request, tag_name: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    courses = crud.get_courses_by_tag_for_user(conn, tag_name, user['id'])
+    courses = crud.get_courses_by_tag_for_user(conn, tag_name, auth_user_id=user.auth_user_id)
     return templates.TemplateResponse(request, "tag_courses.html", {"tag": tag_name, "courses": courses})
 
 # --- Scheduler ---
@@ -555,15 +674,15 @@ async def trigger_scheduler(secret: str):
 # --- Card Management Routes ---
 @app.get("/card/{card_id}", response_class=HTMLResponse)
 async def view_card(request: Request, card_id: int, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    card = crud.get_card_for_user(conn, card_id, user['id'])
+    card = crud.get_card_for_user(conn, card_id, user.auth_user_id)
     if card is None:
         raise HTTPException(status_code=404, detail="Card not found")
     return templates.TemplateResponse(request, "card_viewer.html", {"card": card})
 
 @app.get("/review", response_class=HTMLResponse)
 async def review(request: Request, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    card = crud.get_review_cards_for_user(conn, user['id'])
-    stats = crud.get_review_stats_for_user(conn, user['id'])
+    card = crud.get_review_cards_for_user(conn, user.auth_user_id)
+    stats = crud.get_review_stats_for_user(conn, user.auth_user_id)
     
     if card is None:
         return templates.TemplateResponse(request, "no_cards.html")
@@ -577,12 +696,12 @@ async def review(request: Request, conn: psycopg2.extensions.connection = Depend
 
 @app.post("/review/{card_id}")
 async def update_review(card_id: int, status: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    crud.update_card_for_user(conn, card_id, user['id'], status == "remembered")
+    crud.update_card_for_user(conn, card_id, user.auth_user_id, status == "remembered")
     return RedirectResponse(url="/review", status_code=303)
 
 @app.get("/manage", response_class=HTMLResponse)
 async def manage_cards(request: Request, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    cards = crud.get_all_cards_for_user(conn, user['id'])
+    cards = crud.get_all_cards_for_user(conn, user.auth_user_id)
     return templates.TemplateResponse(request, "manage_cards.html", {"cards": cards})
 
 @app.get("/new", response_class=HTMLResponse)
@@ -591,26 +710,26 @@ async def new_card_form(request: Request, user: User = Depends(get_current_activ
 
 @app.post("/new")
 async def create_new_card(question: str = Form(...), answer: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    crud.create_card_for_user(conn, question, answer, user['id'])
+    crud.create_card_for_user(conn, question, answer, user.auth_user_id)
     response = RedirectResponse(url="/", status_code=303)
     response.set_cookie(key="flash", value="success:Card created successfully!", max_age=5)
     return response
 
 @app.get("/edit-card/{card_id}", response_class=HTMLResponse)
 async def edit_card_form(request: Request, card_id: int, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    card = crud.get_card_for_user(conn, card_id, user['id'])
+    card = crud.get_card_for_user(conn, card_id, user.auth_user_id)
     if card is None:
         raise HTTPException(status_code=404, detail="Card not found")
     return templates.TemplateResponse(request, "edit_card.html", {"card": card})
 
 @app.post("/edit-card/{card_id}")
 async def update_existing_card(card_id: int, question: str = Form(...), answer: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    crud.update_card_content_for_user(conn, card_id, user['id'], question, answer)
+    crud.update_card_content_for_user(conn, card_id, user.auth_user_id, question, answer)
     return RedirectResponse(url="/manage", status_code=303)
 
 @app.post("/delete/{card_id}")
 async def delete_card(card_id: int, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    crud.delete_card_for_user(conn, card_id, user['id'])
+    crud.delete_card_for_user(conn, card_id, user.auth_user_id)
     response = RedirectResponse(url="/manage", status_code=303)
     response.set_cookie(key="flash", value="success:Card deleted successfully!", max_age=5)
     return response
