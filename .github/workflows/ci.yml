@@ -47,3 +47,6 @@ jobs:
         SCHEDULER_SECRET: ${{ secrets.SCHEDULER_SECRET }}
         BOT_RESTART_SECRET: ${{ secrets.BOT_RESTART_SECRET }}
         TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
+        # Dummy Supabase credentials for test environment
+        SUPABASE_URL: "http://localhost:8000"
+        SUPABASE_KEY: "dummy-key"

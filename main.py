@@ -287,7 +287,7 @@ def generate_cards(text: str, mode="gemini", api_key: str = None) -> list[dict]:
             
             genai.configure(api_key=api_key)
             model = genai.GenerativeModel(
-                model_name="gemini-2.5-pro", 
+                model_name="gemini-2.5-pro-latest", 
                 safety_settings=safety_settings, 
                 generation_config=generation_config
             )
