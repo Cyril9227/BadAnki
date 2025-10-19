@@ -85,11 +85,16 @@ def truncate_tables(db_conn):
 # --- Tests ---
 @patch("main.supabase.auth.sign_up")
 @patch("main.supabase.auth.sign_in_with_password")
-def test_register_user_successfully(mock_sign_in, mock_sign_up, client):
+def test_register_user_successfully(mock_sign_up, mock_sign_in, client, db_conn):
     # Mock Supabase responses
     mock_user = MagicMock()
     mock_user.id = uuid.uuid4()
     mock_user.email = "testuser123@example.com"
+
+    # The user needs to exist in auth.users for the profile creation to succeed
+    with db_conn.cursor() as cur:
+        cur.execute("INSERT INTO auth.users (id, email) VALUES (%s, %s)", (mock_user.id, mock_user.email))
+        db_conn.commit()
     
     mock_session = MagicMock()
     mock_session.access_token = "fake-token"
@@ -132,10 +137,15 @@ def test_register_user_short_password(client):
     assert "Password must be at least 8 characters long" in response.text
 
 @patch("main.supabase.auth.sign_in_with_password")
-def test_login_successfully(mock_sign_in, client):
+def test_login_successfully(mock_sign_in, client, db_conn):
     mock_user = MagicMock()
     mock_user.id = uuid.uuid4()
     mock_user.email = "loginuser@example.com"
+
+    # The user needs to exist in auth.users for the profile creation to succeed
+    with db_conn.cursor() as cur:
+        cur.execute("INSERT INTO auth.users (id, email) VALUES (%s, %s)", (mock_user.id, mock_user.email))
+        db_conn.commit()
     
     mock_session = MagicMock()
     mock_session.access_token = "fake-token"
@@ -194,7 +204,6 @@ def create_test_user(db_conn, email="testuser@example.com"):
         db_conn.commit()
     return auth_user_id
 
-@patch("main.supabase.auth.get_user")
 def authenticate_client(mock_get_user, client, db_conn, email="testuser@example.com"):
     """Sets up a mock authenticated user and configures the client."""
     auth_user_id = create_test_user(db_conn, email=email)
