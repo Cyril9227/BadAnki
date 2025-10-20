@@ -110,14 +110,14 @@ def normalize_latex_for_mathjax(text: str) -> str:
         inner_fixed = re.sub(r'\\{2,}', r'\\', inner)
         return m.group(0).replace(inner, inner_fixed)
 
-    # $ ... $
+    # $$ ... $$
     text = re.sub(r'\$\$(.+?)\$\$', collapse_inner, text, flags=re.DOTALL)
     # $ ... $  (avoid matching $$)
-    text = re.sub(r'(?<!\$)\\$$(?!\$)(.+?)(?<!\$)\\$$(?!\$)', collapse_inner, text, flags=re.DOTALL)
-    # \( ... \
-    text = re.sub(r'\\\((.+?)\\\\)', collapse_inner, text, flags=re.DOTALL)
+    text = re.sub(r'(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)', collapse_inner, text, flags=re.DOTALL)
+    # \( ... \)
+    text = re.sub(r'\\\((.+?)\\\)', collapse_inner, text, flags=re.DOTALL)
     # \[ ... \]
-    text = re.sub(r'\\\\[(.+?)\\\\].', collapse_inner, text, flags=re.DOTALL)
+    text = re.sub(r'\\\[(.+?)\\\]', collapse_inner, text, flags=re.DOTALL)
 
     return text
 
