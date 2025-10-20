@@ -592,8 +592,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
             const questionSpan = cardElement.querySelector('.card-question');
             const answerSpan = cardElement.querySelector('.card-answer');
-            questionSpan.innerHTML = marked.parse(newQuestion);
-            answerSpan.innerHTML = marked.parse(newAnswer);
+            questionSpan.innerHTML = newQuestion;
+            answerSpan.innerHTML = newAnswer;
 
             if (window.MathJax) {
                 MathJax.typesetPromise([questionSpan, answerSpan]);
