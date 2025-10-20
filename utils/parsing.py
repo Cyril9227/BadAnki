@@ -112,12 +112,12 @@ def normalize_latex_for_mathjax(text: str) -> str:
 
     # $ ... $
     text = re.sub(r'\$\$(.+?)\$\$', collapse_inner, text, flags=re.DOTALL)
-    # $ ... $  (avoid matching $$)
-    text = re.sub(r'(?<!\$)\\$$(?!\$)(.+?)(?<!\$)\\$$(?!\$)', collapse_inner, text, flags=re.DOTALL)
-    # \( ... \
-    text = re.sub(r'\\\((.+?)\\\\)', collapse_inner, text, flags=re.DOTALL)
+    # $$ ... $$  (avoid matching $$)
+    text = re.sub(r'(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)', collapse_inner, text, flags=re.DOTALL)
+    # \( ... \)
+    text = re.sub(r'\\\((.+?)\\\)', collapse_inner, text, flags=re.DOTALL)
     # \[ ... \]
-    text = re.sub(r'\\\\[(.+?)\\\\].', collapse_inner, text, flags=re.DOTALL)
+    text = re.sub(r'\\\\[(.+?)\\\\]', collapse_inner, text, flags=re.DOTALL)
 
     return text
 
