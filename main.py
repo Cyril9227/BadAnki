@@ -207,6 +207,10 @@ async def get_current_user(request: Request, conn: psycopg2.extensions.connectio
         user_response = supabase.auth.get_user(token)
         auth_user = user_response.user
         if auth_user:
+            # This is the key change: ensure a profile exists for any valid Supabase user.
+            # It's idempotent, so it's safe to call on every authenticated request.
+            crud.create_profile(conn, username=auth_user.email, auth_user_id=auth_user.id)
+            
             profile = crud.get_profile_by_auth_id(conn, auth_user.id)
             if profile:
                 return User(**profile)
@@ -356,10 +360,18 @@ async def save_secrets(request: Request, user: User = Depends(get_current_active
 
 from fastapi import Form
 
+@app.get("/auth", response_class=HTMLResponse)
+async def auth_form(request: Request):
+    """Display the unified authentication form."""
+    return templates.TemplateResponse(request, "auth.html", {
+        "supabase_url": SUPABASE_URL,
+        "supabase_key": SUPABASE_KEY
+    })
+
 @app.get("/login", response_class=HTMLResponse)
 async def login_form(request: Request):
-    """Display login form."""
-    return templates.TemplateResponse(request, "login.html", {"error": None})
+    """Redirect to the main authentication page."""
+    return RedirectResponse(url="/auth")
 
 @app.post("/login")
 async def login_user(
@@ -410,8 +422,8 @@ async def login_user(
 
 @app.get("/register", response_class=HTMLResponse)
 async def register_form(request: Request):
-    """Display registration form."""
-    return templates.TemplateResponse(request, "register.html", {"error": None})
+    """Redirect to the main authentication page."""
+    return RedirectResponse(url="/auth")
 
 
 @app.post("/register")
