@@ -6,7 +6,7 @@
         <div class="col-md-6">
             <div class="card shadow">
                 <div class="card-body">
-                    <h3 class="card-title text-center mb-4">Sign In or Sign Up</h3>
+                    <h3 class="card-title text-center mb-4">Welcome !</h3>
 
                     <!-- Social Login Buttons -->
                     <div class="d-grid gap-2 mb-3">
@@ -29,7 +29,7 @@
                     {% if error %}
                         <div class="alert alert-danger">{{ error }}</div>
                     {% endif %}
-                    <form method="post">
+                    <form id="auth-form" method="post" action="/login">
                         <div class="mb-3">
                             <label for="email" class="form-label">Email</label>
                             <input type="email" class="form-control" id="email" name="email" required>
@@ -37,11 +37,17 @@
                         <div class="mb-3">
                             <label for="password" class="form-label">Password</label>
                             <input type="password" class="form-control" id="password" name="password" required>
+                            <small id="password-hint" class="form-text text-muted d-none">
+                                Must be at least 8 characters and contain a number.
+                            </small>
                         </div>
                         <div class="d-grid">
-                            <button type="submit" class="btn btn-primary">Continue with Email</button>
+                            <button id="submit-button" type="submit" class="btn btn-primary">Login</button>
                         </div>
                     </form>
+                </div>
+                <div class="card-footer text-center">
+                    <p id="auth-toggle-text">Don't have an account? <a href="#" id="auth-toggle-link">Register here</a>.</p>
                 </div>
             </div>
         </div>
@@ -54,15 +60,39 @@
     const supabase = createClient('{{ supabase_url }}', '{{ supabase_key }}');
 
     document.getElementById('google-login').addEventListener('click', async () => {
-        await supabase.auth.signInWithOAuth({
-            provider: 'google',
-        });
+        await supabase.auth.signInWithOAuth({ provider: 'google' });
     });
 
     document.getElementById('github-login').addEventListener('click', async () => {
-        await supabase.auth.signInWithOAuth({
-            provider: 'github',
-        });
+        await supabase.auth.signInWithOAuth({ provider: 'github' });
+    });
+
+    // --- Auth Form Toggle ---
+    const form = document.getElementById('auth-form');
+    const submitButton = document.getElementById('submit-button');
+    const toggleLink = document.getElementById('auth-toggle-link');
+    const toggleText = document.getElementById('auth-toggle-text');
+    const passwordHint = document.getElementById('password-hint');
+    let isLogin = true;
+
+    toggleLink.addEventListener('click', (e) => {
+        e.preventDefault();
+        isLogin = !isLogin;
+
+        if (isLogin) {
+            form.action = '/login';
+            submitButton.textContent = 'Login';
+            passwordHint.classList.add('d-none');
+            toggleText.innerHTML = 'Don\'t have an account? <a href="#" id="auth-toggle-link">Register here</a>.';
+        } else {
+            form.action = '/register';
+            submitButton.textContent = 'Register';
+            passwordHint.classList.remove('d-none');
+            toggleText.innerHTML = 'Already have an account? <a href="#" id="auth-toggle-link">Login here</a>.';
+        }
+        
+        // We need to re-attach the event listener to the new link
+        document.getElementById('auth-toggle-link').addEventListener('click', arguments.callee);
     });
 </script>
 {% endblock %}
