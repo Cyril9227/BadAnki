@@ -670,6 +670,7 @@ async def api_save_api_keys(data: ApiKeys, conn: psycopg2.extensions.connection 
 # --- Tag-based Views ---
 @app.get("/tags/{tag_name}", response_class=HTMLResponse)
 async def view_courses_by_tag(request: Request, tag_name: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
+    tag_name = unquote(tag_name)
     courses = crud.get_courses_by_tag_for_user(conn, tag_name, auth_user_id=user.auth_user_id)
     return templates.TemplateResponse(request, "tag_courses.html", {"tag": tag_name, "courses": courses})
 
