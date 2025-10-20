@@ -518,8 +518,8 @@ document.addEventListener('DOMContentLoaded', function () {
     function displayGeneratedCards(cards) {
         let html = '<div id="generated-cards-container">';
         cards.forEach((card, index) => {
-            const questionHTML = marked.parse(card.question || '');
-            const answerHTML = marked.parse(card.answer || '');
+            const questionHTML = marked.parseInline(card.question || '');
+            const answerHTML = marked.parseInline(card.answer || '');
             html += `
                 <div class="card mb-3" data-card-index="${index}">
                     <div class="card-header d-flex flex-column flex-sm-row justify-content-sm-between align-items-start align-items-sm-center">
@@ -592,8 +592,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
             const questionSpan = cardElement.querySelector('.card-question');
             const answerSpan = cardElement.querySelector('.card-answer');
-            questionSpan.innerHTML = newQuestion;
-            answerSpan.innerHTML = newAnswer;
+            questionSpan.innerHTML = marked.parseInline(newQuestion);
+            answerSpan.innerHTML = marked.parseInline(newAnswer);
 
             if (window.MathJax) {
                 MathJax.typesetPromise([questionSpan, answerSpan]);
