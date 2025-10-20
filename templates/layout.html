@@ -118,6 +118,9 @@ window.MathJax = {
 </script>
 <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+    !function(){if(window.si)return;window.si=function(){(window.si.q=window.si.q||[]).push(arguments)};var a=document.createElement("script");a.defer=true;a.src="https://script.speed-insights.com/v2/script.js";document.head.appendChild(a);}();
+</script>
 {% block head %}{% endblock %}
 </head>
 <body>
@@ -283,5 +286,9 @@ window.MathJax = {
     });
     </script>
     {% block scripts %}{% endblock %}
+<script>
+  window.si = window.si || function () { (window.siq = window.siq || []).push(arguments); };
+</script>
+<script defer src="/_vercel/speed-insights/script.js"></script>
 </body>
 </html>
