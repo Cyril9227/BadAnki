@@ -544,7 +544,21 @@ async def view_course(request: Request, course_path: str, conn: psycopg2.extensi
     if 'tags' in post.metadata: 
         post.metadata['tags'] = sanitize_tags(post.metadata['tags'])
 
-    return templates.TemplateResponse(request, "course_viewer.html", {"metadata": post.metadata, "content": post.content, "course_path": course_path})
+    gemini_api_key_exists = False
+    anthropic_api_key_exists = False
+    if request.state.api_keys:
+        if request.state.api_keys.gemini_api_key:
+            gemini_api_key_exists = True
+        if request.state.api_keys.anthropic_api_key:
+            anthropic_api_key_exists = True
+
+    return templates.TemplateResponse(request, "course_viewer.html", {
+        "metadata": post.metadata, 
+        "content": post.content, 
+        "course_path": course_path,
+        "gemini_api_key_exists": gemini_api_key_exists,
+        "anthropic_api_key_exists": anthropic_api_key_exists
+    })
 
 # --- API for Courses ---
 @app.get("/api/courses-tree")
