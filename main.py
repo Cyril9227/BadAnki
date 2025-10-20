@@ -228,18 +228,7 @@ async def csrf_protect(request: Request):
     except JWTError:
         raise HTTPException(status_code=403, detail="Invalid CSRF token")
 
-@app.get("/logout")
-async def logout(request: Request, response: Response):
-    token = request.cookies.get("access_token")
-    if token:
-        try:
-            supabase.auth.sign_out(token)
-        except Exception as e:
-            logger.error(f"Supabase sign out failed: {e}")
-    
-    response = RedirectResponse(url="/", status_code=303)
-    response.delete_cookie("access_token")
-    return response
+
 
 async def get_current_active_user(request: Request):
     if not request.state.user:
@@ -287,7 +276,7 @@ def generate_cards(text: str, mode="gemini", api_key: str = None) -> list[dict]:
             
             genai.configure(api_key=api_key)
             model = genai.GenerativeModel(
-                model_name="gemini-2.5-pro-latest", 
+                model_name="gemini-2.5-pro", 
                 safety_settings=safety_settings, 
                 generation_config=generation_config
             )
@@ -296,7 +285,7 @@ def generate_cards(text: str, mode="gemini", api_key: str = None) -> list[dict]:
             
         elif mode == "ollama":
             response = ollama.chat(
-                model='gemma3:4b', 
+                model='gpt-oss:20b', 
                 messages=[{'role': 'user', 'content': prompt}]
             )
             response_text = response['message']['content']
@@ -306,7 +295,7 @@ def generate_cards(text: str, mode="gemini", api_key: str = None) -> list[dict]:
                 raise ValueError("Anthropic API key is required.")
             client = anthropic.Anthropic(api_key=api_key)
             message = client.messages.create(
-                model="claude-3-haiku-20240307",
+                model="claude-haiku-4-5-20251001",
                 max_tokens=4096,
                 messages=[
                     {
