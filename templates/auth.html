@@ -63,48 +63,6 @@
     // We still need to initialize a client here to *start* the OAuth flow.
     const supabase = createClient('{{ supabase_url }}', '{{ supabase_key }}');
 
-    // --- OAuth Callback Handling ---
-    // This code runs when the page loads and checks if the URL contains session info
-    // from an OAuth redirect. If it does, it sends the session to the backend.
-    document.addEventListener('DOMContentLoaded', () => {
-        // Supabase puts the session info in the URL hash after OAuth redirect
-        if (window.location.hash.includes('access_token')) {
-            supabase.auth.getSession().then(async ({ data: { session }, error }) => {
-                if (error) {
-                    console.error("Error getting session from URL:", error.message);
-                    // TODO: Display a user-friendly error message
-                    return;
-                }
-
-                if (session) {
-                    // We have a session from the URL, now send it to our backend
-                    // to create a server-side session (cookie).
-                    const response = await fetch('/auth/callback', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            access_token: session.access_token,
-                            refresh_token: session.refresh_token,
-                        }),
-                    });
-
-                    if (response.ok) {
-                        // Backend login was successful, redirect to the home page.
-                        // The backend should have set a session cookie.
-                        window.location.href = '/';
-                    } else {
-                        console.error('Backend login failed.');
-                        // TODO: Display a user-friendly error message
-                    }
-                } else {
-                     console.log("No session found from URL hash, but hash was present.");
-                }
-            });
-        }
-    });
-
     document.getElementById('google-login').addEventListener('click', async () => {
         await supabase.auth.signInWithOAuth({ provider: 'google' });
     });
