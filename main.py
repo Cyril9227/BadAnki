@@ -247,8 +247,8 @@ async def logout(request: Request, response: Response):
 
 async def get_current_active_user(request: Request):
     if not request.state.user:
-        # Redirect to login page if user is not authenticated
-        raise HTTPException(status_code=303, headers={"Location": "/login"})
+        # Redirect to the unified auth page if user is not authenticated
+        raise HTTPException(status_code=303, headers={"Location": "/auth"})
     return request.state.user
 
 # --- LLM & Card Generation ---
@@ -484,6 +484,51 @@ async def register_user(
         return templates.TemplateResponse(request, "register.html", {"error": "Registration failed — check your email or try again."})
 
 
+class AuthCallback(BaseModel):
+    access_token: str
+    refresh_token: str
+
+@app.post("/auth/callback")
+async def auth_callback(
+    request: Request,
+    data: AuthCallback,
+    conn: psycopg2.extensions.connection = Depends(get_db)
+):
+    """
+    Handles the callback from the frontend after a successful Supabase OAuth login.
+    Receives tokens, validates them, creates a local user profile if needed,
+    and sets a session cookie.
+    """
+    try:
+        # Exchange the received tokens for a session with Supabase
+        # Note: set_session is what you'd use, but get_user with the token
+        # is the way to verify and get user details.
+        user_response = supabase.auth.get_user(data.access_token)
+        auth_user = user_response.user
+
+        if not auth_user:
+            raise HTTPException(status_code=401, detail="Invalid token")
+
+        # We have a valid Supabase user, ensure a profile exists in our DB
+        # The username will default to their email from the OAuth provider
+        crud.create_profile(conn, username=auth_user.email, auth_user_id=auth_user.id)
+
+        # Set the session cookie to log the user in
+        response = JSONResponse(content={"success": True})
+        response.set_cookie(
+            key="access_token",
+            value=data.access_token,
+            httponly=True,
+            max_age=3600 * 24 * 7,  # 1 week
+            samesite="lax"
+        )
+        return response
+
+    except Exception as e:
+        logger.error(f"Auth callback error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Authentication callback failed.")
+
+
 @app.get("/logout")
 async def logout(request: Request):
     """Log the user out of Supabase and clear session cookie."""
@@ -508,7 +553,11 @@ async def health_check():
 
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
-    return templates.TemplateResponse(request, "home.html", {"telegram_bot_username": TELEGRAM_BOT_USERNAME})
+    return templates.TemplateResponse(request, "home.html", {
+        "telegram_bot_username": TELEGRAM_BOT_USERNAME,
+        "supabase_url": SUPABASE_URL,
+        "supabase_key": SUPABASE_KEY
+    })
 
 @app.get("/courses", response_class=HTMLResponse)
 async def list_courses(request: Request, user: User = Depends(get_current_active_user)):

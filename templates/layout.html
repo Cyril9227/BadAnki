@@ -286,6 +286,28 @@ window.MathJax = {
     });
     </script>
     {% block scripts %}{% endblock %}
+<script type="module">
+    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+
+    // These will be empty if not on the auth page, which is fine.
+    const supabaseUrl = "{{ supabase_url or '' }}";
+    const supabaseKey = "{{ supabase_key or '' }}";
+
+    // Only initialize if the credentials are provided (i.e., on the auth page or if you decide to provide them globally)
+    if (supabaseUrl && supabaseKey) {
+        const supabase = createClient(supabaseUrl, supabaseKey);
+
+        // This listener handles the OAuth redirect. When the user comes back from
+        // the provider, Supabase detects the session in the URL and fires SIGNED_IN.
+        supabase.auth.onAuthStateChange((event, session) => {
+            if (event === 'SIGNED_IN') {
+                // The session is now stored in cookies. We can redirect the user.
+                // The backend middleware will handle creating the profile.
+                window.location.href = '/courses';
+            }
+        });
+    }
+</script>
 <script>
   window.si = window.si || function () { (window.siq = window.siq || []).push(arguments); };
 </script>
