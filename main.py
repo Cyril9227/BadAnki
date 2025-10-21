@@ -373,8 +373,15 @@ async def login_form(request: Request):
     """Redirect to the main authentication page."""
     return RedirectResponse(url="/auth")
 
-@app.post("/login")
-async def login_user(
+from gotrue.errors import AuthApiError
+# ... (other imports)
+
+# ... (FastAPI app setup)
+
+# ... (other code)
+
+@app.post("/auth")
+async def handle_auth(
     request: Request,
     email: str = Form(...),
     password: str = Form(...),
@@ -382,84 +389,81 @@ async def login_user(
     conn: psycopg2.extensions.connection = Depends(get_db)
 ):
     """
-    Handles both login and registration with a unified endpoint.
-    - If user does not exist, prompts to register.
-    - If user exists, attempts login.
+    Handles both login and registration with a unified, intelligent endpoint.
+    - Checks if user exists before attempting to log in.
+    - If user does not exist on login attempt, prompts to register.
+    - If user exists, attempts login and gives specific password error.
     - If action is 'register', creates the user.
     """
-    # --- Registration Flow ---
-    if action == "register":
-        # Password validation
-        if len(password) < 8 or not any(char.isdigit() for char in password):
-            error_msg = "Password must be at least 8 characters and contain one number."
-            return templates.TemplateResponse("auth.html", {"request": request, "error": error_msg, "email": email})
-
-        try:
-            # Create user in Supabase
-            auth_response = supabase.auth.sign_up({"email": email, "password": password})
-            if not auth_response.user:
-                error_msg = "This email may already be registered. Try logging in."
-                return templates.TemplateResponse("auth.html", {"request": request, "error": error_msg, "email": email})
-
-            # Create local profile and auto-login
-            crud.create_profile(conn, username=email, auth_user_id=auth_response.user.id)
-            
-            # Auto-login after successful registration
-            auto_login_response = supabase.auth.sign_in_with_password({"email": email, "password": password})
-            access_token = auto_login_response.session.access_token
-            
-            response = RedirectResponse(url="/courses", status_code=303)
-            response.set_cookie(key="access_token", value=access_token, httponly=True, max_age=3600 * 24 * 7, samesite="lax")
-            return response
-
-        except Exception as e:
-            logger.error(f"Registration error: {e}", exc_info=True)
-            error_msg = "Registration failed. The email might be taken."
-            return templates.TemplateResponse("auth.html", {"request": request, "error": error_msg, "email": email})
-
-    # --- Login Flow ---
     try:
-        # Check if user exists first
+        # 1. Check if user exists
         try:
-            # This requires the service role key, which should be handled carefully.
-            # For now, we infer from the sign_in error. A more robust way is to
-            # use the admin SDK if this logic needs to be more precise.
-            auth_response = supabase.auth.sign_in_with_password({"email": email, "password": password})
-            
-            # If sign_in is successful
-            if auth_response.session:
-                access_token = auth_response.session.access_token
+            user = supabase.auth.admin.get_user_by_email(email)
+        except AuthApiError as e:
+            user = None # User not found
+
+        # 2. Handle based on user existence
+        if user:
+            # --- USER EXISTS ---
+            try:
+                # Attempt to sign in
+                auth_response = supabase.auth.sign_in_with_password({"email": email, "password": password})
+                if auth_response.session:
+                    access_token = auth_response.session.access_token
+                    response = RedirectResponse(url="/courses", status_code=303)
+                    response.set_cookie(key="access_token", value=access_token, httponly=True, max_age=3600 * 24 * 7, samesite="lax")
+                    return response
+            except AuthApiError:
+                # Sign in failed, so it must be an incorrect password
+                return templates.TemplateResponse("auth.html", {
+                    "request": request, 
+                    "error": "Incorrect password. Please try again.", 
+                    "email": email,
+                    "supabase_url": SUPABASE_URL,
+                    "supabase_key": SUPABASE_KEY
+                })
+        else:
+            # --- USER DOES NOT EXIST ---
+            if action == "register":
+                # User wants to register
+                if len(password) < 8 or not any(char.isdigit() for char in password):
+                    error_msg = "Password must be at least 8 characters and contain one number."
+                    return templates.TemplateResponse("auth.html", {"request": request, "error": error_msg, "email": email, "supabase_url": SUPABASE_URL, "supabase_key": SUPABASE_KEY})
+
+                # Create user in Supabase
+                auth_response = supabase.auth.sign_up({"email": email, "password": password})
+                if not auth_response.user:
+                    error_msg = "Could not create account. The email may be invalid."
+                    return templates.TemplateResponse("auth.html", {"request": request, "error": error_msg, "email": email, "supabase_url": SUPABASE_URL, "supabase_key": SUPABASE_KEY})
+
+                # Create local profile and auto-login
+                crud.create_profile(conn, username=email, auth_user_id=auth_response.user.id)
+                auto_login_response = supabase.auth.sign_in_with_password({"email": email, "password": password})
+                access_token = auto_login_response.session.access_token
+                
                 response = RedirectResponse(url="/courses", status_code=303)
                 response.set_cookie(key="access_token", value=access_token, httponly=True, max_age=3600 * 24 * 7, samesite="lax")
                 return response
             else:
-                # This case handles potential API inconsistencies.
-                # The `gotrue` library usually raises an exception on failure.
-                raise Exception("Authentication failed")
-
-        except Exception as e:
-            # Inferring user existence from the error message is fragile but
-            # avoids needing admin privileges for a direct user lookup.
-            error_str = str(e).lower()
-            if "invalid login credentials" in error_str:
-                # This implies the user exists, but the password was wrong.
-                return templates.TemplateResponse("auth.html", {"request": request, "error": "Invalid password.", "email": email})
-            elif "user not found" in error_str or "email not confirmed" in error_str:
-                 # User does not exist, prompt to register.
+                # User was trying to log in, but account doesn't exist. Prompt to register.
                 return templates.TemplateResponse("auth.html", {
                     "request": request,
                     "prompt_register": True,
                     "email": email,
-                    "message": "Account not found. Would you like to create one?"
+                    "message": "Account not found. Would you like to create one?",
+                    "supabase_url": SUPABASE_URL,
+                    "supabase_key": SUPABASE_KEY
                 })
-            else:
-                # Handle other unexpected errors
-                logger.error(f"Unexpected login error: {e}", exc_info=True)
-                return templates.TemplateResponse("auth.html", {"request": request, "error": "An unexpected error occurred.", "email": email})
 
     except Exception as e:
-        logger.error(f"Supabase login failed: {e}", exc_info=True)
-        return templates.TemplateResponse("auth.html", {"request": request, "error": "Invalid email or password.", "email": email})
+        logger.error(f"General auth error: {e}", exc_info=True)
+        return templates.TemplateResponse("auth.html", {
+            "request": request, 
+            "error": "An unexpected error occurred.", 
+            "email": email,
+            "supabase_url": SUPABASE_URL,
+            "supabase_key": SUPABASE_KEY
+        })
 
 
 @app.get("/register", response_class=HTMLResponse)

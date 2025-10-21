@@ -32,7 +32,7 @@
                     {% if prompt_register %}
                         <div class="alert alert-info">{{ message }}</div>
                     {% endif %}
-                    <form id="auth-form" method="post" action="/login">
+                    <form id="auth-form" method="post" action="/auth">
                         <input type="hidden" id="action" name="action" value="login">
                         <div class="mb-3">
                             <label for="email" class="form-label">Email</label>
