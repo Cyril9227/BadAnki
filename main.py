@@ -624,16 +624,27 @@ async def api_get_course_content(course_path: str, conn: psycopg2.extensions.con
 
 @app.post("/api/course-content")
 async def api_save_course_content(item: CourseContent, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    crud.save_course_content_for_user(conn, item.path, item.content, auth_user_id=user.auth_user_id)
-    return {"success": True}
+    logger.info(f"Attempting to save content for path: {item.path}")
+    logger.debug(f"Content received: {item.content}")
+    try:
+        crud.save_course_content_for_user(conn, item.path, item.content, auth_user_id=user.auth_user_id)
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Error saving course content for path {item.path}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to save course content.")
 
 @app.api_route("/api/course-item", methods=["POST", "DELETE"])
 async def api_manage_course_item(item: CourseItem, request: Request, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    if request.method == "POST":
-        crud.create_course_item_for_user(conn, item.path, item.type, auth_user_id=user.auth_user_id)
-    elif request.method == "DELETE":
-        crud.delete_course_item_for_user(conn, item.path, item.type, auth_user_id=user.auth_user_id)
-    return {"success": True}
+    logger.info(f"Managing course item at path: {item.path} (type: {item.type}, method: {request.method})")
+    try:
+        if request.method == "POST":
+            crud.create_course_item_for_user(conn, item.path, item.type, auth_user_id=user.auth_user_id)
+        elif request.method == "DELETE":
+            crud.delete_course_item_for_user(conn, item.path, item.type, auth_user_id=user.auth_user_id)
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Error managing course item for path {item.path}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to manage course item.")
 
 @app.post("/api/generate-cards")
 async def api_generate_cards(request: Request, data: CourseContentForGeneration, user: User = Depends(get_current_active_user)):
