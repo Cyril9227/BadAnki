@@ -286,6 +286,49 @@ window.MathJax = {
     });
     </script>
     {% block scripts %}{% endblock %}
+<script type="module">
+    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+
+    // These values are needed for the OAuth callback handler to work globally.
+    // The Jinja2 'or' filter prevents errors on pages where they aren't passed.
+    const supabaseUrl = "{{ supabase_url or '' }}";
+    const supabaseKey = "{{ supabase_key or '' }}";
+
+    if (supabaseUrl && supabaseKey) {
+        const supabase = createClient(supabaseUrl, supabaseKey);
+
+        // This handles the OAuth redirect. It runs on every page load.
+        // If the URL has the token, it gets the session and sends it to our backend.
+        if (window.location.hash.includes('access_token')) {
+            supabase.auth.getSession().then(async ({ data: { session }, error }) => {
+                if (error) {
+                    console.error("Error getting session from URL:", error.message);
+                    return;
+                }
+
+                if (session) {
+                    const response = await fetch('/auth/callback', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            access_token: session.access_token,
+                            refresh_token: session.refresh_token,
+                        }),
+                    });
+
+                    if (response.ok) {
+                        // Clear the hash from the URL and redirect.
+                        window.location.hash = '';
+                        window.location.href = '/courses';
+                    } else {
+                        console.error('Backend login failed.');
+                        alert('There was an error logging you in. Please try again.');
+                    }
+                }
+            });
+        }
+    }
+</script>
 <script>
   window.si = window.si || function () { (window.siq = window.siq || []).push(arguments); };
 </script>

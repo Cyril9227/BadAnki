@@ -185,6 +185,13 @@ def test_password_validation_missing_number(client):
     assert response.status_code == 200
     assert "Password must contain at least one number" in response.text
 
+def test_get_auth_page(client):
+    """Test that the new unified auth page loads correctly."""
+    response = client.get("/auth")
+    assert response.status_code == 200
+    assert "Continue with Google" in response.text
+    assert "Continue with GitHub" in response.text
+
 def test_health_check(client):
     """Test the health check endpoint."""
     response = client.get("/health")
@@ -265,13 +272,10 @@ def test_get_courses_page_authenticated(mock_get_user, client, db_conn):
     assert "All Courses" in response.text
 
 def test_get_courses_page_unauthenticated(client):
-    response = client.get("/courses")
-    # Should redirect to /login
-    assert response.status_code == 200
-    assert "Login" in response.text
-    assert len(response.history) == 1
-    assert response.history[0].status_code == 303
-    assert response.history[0].headers["location"] == "/login"
+    response = client.get("/courses", follow_redirects=False)
+    # Should redirect to /auth now
+    assert response.status_code == 303
+    assert response.headers["location"] == "/auth"
 
 @patch("main.supabase.auth.get_user")
 def test_get_courses_tree_empty(mock_get_user, client, db_conn):
