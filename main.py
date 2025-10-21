@@ -391,7 +391,7 @@ async def handle_auth(
         try:
             # 1. Check if user exists using list_users and filtering
             response = supabase.auth.admin.list_users()
-            user = next((u for u in response.users if u.email == email), None)
+            user = next((u for u in response if u.email == email), None)
         except AuthApiError as e:
             user = None # Treat API errors as user not found for safety
 
