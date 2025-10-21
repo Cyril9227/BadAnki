@@ -27,7 +27,7 @@ from supabase import create_client, Client
 from jose import JWTError, jwt
 from pydantic import BaseModel
 from telegram import Update
-from gotrue.errors import AuthApiError
+from supabase_auth.errors import AuthApiError
 
 # Local application
 import crud
