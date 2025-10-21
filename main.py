@@ -405,6 +405,7 @@ async def handle_auth(
                     access_token = auth_response.session.access_token
                     response = RedirectResponse(url="/courses", status_code=303)
                     response.set_cookie(key="access_token", value=access_token, httponly=True, max_age=3600 * 24 * 7, samesite="lax")
+                    response.set_cookie(key="flash", value="success:Welcome back!", max_age=5) # Flash message
                     return response
             except AuthApiError:
                 # Sign in failed, so it must be an incorrect password
@@ -436,6 +437,7 @@ async def handle_auth(
                 
                 response = RedirectResponse(url="/courses", status_code=303)
                 response.set_cookie(key="access_token", value=access_token, httponly=True, max_age=3600 * 24 * 7, samesite="lax")
+                response.set_cookie(key="flash", value="success:Account created successfully!", max_age=5) # Flash message
                 return response
             else:
                 # User was trying to log in, but account doesn't exist. Prompt to register.
@@ -496,6 +498,7 @@ async def auth_callback(
             max_age=3600 * 24 * 7,  # 1 week
             samesite="lax"
         )
+        response.set_cookie(key="flash", value="success:Logged in successfully!", max_age=5) # Flash message
         return response
 
     except Exception as e:
