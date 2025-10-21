@@ -45,16 +45,16 @@ def get_users_with_due_cards():
         # SQL query: return all users with telegram_chat_id, count due cards (can be zero)
         query = """
             SELECT
-                u.telegram_chat_id,
+                p.telegram_chat_id,
                 COUNT(c.id) FILTER (WHERE c.due_date <= %s) AS due_cards_count
             FROM
-                users u
+                profiles p
             LEFT JOIN
-                cards c ON u.id = c.user_id
+                cards c ON p.auth_user_id = c.user_id
             WHERE
-                u.telegram_chat_id IS NOT NULL
+                p.telegram_chat_id IS NOT NULL
             GROUP BY
-                u.telegram_chat_id;
+                p.telegram_chat_id;
         """
 
         cursor.execute(query, (datetime.now(),))
