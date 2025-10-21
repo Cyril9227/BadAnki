@@ -27,6 +27,7 @@ from supabase import create_client, Client
 from jose import JWTError, jwt
 from pydantic import BaseModel
 from telegram import Update
+from gotrue.errors import AuthApiError
 
 # Local application
 import crud
@@ -357,9 +358,6 @@ async def save_secrets(request: Request, user: User = Depends(get_current_active
 # --- FastAPI Routes ---
 
 # --- Auth Routes (Supabase email-based login/register) ---
-
-from fastapi import Form
-
 @app.get("/auth", response_class=HTMLResponse)
 async def auth_form(request: Request):
     """Display the unified authentication form."""
@@ -370,15 +368,8 @@ async def auth_form(request: Request):
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_form(request: Request):
-    """Redirect to the main authentication page."""
+    """Redirect to the main authentication page for backward compatibility."""
     return RedirectResponse(url="/auth")
-
-from gotrue.errors import AuthApiError
-# ... (other imports)
-
-# ... (FastAPI app setup)
-
-# ... (other code)
 
 @app.post("/auth")
 async def handle_auth(
@@ -465,16 +456,6 @@ async def handle_auth(
             "supabase_key": SUPABASE_KEY
         })
 
-
-@app.get("/register", response_class=HTMLResponse)
-async def register_form(request: Request):
-    """Redirect to the main authentication page."""
-    return RedirectResponse(url="/auth")
-
-
-
-
-
 class AuthCallback(BaseModel):
     access_token: str
     refresh_token: str
@@ -518,23 +499,6 @@ async def auth_callback(
     except Exception as e:
         logger.error(f"Auth callback error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Authentication callback failed.")
-
-
-@app.get("/logout")
-async def logout(request: Request):
-    """Log the user out of Supabase and clear session cookie."""
-    token = request.cookies.get("access_token")
-    if token:
-        try:
-            supabase.auth.sign_out(token)
-        except Exception as e:
-            logger.warning(f"Supabase sign-out error: {e}")
-
-    response = RedirectResponse(url="/login", status_code=303)
-    response.delete_cookie("access_token")
-    response.set_cookie("flash", "success:Logged out successfully.", max_age=5)
-    return response
-
 
 @app.get("/health", response_class=JSONResponse)
 async def health_check():
