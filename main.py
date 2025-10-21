@@ -378,46 +378,88 @@ async def login_user(
     request: Request,
     email: str = Form(...),
     password: str = Form(...),
+    action: str = Form("login"), # Can be "login" or "register"
     conn: psycopg2.extensions.connection = Depends(get_db)
 ):
-    """Authenticate user with Supabase Auth (email + password)."""
+    """
+    Handles both login and registration with a unified endpoint.
+    - If user does not exist, prompts to register.
+    - If user exists, attempts login.
+    - If action is 'register', creates the user.
+    """
+    # --- Registration Flow ---
+    if action == "register":
+        # Password validation
+        if len(password) < 8 or not any(char.isdigit() for char in password):
+            error_msg = "Password must be at least 8 characters and contain one number."
+            return templates.TemplateResponse("auth.html", {"request": request, "error": error_msg, "email": email})
+
+        try:
+            # Create user in Supabase
+            auth_response = supabase.auth.sign_up({"email": email, "password": password})
+            if not auth_response.user:
+                error_msg = "This email may already be registered. Try logging in."
+                return templates.TemplateResponse("auth.html", {"request": request, "error": error_msg, "email": email})
+
+            # Create local profile and auto-login
+            crud.create_profile(conn, username=email, auth_user_id=auth_response.user.id)
+            
+            # Auto-login after successful registration
+            auto_login_response = supabase.auth.sign_in_with_password({"email": email, "password": password})
+            access_token = auto_login_response.session.access_token
+            
+            response = RedirectResponse(url="/courses", status_code=303)
+            response.set_cookie(key="access_token", value=access_token, httponly=True, max_age=3600 * 24 * 7, samesite="lax")
+            return response
+
+        except Exception as e:
+            logger.error(f"Registration error: {e}", exc_info=True)
+            error_msg = "Registration failed. The email might be taken."
+            return templates.TemplateResponse("auth.html", {"request": request, "error": error_msg, "email": email})
+
+    # --- Login Flow ---
     try:
-        auth_response = supabase.auth.sign_in_with_password({
-            "email": email,
-            "password": password
-        })
+        # Check if user exists first
+        try:
+            # This requires the service role key, which should be handled carefully.
+            # For now, we infer from the sign_in error. A more robust way is to
+            # use the admin SDK if this logic needs to be more precise.
+            auth_response = supabase.auth.sign_in_with_password({"email": email, "password": password})
+            
+            # If sign_in is successful
+            if auth_response.session:
+                access_token = auth_response.session.access_token
+                response = RedirectResponse(url="/courses", status_code=303)
+                response.set_cookie(key="access_token", value=access_token, httponly=True, max_age=3600 * 24 * 7, samesite="lax")
+                return response
+            else:
+                # This case handles potential API inconsistencies.
+                # The `gotrue` library usually raises an exception on failure.
+                raise Exception("Authentication failed")
 
-        # Check if login succeeded
-        if not auth_response or not getattr(auth_response, "session", None):
-            return templates.TemplateResponse(
-                request, "login.html", {"error": "Invalid email or password"}
-            )
-
-        # Fetch Supabase user info
-        auth_user = auth_response.user
-        if not auth_user:
-            return templates.TemplateResponse(
-                request, "login.html", {"error": "Login failed — no user found"}
-            )
-
-        # Ensure we have a matching profile in local DB
-        crud.create_profile(conn, username=auth_user.email, auth_user_id=auth_user.id)
-
-        # Set cookie for session
-        access_token = auth_response.session.access_token
-        response = RedirectResponse(url="/courses", status_code=303)
-        response.set_cookie(
-            key="access_token",
-            value=access_token,
-            httponly=True,
-            max_age=3600 * 24 * 7,  # 1 week
-            samesite="lax"
-        )
-        return response
+        except Exception as e:
+            # Inferring user existence from the error message is fragile but
+            # avoids needing admin privileges for a direct user lookup.
+            error_str = str(e).lower()
+            if "invalid login credentials" in error_str:
+                # This implies the user exists, but the password was wrong.
+                return templates.TemplateResponse("auth.html", {"request": request, "error": "Invalid password.", "email": email})
+            elif "user not found" in error_str or "email not confirmed" in error_str:
+                 # User does not exist, prompt to register.
+                return templates.TemplateResponse("auth.html", {
+                    "request": request,
+                    "prompt_register": True,
+                    "email": email,
+                    "message": "Account not found. Would you like to create one?"
+                })
+            else:
+                # Handle other unexpected errors
+                logger.error(f"Unexpected login error: {e}", exc_info=True)
+                return templates.TemplateResponse("auth.html", {"request": request, "error": "An unexpected error occurred.", "email": email})
 
     except Exception as e:
         logger.error(f"Supabase login failed: {e}", exc_info=True)
-        return templates.TemplateResponse(request, "login.html", {"error": "Invalid email or password"})
+        return templates.TemplateResponse("auth.html", {"request": request, "error": "Invalid email or password.", "email": email})
 
 
 @app.get("/register", response_class=HTMLResponse)
@@ -426,62 +468,7 @@ async def register_form(request: Request):
     return RedirectResponse(url="/auth")
 
 
-@app.post("/register")
-async def register_user(
-    request: Request,
-    email: str = Form(...),
-    password: str = Form(...),
-    conn: psycopg2.extensions.connection = Depends(get_db)
-):
-    """Register new user via Supabase Auth + local profile."""
-    # Password validation
-    if len(password) < 8:
-        return templates.TemplateResponse(request, "register.html", {"error": "Password must be at least 8 characters long"})
-    if not any(char.isdigit() for char in password):
-        return templates.TemplateResponse(request, "register.html", {"error": "Password must contain at least one number"})
 
-    try:
-        auth_response = supabase.auth.sign_up({
-            "email": email,
-            "password": password,
-        })
-
-        if not auth_response.user:
-            return templates.TemplateResponse(request, "register.html", {"error": "Email already registered or invalid."})
-
-        # Create a corresponding local profile.
-        # This is idempotent, so it's safe to call even if the profile already exists.
-        crud.create_profile(conn, username=email, auth_user_id=auth_response.user.id)
-
-        # --- Auto-login after registration ---
-        # Sign in the user to create a session immediately
-        auto_login_response = supabase.auth.sign_in_with_password({
-            "email": email,
-            "password": password
-        })
-
-        if not auto_login_response.session:
-            # This is unlikely but handle it just in case
-            logger.error("Auto-login failed after registration.")
-            response = RedirectResponse(url="/login", status_code=303)
-            response.set_cookie("flash", "success:Registered! Please log in.", max_age=10)
-            return response
-
-        # Set the access token cookie and redirect to the main app
-        access_token = auto_login_response.session.access_token
-        response = RedirectResponse(url="/courses", status_code=303)
-        response.set_cookie(
-            key="access_token",
-            value=access_token,
-            httponly=True,
-            max_age=3600 * 24 * 7,  # 1 week
-            samesite="lax"
-        )
-        return response
-
-    except Exception as e:
-        logger.error(f"Registration error: {e}", exc_info=True)
-        return templates.TemplateResponse(request, "register.html", {"error": "Registration failed — check your email or try again."})
 
 
 class AuthCallback(BaseModel):
