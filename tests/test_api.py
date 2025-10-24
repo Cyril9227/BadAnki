@@ -110,7 +110,7 @@ def test_register_user_successfully(mock_sign_in, mock_sign_up, client, db_conn)
     )
     
     assert response.status_code == 303
-    assert response.headers["location"] == "/courses"
+    assert response.headers["location"] == "/"
     mock_sign_up.assert_called_once()
     mock_sign_in.assert_called_once()
 
@@ -159,7 +159,7 @@ def test_login_successfully(mock_sign_in, client, db_conn):
         follow_redirects=False,
     )
     assert response.status_code == 303
-    assert response.headers["location"] == "/courses"
+    assert response.headers["location"] == "/review"
     assert "access_token" in response.cookies
 
 @patch("main.supabase.auth.sign_in_with_password")

@@ -403,7 +403,7 @@ async def handle_auth(
                 auth_response = supabase.auth.sign_in_with_password({"email": email, "password": password})
                 if auth_response.session:
                     access_token = auth_response.session.access_token
-                    response = RedirectResponse(url="/courses", status_code=303)
+                    response = RedirectResponse(url="/review", status_code=303)
                     response.set_cookie(key="access_token", value=access_token, httponly=True, max_age=3600 * 24 * 7, samesite="lax")
                     response.set_cookie(key="flash", value="success:Welcome back!", max_age=5) # Flash message
                     return response
@@ -435,7 +435,7 @@ async def handle_auth(
                 auto_login_response = supabase.auth.sign_in_with_password({"email": email, "password": password})
                 access_token = auto_login_response.session.access_token
                 
-                response = RedirectResponse(url="/courses", status_code=303)
+                response = RedirectResponse(url="/", status_code=303)
                 response.set_cookie(key="access_token", value=access_token, httponly=True, max_age=3600 * 24 * 7, samesite="lax")
                 response.set_cookie(key="flash", value="success:Account created successfully!", max_age=5) # Flash message
                 return response
