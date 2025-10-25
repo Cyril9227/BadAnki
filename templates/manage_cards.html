@@ -220,11 +220,11 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    // SweetAlert2 for delete confirmation
-    const deleteForms = document.querySelectorAll('.delete-form');
-    deleteForms.forEach(form => {
-        form.addEventListener('submit', function (e) {
+    // SweetAlert2 for delete confirmation using event delegation
+    document.body.addEventListener('submit', function(e) {
+        if (e.target.matches('.delete-form')) {
             e.preventDefault();
+            const form = e.target;
             Swal.fire({
                 title: 'Are you sure?',
                 text: "You won't be able to revert this!",
@@ -238,7 +238,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     form.submit();
                 }
             });
-        });
+        }
     });
 });
 </script>

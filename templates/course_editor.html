@@ -456,15 +456,37 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function handleError(error) {
-        Swal.fire({
-            toast: true,
-            position: 'top-end',
-            icon: 'error',
-            title: `An error occurred: ${error.message}`,
-            showConfirmButton: false,
-            timer: 3000,
-            timerProgressBar: true
-        });
+        // Check if the error is a 'Not Found' error, which can happen if a previously selected file was deleted
+        // or if a new user has no courses yet.
+        const isNotFound = error.message.includes('Not Found') || error.message.includes('404');
+
+        if (isNotFound) {
+            editorContainer.style.display = 'none';
+            noFileSelected.style.display = 'block';
+            currentFilePathInput.value = '';
+            markdownEditor.value = '';
+            localStorage.removeItem('lastEditedFilePath');
+            // Optionally, show a less intrusive info toast if desired, but for now, just suppress the error.
+            // Swal.fire({
+            //     toast: true,
+            //     position: 'top-end',
+            //     icon: 'info',
+            //     title: 'No course content found.',
+            //     showConfirmButton: false,
+            //     timer: 3000,
+            //     timerProgressBar: true
+            // });
+        } else {
+            Swal.fire({
+                toast: true,
+                position: 'top-end',
+                icon: 'error',
+                title: `An error occurred: ${error.message}`,
+                showConfirmButton: false,
+                timer: 3000,
+                timerProgressBar: true
+            });
+        }
         console.error(error);
     }
 
