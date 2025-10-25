@@ -289,12 +289,11 @@ def generate_cards(text: str, mode="gemini", api_key: str = None) -> list[dict]:
         if mode == "gemini":
             if not api_key:
                 raise ValueError("Gemini API key is required.")
-            
             genai.configure(api_key=api_key)
             model = genai.GenerativeModel(
-                model_name="gemini-2.5-pro", 
-                safety_settings=safety_settings, 
-                generation_config=generation_config
+                model_name="gemini-2.5-flash",
+                generation_config=generation_config,
+                safety_settings=safety_settings,
             )
             response = model.generate_content(prompt)
             response_text = response.text.strip()

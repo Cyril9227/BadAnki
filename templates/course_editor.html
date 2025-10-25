@@ -112,6 +112,7 @@
                 <div id="loading-spinner" class="text-center" style="display: none;">
                     <div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div>
                     <p>Generating cards, please wait...</p>
+                    <p id="loading-message" class="text-muted mt-2"></p>
                 </div>
             </div>
             <div class="modal-footer">
@@ -140,6 +141,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const cardsModalBody = document.getElementById('cards-modal-body-content');
     const saveCardsBtn = document.getElementById('save-cards-btn');
     const loadingSpinner = document.getElementById('loading-spinner');
+    const loadingMessage = document.getElementById('loading-message');
     const saveBtn = document.querySelector('button[type="submit"]'); // Re-target the save button
     const dropZoneMain = document.getElementById('drop-zone-main');
     const dropZoneEditor = document.getElementById('drop-zone-editor');
@@ -147,6 +149,20 @@ document.addEventListener('DOMContentLoaded', function () {
 
     let generatedCardsData = [];
     let currentDirectory = ''; // Tracks the currently selected directory
+    let messageInterval;
+    const loadingMessages = [
+        "Summoning digital flashcards...",
+        "Teaching the AI to count in binary...",
+        "Brewing coffee for the server hamsters...",
+        "Reticulating splines...",
+        "Asking the AI if it has any questions...",
+        "Shuffling bits and bytes...",
+        "Don't worry, the AI is a professional...",
+        "Converting caffeine into code...",
+        "Generating knowledge, one card at a time.",
+        "The AI is thinking... or pretending to.",
+        "Hold on, polishing the virtual cards."
+    ];
 
     function loadFileTree() {
         fetch('/api/courses-tree')
@@ -477,6 +493,15 @@ document.addEventListener('DOMContentLoaded', function () {
         saveCardsBtn.disabled = true;
         cardsModal.show();
 
+        // Start showing random messages
+        let messageIndex = 0;
+        loadingMessage.textContent = loadingMessages[messageIndex];
+        messageInterval = setInterval(() => {
+            messageIndex = (messageIndex + 1) % loadingMessages.length;
+            loadingMessage.textContent = loadingMessages[messageIndex];
+        }, 2500);
+
+
         fetch(apiUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -484,6 +509,7 @@ document.addEventListener('DOMContentLoaded', function () {
         })
         .then(handleResponse)
         .then(data => {
+            clearInterval(messageInterval);
             loadingSpinner.style.display = 'none';
             generatedCardsData = data.cards || [];
             if (generatedCardsData.length > 0) {
@@ -494,6 +520,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         })
         .catch(error => {
+            clearInterval(messageInterval);
             loadingSpinner.style.display = 'none';
             cardsModalBody.innerHTML = `<p class="text-danger">Error: ${error.message}</p>`;
             console.error('Error generating cards:', error);
