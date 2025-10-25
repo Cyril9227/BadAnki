@@ -28,14 +28,23 @@ def get_profile_by_auth_id(conn, auth_user_id: str):
 def create_profile(conn, username: str, auth_user_id: str) -> bool:
     """
     Creates a new profile linked to a Supabase auth user.
+    If the GEMINI_API_KEY environment variable is set, it will be used
+    as the default key for the new user.
     This function is idempotent.
     Returns True if a new profile was created, False otherwise.
     """
     cursor = conn.cursor()
     try:
+        # Get the default API key from environment variables
+        default_gemini_key = os.environ.get("GEMINI_API_KEY")
+        
         cursor.execute(
-            "INSERT INTO profiles (username, auth_user_id) VALUES (%s, %s) ON CONFLICT (auth_user_id) DO NOTHING",
-            (username, auth_user_id)
+            """
+            INSERT INTO profiles (username, auth_user_id, gemini_api_key)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (auth_user_id) DO NOTHING
+            """,
+            (username, auth_user_id, default_gemini_key)
         )
         # cursor.rowcount will be 1 if a row was inserted, 0 if ON CONFLICT happened.
         is_new_user = cursor.rowcount > 0
