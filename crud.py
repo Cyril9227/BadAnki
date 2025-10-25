@@ -25,29 +25,27 @@ def get_profile_by_auth_id(conn, auth_user_id: str):
     cursor.close()
     return profile
 
-def create_profile(conn, username: str, auth_user_id: str):
+def create_profile(conn, username: str, auth_user_id: str) -> bool:
     """
     Creates a new profile linked to a Supabase auth user.
-    This function is idempotent and safe from race conditions.
+    This function is idempotent.
+    Returns True if a new profile was created, False otherwise.
     """
     cursor = conn.cursor()
     try:
         cursor.execute(
-            "INSERT INTO profiles (username, auth_user_id) VALUES (%s, %s)",
+            "INSERT INTO profiles (username, auth_user_id) VALUES (%s, %s) ON CONFLICT (auth_user_id) DO NOTHING",
             (username, auth_user_id)
         )
+        # cursor.rowcount will be 1 if a row was inserted, 0 if ON CONFLICT happened.
+        is_new_user = cursor.rowcount > 0
         conn.commit()
-        return auth_user_id
-    except psycopg2.errors.UniqueViolation:
-        # This handles race conditions where another request creates the profile
-        # between the check and the insert.
-        conn.rollback()
-        cursor.execute("SELECT auth_user_id FROM profiles WHERE auth_user_id = %s", (auth_user_id,))
-        existing_user_id = cursor.fetchone()[0]
-        return existing_user_id
+        return is_new_user
     except Exception as e:
         conn.rollback()
-        raise e
+        # In case of other errors, we assume the user was not created.
+        # Consider logging the error `e` here.
+        return False
     finally:
         cursor.close()
 

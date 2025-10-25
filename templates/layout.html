@@ -555,9 +555,10 @@ document.addEventListener('DOMContentLoaded', function () {
                     });
 
                     if (response.ok) {
-                        // Clear the hash from the URL and redirect.
+                        const data = await response.json();
+                        // Clear the hash from the URL and redirect to the URL provided by the backend.
                         window.location.hash = '';
-                        window.location.href = '/courses';
+                        window.location.href = data.redirect_url || '/'; // Fallback to home
                     } else {
                         console.error('Backend login failed.');
                         alert('There was an error logging you in. Please try again.');

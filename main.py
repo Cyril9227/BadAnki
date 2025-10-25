@@ -354,8 +354,6 @@ async def save_secrets(request: Request, user: User = Depends(get_current_active
     return JSONResponse(content={"success": True})
 
 
-# --- FastAPI Routes ---
-
 # --- Auth Routes (Supabase email-based login/register) ---
 @app.get("/auth", response_class=HTMLResponse)
 async def auth_form(request: Request):
@@ -402,7 +400,7 @@ async def handle_auth(
                 auth_response = supabase.auth.sign_in_with_password({"email": email, "password": password})
                 if auth_response.session:
                     access_token = auth_response.session.access_token
-                    response = RedirectResponse(url="/review", status_code=303)
+                    response = RedirectResponse(url="/review", status_code=303) # Existing user
                     response.set_cookie(key="access_token", value=access_token, httponly=True, max_age=3600 * 24 * 7, samesite="lax")
                     response.set_cookie(key="flash", value="success:Welcome back!", max_age=5) # Flash message
                     return response
@@ -434,7 +432,7 @@ async def handle_auth(
                 auto_login_response = supabase.auth.sign_in_with_password({"email": email, "password": password})
                 access_token = auto_login_response.session.access_token
                 
-                response = RedirectResponse(url="/", status_code=303)
+                response = RedirectResponse(url="/", status_code=303) # New user
                 response.set_cookie(key="access_token", value=access_token, httponly=True, max_age=3600 * 24 * 7, samesite="lax")
                 response.set_cookie(key="flash", value="success:Account created successfully!", max_age=5) # Flash message
                 return response
@@ -475,21 +473,19 @@ async def auth_callback(
     and sets a session cookie.
     """
     try:
-        # Exchange the received tokens for a session with Supabase
-        # Note: set_session is what you'd use, but get_user with the token
-        # is the way to verify and get user details.
         user_response = supabase.auth.get_user(data.access_token)
         auth_user = user_response.user
 
         if not auth_user:
             raise HTTPException(status_code=401, detail="Invalid token")
 
-        # We have a valid Supabase user, ensure a profile exists in our DB
-        # The username will default to their email from the OAuth provider
-        crud.create_profile(conn, username=auth_user.email, auth_user_id=auth_user.id)
+        # Create a profile if it doesn't exist and check if the user is new.
+        is_new_user = crud.create_profile(conn, username=auth_user.email, auth_user_id=auth_user.id)
+        
+        redirect_url = "/" if is_new_user else "/review"
 
         # Set the session cookie to log the user in
-        response = JSONResponse(content={"success": True})
+        response = JSONResponse(content={"success": True, "redirect_url": redirect_url})
         response.set_cookie(
             key="access_token",
             value=data.access_token,
