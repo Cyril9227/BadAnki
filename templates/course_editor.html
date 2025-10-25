@@ -99,29 +99,7 @@
     </div>
 </div>
 
-<!-- Card Generation Modal -->
-<div class="modal fade" id="cards-modal" tabindex="-1" aria-labelledby="cardsModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-scrollable">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="cardsModalLabel">Generated Cards</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <div id="cards-modal-body-content"></div>
-                <div id="loading-spinner" class="text-center" style="display: none;">
-                    <div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div>
-                    <p>Generating cards, please wait...</p>
-                    <p id="loading-message" class="text-muted mt-2"></p>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-primary" id="save-cards-btn">Save Approved Cards</button>
-            </div>
-        </div>
-    </div>
-</div>
+{% include 'partials/card_generation_modal.html' %}
 <input type="file" id="file-input" multiple accept=".md" style="display: none;">
 {% endblock %}
 
@@ -137,32 +115,12 @@ document.addEventListener('DOMContentLoaded', function () {
     const editingFilename = document.getElementById('editing-filename');
     const currentFilePathInput = document.getElementById('current-file-path');
     const downloadBtn = document.getElementById('download-btn');
-    const cardsModal = new bootstrap.Modal(document.getElementById('cards-modal'));
-    const cardsModalBody = document.getElementById('cards-modal-body-content');
-    const saveCardsBtn = document.getElementById('save-cards-btn');
-    const loadingSpinner = document.getElementById('loading-spinner');
-    const loadingMessage = document.getElementById('loading-message');
     const saveBtn = document.querySelector('button[type="submit"]'); // Re-target the save button
     const dropZoneMain = document.getElementById('drop-zone-main');
     const dropZoneEditor = document.getElementById('drop-zone-editor');
     const fileInput = document.getElementById('file-input');
 
-    let generatedCardsData = [];
     let currentDirectory = ''; // Tracks the currently selected directory
-    let messageInterval;
-    const loadingMessages = [
-        "Summoning digital flashcards...",
-        "Teaching the AI to count in binary...",
-        "Brewing coffee for the server hamsters...",
-        "Reticulating splines...",
-        "Asking the AI if it has any questions...",
-        "Shuffling bits and bytes...",
-        "Don't worry, the AI is a professional...",
-        "Converting caffeine into code...",
-        "Generating knowledge, one card at a time.",
-        "The AI is thinking... or pretending to.",
-        "Hold on, polishing the virtual cards."
-    ];
 
     function loadFileTree() {
         fetch('/api/courses-tree')

@@ -286,6 +286,244 @@ window.MathJax = {
     });
     </script>
     {% block scripts %}{% endblock %}
+    {% block modals_script %}
+<script>
+// --- Global Card Generation and Modal Logic ---
+document.addEventListener('DOMContentLoaded', function () {
+    const cardsModalElement = document.getElementById('cards-modal');
+    if (!cardsModalElement) return; // Do nothing if the modal is not on the page
+
+    const cardsModal = new bootstrap.Modal(cardsModalElement);
+    const cardsModalBody = document.getElementById('cards-modal-body-content');
+    const saveCardsBtn = document.getElementById('save-cards-btn');
+    const loadingSpinner = document.getElementById('loading-spinner');
+    const loadingMessage = document.getElementById('loading-message');
+    
+    let generatedCardsData = [];
+    let messageInterval;
+    const loadingMessages = [
+        "Summoning digital flashcards...",
+        "Teaching the AI to count in binary...",
+        "Brewing coffee for the server hamsters...",
+        "Reticulating splines...",
+        "Asking the AI if it has any questions...",
+        "Shuffling bits and bytes...",
+        "Don't worry, the AI is a professional...",
+        "Converting caffeine into code...",
+        "Generating knowledge, one card at a time.",
+        "The AI is thinking... or pretending to.",
+        "Hold on, polishing the virtual cards."
+    ];
+
+    // This function is now globally available
+    window.handleGenerateCards = function(apiUrl, contentProvider) {
+        const content = contentProvider();
+        if (!content || !content.trim()) {
+            Swal.fire({
+                toast: true,
+                position: 'top-end',
+                icon: 'warning',
+                title: 'Content is empty. Please add some text.',
+                showConfirmButton: false,
+                timer: 3000,
+                timerProgressBar: true
+            });
+            return;
+        }
+
+        cardsModalBody.innerHTML = '';
+        loadingSpinner.style.display = 'block';
+        if(loadingMessage) loadingMessage.textContent = loadingMessages[0];
+        saveCardsBtn.disabled = true;
+        cardsModal.show();
+
+        // Start showing random messages
+        let messageIndex = 0;
+        messageInterval = setInterval(() => {
+            messageIndex = (messageIndex + 1) % loadingMessages.length;
+            if(loadingMessage) loadingMessage.textContent = loadingMessages[messageIndex];
+        }, 2500);
+
+        fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: content })
+        })
+        .then(response => {
+            if (!response.ok) {
+                return response.json().then(err => { throw new Error(err.detail || `HTTP error! status: ${response.status}`) });
+            }
+            return response.json();
+        })
+        .then(data => {
+            clearInterval(messageInterval);
+            loadingSpinner.style.display = 'none';
+            generatedCardsData = data.cards || [];
+            if (generatedCardsData.length > 0) {
+                displayGeneratedCards(generatedCardsData);
+                saveCardsBtn.disabled = false;
+            } else {
+                cardsModalBody.innerHTML = '<p>No cards were generated. Try refining your course content.</p>';
+            }
+        })
+        .catch(error => {
+            clearInterval(messageInterval);
+            loadingSpinner.style.display = 'none';
+            cardsModalBody.innerHTML = `<p class="text-danger">Error: ${error.message}</p>`;
+            console.error('Error generating cards:', error);
+        });
+    }
+
+    function displayGeneratedCards(cards) {
+        let html = '<div id="generated-cards-container">';
+        cards.forEach((card, index) => {
+            const questionHTML = marked.parseInline(card.question || '');
+            const answerHTML = marked.parseInline(card.answer || '');
+            html += `
+                <div class="card mb-3" data-card-index="${index}">
+                    <div class="card-header d-flex flex-column flex-sm-row justify-content-sm-between align-items-start align-items-sm-center">
+                        <div class="form-check">
+                            <input class="form-check-input approve-checkbox" type="checkbox" id="approve-${index}" checked>
+                            <label class="form-check-label" for="approve-${index}">
+                                <strong>Card ${index + 1}</strong>
+                            </label>
+                        </div>
+                        <div class="mt-2 mt-sm-0">
+                            <button class="btn btn-sm btn-outline-primary edit-card-btn">Edit</button>
+                            <button class="btn btn-sm btn-outline-danger delete-card-btn">Delete</button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="card-content">
+                            <p><strong>Q:</strong> <span class="card-question">${questionHTML}</span></p>
+                            <p><strong>A:</strong> <span class="card-answer">${answerHTML}</span></p>
+                        </div>
+                        <div class="edit-form" style="display: none;">
+                            <div class="mb-2">
+                                <label class="form-label">Question:</label>
+                                <textarea class="form-control edit-question">${card.question}</textarea>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label">Answer:</label>
+                                <textarea class="form-control edit-answer">${card.answer}</textarea>
+                            </div>
+                            <button class="btn btn-sm btn-success save-edit-btn">Save</button>
+                            <button class="btn btn-sm btn-secondary cancel-edit-btn">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        html += '</div>';
+        cardsModalBody.innerHTML = html;
+        if (window.MathJax) {
+            MathJax.typesetPromise([cardsModalBody]);
+        }
+    }
+
+    cardsModalBody.addEventListener('click', function(e) {
+        const target = e.target;
+        const cardElement = target.closest('.card');
+        if (!cardElement) return;
+
+        const index = parseInt(cardElement.dataset.cardIndex, 10);
+
+        if (target.classList.contains('delete-card-btn')) {
+            generatedCardsData[index] = null;
+            cardElement.remove();
+        } else if (target.classList.contains('edit-card-btn')) {
+            const cardData = generatedCardsData[index];
+            cardElement.querySelector('.edit-question').value = cardData.question;
+            cardElement.querySelector('.edit-answer').value = cardData.answer;
+            cardElement.querySelector('.card-content').style.display = 'none';
+            cardElement.querySelector('.edit-form').style.display = 'block';
+        } else if (target.classList.contains('cancel-edit-btn')) {
+            cardElement.querySelector('.card-content').style.display = 'block';
+            cardElement.querySelector('.edit-form').style.display = 'none';
+        } else if (target.classList.contains('save-edit-btn')) {
+            const questionTextarea = cardElement.querySelector('.edit-question');
+            const answerTextarea = cardElement.querySelector('.edit-answer');
+            const newQuestion = questionTextarea.value;
+            const newAnswer = answerTextarea.value;
+
+            generatedCardsData[index].question = newQuestion;
+            generatedCardsData[index].answer = newAnswer;
+
+            const questionSpan = cardElement.querySelector('.card-question');
+            const answerSpan = cardElement.querySelector('.card-answer');
+            questionSpan.innerHTML = marked.parseInline(newQuestion);
+            answerSpan.innerHTML = marked.parseInline(newAnswer);
+
+            if (window.MathJax) {
+                MathJax.typesetPromise([questionSpan, answerSpan]);
+            }
+
+            cardElement.querySelector('.card-content').style.display = 'block';
+            cardElement.querySelector('.edit-form').style.display = 'none';
+        }
+    });
+
+    saveCardsBtn.addEventListener('click', function() {
+        const approvedCards = [];
+        const cardElements = cardsModalBody.querySelectorAll('.card');
+
+        cardElements.forEach(cardElement => {
+            const index = parseInt(cardElement.dataset.cardIndex, 10);
+            const isApproved = cardElement.querySelector('.approve-checkbox').checked;
+
+            if (isApproved && generatedCardsData[index]) {
+                approvedCards.push(generatedCardsData[index]);
+            }
+        });
+
+        if (approvedCards.length === 0) {
+            Swal.fire({
+                toast: true,
+                position: 'top-end',
+                icon: 'warning',
+                title: 'No approved cards to save.',
+                showConfirmButton: false,
+                timer: 3000,
+                timerProgressBar: true
+            });
+            return;
+        }
+
+        fetch('/api/save-cards', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cards: approvedCards })
+        })
+        .then(response => {
+             if (!response.ok) {
+                return response.json().then(err => { throw new Error(err.detail || `HTTP error! status: ${response.status}`) });
+            }
+            return response.json();
+        })
+        .then(data => {
+            Swal.fire({
+                icon: 'success',
+                title: 'Success!',
+                text: data.message,
+            });
+            cardsModal.hide();
+        })
+        .catch(error => {
+             Swal.fire({
+                toast: true,
+                position: 'top-end',
+                icon: 'error',
+                title: `An error occurred: ${error.message}`,
+                showConfirmButton: false,
+                timer: 3000,
+                timerProgressBar: true
+            });
+            console.error(error);
+        });
+    });
+});
+</script>
+{% endblock %}
 <script type="module">
     import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
 
