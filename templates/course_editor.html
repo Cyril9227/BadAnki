@@ -235,6 +235,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 currentFilePathInput.value = '';
                 markdownEditor.value = '';
                 currentDirectory = ''; // Reset directory context
+                localStorage.removeItem('lastEditedFilePath');
             }
         })
         .catch(handleError);
@@ -251,6 +252,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 currentFilePathInput.value = path;
                 markdownEditor.value = content;
                 updatePreview();
+                localStorage.setItem('lastEditedFilePath', path);
 
                 if (window.innerWidth < 992) { // 992px is the breakpoint for lg devices
                     editorContainer.scrollIntoView({ behavior: 'smooth' });
@@ -294,11 +296,6 @@ document.addEventListener('DOMContentLoaded', function () {
             currentDirectory = path;
             document.querySelectorAll('.list-group-item').forEach(item => item.classList.remove('bg-light'));
             folderTarget.closest('.list-group-item').classList.add('bg-light');
-            
-            editorContainer.style.display = 'none';
-            noFileSelected.style.display = 'block';
-            currentFilePathInput.value = '';
-            markdownEditor.value = '';
         }
     });
 
@@ -664,8 +661,17 @@ document.addEventListener('DOMContentLoaded', function () {
 
     loadFileTree();
     const initialPath = "{{ course_path|default('') }}";
+    const lastEditedFilePath = localStorage.getItem('lastEditedFilePath');
+
+    let path_to_load = '';
     if (initialPath && initialPath !== 'home') {
-        loadEditorContent(initialPath);
+        path_to_load = initialPath;
+    } else if (lastEditedFilePath) {
+        path_to_load = lastEditedFilePath;
+    }
+
+    if (path_to_load) {
+        loadEditorContent(path_to_load);
     }
 });
 </script>
