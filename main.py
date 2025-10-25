@@ -592,9 +592,7 @@ async def download_course(course_path: str, conn: psycopg2.extensions.connection
     course = crud.get_course_content_for_user(conn, course_path, auth_user_id=user.auth_user_id)
     if not course:
         raise HTTPException(status_code=404, detail="File not found")
-    
-    content = course['content']
-    
+  
     # Create a safe filename for the Content-Disposition header
     filename = os.path.basename(course_path)
     if not filename.endswith('.md'):
@@ -609,7 +607,7 @@ async def download_course(course_path: str, conn: psycopg2.extensions.connection
     disposition = f'attachment; filename="{ascii_filename}"; filename*=UTF-8\'\'{utf8_filename}'
     
     return Response(
-        content=content,
+        content=course['content'],
         media_type="text/markdown",
         headers={"Content-Disposition": disposition}
     )
