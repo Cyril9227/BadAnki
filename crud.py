@@ -266,7 +266,7 @@ def update_card_for_user(conn, card_id: int, auth_user_id: str, remembered: bool
 
     ease_factor, interval = card['ease_factor'], card['interval']
     if remembered:
-        interval = int(interval * ease_factor)
+        interval = max(1, int(interval * ease_factor))
         ease_factor += EASE_FACTOR_MODIFIER
     else:
         interval = INITIAL_INTERVAL
