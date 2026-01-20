@@ -32,8 +32,8 @@ document.addEventListener('DOMContentLoaded', function () {
         .then(response => response.json())
         .then(tags => {
             if (tags.length > 0) {
-                const tagsHtml = tags.map(tag => 
-                    `<a href="/tags/${tag}" class="btn btn-sm btn-outline-primary">${tag}</a>`
+                const tagsHtml = tags.map(tag =>
+                    `<a href="/tags/${encodeURIComponent(tag)}" class="btn btn-sm btn-outline-primary">${tag}</a>`
                 ).join('');
                 tagsList.innerHTML = tagsHtml;
             } else {

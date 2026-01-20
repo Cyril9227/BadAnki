@@ -3,6 +3,7 @@
 # It helps separate the database interaction logic from the API routing logic.
 
 import os
+import random
 import frontmatter
 import psycopg2
 from datetime import datetime, timedelta
@@ -315,9 +316,27 @@ def delete_card_for_user(conn, card_id: int, auth_user_id: str):
     cursor.close()
 
 def get_random_card_for_user(conn, auth_user_id: str):
-    """Fetches a random card from the database for a specific user."""
+    """Fetches a random card from the database for a specific user.
+
+    Uses COUNT + OFFSET instead of ORDER BY RANDOM() for better performance
+    on large tables (avoids sorting all rows).
+    """
     cursor = conn.cursor(cursor_factory=extras.DictCursor)
-    cursor.execute("SELECT * FROM cards WHERE user_id = %s ORDER BY RANDOM() LIMIT 1", (auth_user_id,))
+
+    # Get count of user's cards
+    cursor.execute("SELECT COUNT(*) FROM cards WHERE user_id = %s", (auth_user_id,))
+    count = cursor.fetchone()[0]
+
+    if count == 0:
+        cursor.close()
+        return None
+
+    # Select a random card using offset
+    offset = random.randint(0, count - 1)
+    cursor.execute(
+        "SELECT * FROM cards WHERE user_id = %s LIMIT 1 OFFSET %s",
+        (auth_user_id, offset)
+    )
     card = cursor.fetchone()
     cursor.close()
     return card

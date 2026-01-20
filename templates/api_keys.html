@@ -10,6 +10,7 @@
     <div class="card">
         <div class="card-body">
             <form id="api-keys-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <div class="mb-3">
                     <label for="gemini_api_key" class="form-label">Google Gemini API Key</label>
                     <input type="password" id="gemini_api_key" name="gemini_api_key" class="form-control" placeholder="Enter your Gemini API key" value="{{ user.gemini_api_key if user else '' }}">
@@ -30,11 +31,13 @@ document.getElementById('api-keys-form').addEventListener('submit', function(eve
 
     const geminiApiKey = document.getElementById('gemini_api_key').value;
     const anthropicApiKey = document.getElementById('anthropic_api_key').value;
+    const csrfToken = document.querySelector('input[name="csrf_token"]').value;
 
     fetch('/api/save-api-keys', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfToken
         },
         body: JSON.stringify({
             gemini_api_key: geminiApiKey,

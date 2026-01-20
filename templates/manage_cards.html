@@ -192,6 +192,7 @@
                             <button type="submit" class="btn btn-sm btn-outline-primary">Edit</button>
                         </form>
                         <form action="/delete/{{ card.id }}" method="post" class="d-inline delete-form">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                             <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
                         </form>
                     </td>

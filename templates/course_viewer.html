@@ -110,9 +110,9 @@
 
     <!-- Hidden div to store the raw content for the script -->
     <div id="raw-content" style="display: none;">{{ content | e }}</div>
-</div>
 
 {% include 'partials/card_generation_modal.html' %}
+<input type="hidden" id="csrf-token" value="{{ csrf_token }}">
 {% endblock %}
 
 {% block scripts %}
@@ -149,19 +149,20 @@
         }
 
         // --- Card Generation Logic ---
+        const csrfToken = document.getElementById('csrf-token').value;
         document.addEventListener('click', function(e) {
             const contentProvider = () => document.getElementById('raw-content').textContent;
             if (e.target.matches('#generate-cards-gemini-btn')) {
                 e.preventDefault();
-                window.handleGenerateCards('/api/generate-cards', contentProvider);
+                window.handleGenerateCards('/api/generate-cards', contentProvider, csrfToken);
             }
             if (e.target.matches('#generate-cards-anthropic-btn')) {
                 e.preventDefault();
-                window.handleGenerateCards('/api/generate-cards-anthropic', contentProvider);
+                window.handleGenerateCards('/api/generate-cards-anthropic', contentProvider, csrfToken);
             }
             if (e.target.matches('#generate-cards-ollama-btn')) {
                 e.preventDefault();
-                window.handleGenerateCards('/api/generate-cards-ollama', contentProvider);
+                window.handleGenerateCards('/api/generate-cards-ollama', contentProvider, csrfToken);
             }
         });
     });

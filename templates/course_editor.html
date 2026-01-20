@@ -100,6 +100,7 @@
 </div>
 
 {% include 'partials/card_generation_modal.html' %}
+<input type="hidden" id="csrf-token" value="{{ csrf_token }}">
 <input type="file" id="file-input" multiple accept=".md" style="display: none;">
 {% endblock %}
 
@@ -119,6 +120,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const dropZoneMain = document.getElementById('drop-zone-main');
     const dropZoneEditor = document.getElementById('drop-zone-editor');
     const fileInput = document.getElementById('file-input');
+    const csrfToken = document.getElementById('csrf-token').value;
 
     let currentDirectory = ''; // Tracks the currently selected directory
 
@@ -193,7 +195,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         fetch(`/api/course-item`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
             body: JSON.stringify({ path: finalPath, type: type })
         })
         .then(handleResponse)
@@ -223,7 +225,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         fetch(`/api/course-item`, {
             method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
             body: JSON.stringify({ path: path, type: type })
         })
         .then(handleResponse)
@@ -306,7 +308,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         fetch(`/api/course-content`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
             body: JSON.stringify({ path: path, content: content })
         })
         .then(handleResponse)
@@ -400,7 +402,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
                 fetch(`/api/course-content`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                     body: JSON.stringify({ path: path, content: content })
                 })
                 .then(handleResponse)
@@ -432,15 +434,15 @@ document.addEventListener('DOMContentLoaded', function () {
         const contentProvider = () => markdownEditor.value;
         if (e.target.matches('#generate-cards-gemini-btn')) {
             e.preventDefault();
-            window.handleGenerateCards('/api/generate-cards', contentProvider);
+            window.handleGenerateCards('/api/generate-cards', contentProvider, csrfToken);
         }
         if (e.target.matches('#generate-cards-anthropic-btn')) {
             e.preventDefault();
-            window.handleGenerateCards('/api/generate-cards-anthropic', contentProvider);
+            window.handleGenerateCards('/api/generate-cards-anthropic', contentProvider, csrfToken);
         }
         if (e.target.matches('#generate-cards-ollama-btn')) {
             e.preventDefault();
-            window.handleGenerateCards('/api/generate-cards-ollama', contentProvider);
+            window.handleGenerateCards('/api/generate-cards-ollama', contentProvider, csrfToken);
         }
     });
 

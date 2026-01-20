@@ -33,6 +33,7 @@
                         <div class="alert alert-info">{{ message }}</div>
                     {% endif %}
                     <form id="auth-form" method="post" action="/auth">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <input type="hidden" id="action" name="action" value="login">
                         <div class="mb-3">
                             <label for="email" class="form-label">Email</label>
@@ -83,6 +84,45 @@
     const passwordHint = document.getElementById('password-hint');
     let isLogin = true;
 
+    // --- CSRF Token for AJAX ---
+    const csrfToken = document.querySelector('input[name="csrf_token"]').value;
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = new FormData(form);
+        
+        try {
+            const response = await fetch('/auth', {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-CSRF-Token': csrfToken
+                },
+                redirect: 'manual' // Important to handle redirects manually
+            });
+
+            if (response.type === 'opaqueredirect') {
+                // This happens on a successful login/registration redirect
+                window.location.href = response.url || '/';
+            } else if (response.ok) {
+                 // If the server sends back a non-redirect response (like an error page)
+                const html = await response.text();
+                document.open();
+                document.write(html);
+                document.close();
+            } else {
+                // Handle non-OK responses that are not redirects
+                const html = await response.text();
+                document.open();
+                document.write(html);
+                document.close();
+            }
+        } catch (error) {
+            console.error('Auth form submission error:', error);
+            // You might want to display a generic error message to the user here
+        }
+    });
+
     function setUI(mode) {
         if (mode === 'login') {
             isLogin = true;
@@ -97,6 +137,7 @@
             passwordHint.classList.remove('d-none');
             toggleText.innerHTML = 'Already have an account? <a href="#" id="auth-toggle-link">Login here</a>.';
         }
+        // Re-attach event listener since innerHTML is replaced
         document.getElementById('auth-toggle-link').addEventListener('click', handleToggle);
     }
 
