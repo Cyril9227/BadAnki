@@ -118,6 +118,32 @@ window.MathJax = {
 </script>
 <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<!-- DOMPurify for XSS protection when rendering user content -->
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+<script>
+    // Safe markdown rendering helper - sanitizes HTML to prevent XSS
+    window.safeMarkdown = function(text) {
+        if (!text) return '';
+        const html = marked.parse(text);
+        return DOMPurify.sanitize(html, {
+            ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 's', 'code', 'pre', 'blockquote',
+                          'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+                          'a', 'img', 'table', 'thead', 'tbody', 'tr', 'th', 'td',
+                          'span', 'div', 'hr', 'sup', 'sub'],
+            ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'id', 'target', 'rel'],
+            ALLOW_DATA_ATTR: false
+        });
+    };
+    window.safeMarkdownInline = function(text) {
+        if (!text) return '';
+        const html = marked.parseInline(text);
+        return DOMPurify.sanitize(html, {
+            ALLOWED_TAGS: ['strong', 'em', 'u', 's', 'code', 'a', 'span', 'sup', 'sub'],
+            ALLOWED_ATTR: ['href', 'title', 'class', 'target', 'rel'],
+            ALLOW_DATA_ATTR: false
+        });
+    };
+</script>
 <script>
     !function(){if(window.si)return;window.si=function(){(window.si.q=window.si.q||[]).push(arguments)};var a=document.createElement("script");a.defer=true;a.src="https://script.speed-insights.com/v2/script.js";document.head.appendChild(a);}();
 </script>
@@ -377,8 +403,8 @@ document.addEventListener('DOMContentLoaded', function () {
     function displayGeneratedCards(cards) {
         let html = '<div id="generated-cards-container">';
         cards.forEach((card, index) => {
-            const questionHTML = marked.parseInline(card.question || '');
-            const answerHTML = marked.parseInline(card.answer || '');
+            const questionHTML = window.safeMarkdownInline(card.question || '');
+            const answerHTML = window.safeMarkdownInline(card.answer || '');
             html += `
                 <div class="card mb-3" data-card-index="${index}">
                     <div class="card-header d-flex flex-column flex-sm-row justify-content-sm-between align-items-start align-items-sm-center">
@@ -451,8 +477,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
             const questionSpan = cardElement.querySelector('.card-question');
             const answerSpan = cardElement.querySelector('.card-answer');
-            questionSpan.innerHTML = marked.parseInline(newQuestion);
-            answerSpan.innerHTML = marked.parseInline(newAnswer);
+            questionSpan.innerHTML = window.safeMarkdownInline(newQuestion);
+            answerSpan.innerHTML = window.safeMarkdownInline(newAnswer);
 
             if (window.MathJax) {
                 MathJax.typesetPromise([questionSpan, answerSpan]);

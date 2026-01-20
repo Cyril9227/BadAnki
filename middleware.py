@@ -3,6 +3,33 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 import secrets
 
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Adds security headers to all responses."""
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        response = await call_next(request)
+
+        # Prevent clickjacking
+        response.headers["X-Frame-Options"] = "DENY"
+
+        # Prevent MIME type sniffing
+        response.headers["X-Content-Type-Options"] = "nosniff"
+
+        # XSS protection (legacy but still useful for older browsers)
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+
+        # Referrer policy - don't leak full URL to other origins
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+
+        # Permissions policy - disable unnecessary browser features
+        response.headers["Permissions-Policy"] = (
+            "accelerometer=(), camera=(), geolocation=(), gyroscope=(), "
+            "magnetometer=(), microphone=(), payment=(), usb=()"
+        )
+
+        return response
+
 class CSRFMiddleware(BaseHTTPMiddleware):
     async def _get_csrf_token_from_request(self, request: Request) -> str | None:
         """Helper to extract CSRF token from header or form data."""
@@ -33,7 +60,7 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             response.set_cookie(
                 key="csrf_token",
                 value=csrf_token,
-                httponly=False,
+                httponly=True,  # Prevent JavaScript access to CSRF token
                 samesite="lax",
                 max_age=3600,
                 secure=request.url.scheme == "https",

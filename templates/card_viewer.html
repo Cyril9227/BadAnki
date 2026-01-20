@@ -12,13 +12,11 @@
                 </div>
                 <div class="card-body">
                     <h5 class="card-title">Question</h5>
-                    <div class="card-text mb-4">
-                        {{ card.question | safe }}
+                    <div class="card-text mb-4 markdown-content" data-content="{{ card.question }}">
                     </div>
                     <hr>
                     <h5 class="card-title">Answer</h5>
-                    <div class="card-text">
-                        {{ card.answer | safe }}
+                    <div class="card-text markdown-content" data-content="{{ card.answer }}">
                     </div>
                 </div>
                 <div class="card-footer text-muted">
@@ -28,4 +26,22 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Safely render all markdown content
+    document.querySelectorAll('.markdown-content').forEach(function(el) {
+        const rawContent = el.dataset.content;
+        if (rawContent) {
+            el.innerHTML = window.safeMarkdown(rawContent);
+        }
+    });
+    // Render MathJax after markdown
+    if (window.MathJax) {
+        MathJax.typesetPromise();
+    }
+});
+</script>
 {% endblock %}

@@ -182,8 +182,8 @@
             <tbody>
                 {% for card in cards %}
                 <tr>
-                    <td data-label="Question" class="question-col">{{ card.question | safe }}</td>
-                    <td data-label="Answer" class="answer-col">{{ card.answer | safe }}</td>
+                    <td data-label="Question" class="question-col markdown-content" data-content="{{ card.question }}"></td>
+                    <td data-label="Answer" class="answer-col markdown-content" data-content="{{ card.answer }}"></td>
                     <td data-label="Due Date">{{ card.due_date.strftime('%Y-%m-%d') if card.due_date else 'N/A' }}</td>
                     <td data-label="Ease Factor">{{ "%.2f"|format(card.ease_factor) }}</td>
                     <td data-label="Interval">{{ card.interval }} days</td>
@@ -214,6 +214,14 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+    // Safely render all markdown content with DOMPurify
+    document.querySelectorAll('.markdown-content').forEach(function(el) {
+        const rawContent = el.dataset.content;
+        if (rawContent) {
+            el.innerHTML = window.safeMarkdownInline(rawContent);
+        }
+    });
+
     // Re-render MathJax for the card content
     if (window.MathJax) {
         MathJax.typesetPromise().catch(function (e) {

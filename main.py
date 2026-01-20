@@ -35,7 +35,7 @@ from bot import get_bot_application
 from database import get_db_connection, release_db_connection
 from scheduler import run_scheduler
 from utils.parsing import normalize_cards, robust_json_loads, sanitize_tags
-from middleware import CSRFMiddleware
+from middleware import CSRFMiddleware, SecurityHeadersMiddleware
 
 
 # --- Supabase & JWT Configuration ---
@@ -64,6 +64,7 @@ logging.basicConfig(level=logging.INFO)
 # --- FastAPI App ---
 app = FastAPI()
 app.add_middleware(CSRFMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
@@ -398,7 +399,7 @@ async def handle_auth(
                     access_token = auth_response.session.access_token
                     response = RedirectResponse(url="/review", status_code=303) # Existing user
                     response.set_cookie(key="access_token", value=access_token, httponly=True, max_age=3600 * 24 * 7, samesite="lax")
-                    response.set_cookie(key="flash", value="success:Welcome back!", max_age=5) # Flash message
+                    response.set_cookie(key="flash", value="success:Welcome back!", max_age=5, samesite="lax") # Flash message
                     return response
             except AuthApiError:
                 # Sign in failed, so it must be an incorrect password
@@ -431,7 +432,7 @@ async def handle_auth(
                 
                 response = RedirectResponse(url="/", status_code=303) # New user
                 response.set_cookie(key="access_token", value=access_token, httponly=True, max_age=3600 * 24 * 7, samesite="lax")
-                response.set_cookie(key="flash", value="success:Account created successfully!", max_age=5) # Flash message
+                response.set_cookie(key="flash", value="success:Account created successfully!", max_age=5, samesite="lax") # Flash message
                 return response
             else:
                 # User was trying to log in, but account doesn't exist. Prompt to register.
@@ -488,7 +489,7 @@ async def auth_callback(
             max_age=3600 * 24 * 7,  # 1 week
             samesite="lax"
         )
-        response.set_cookie(key="flash", value="success:Logged in successfully!", max_age=5) # Flash message
+        response.set_cookie(key="flash", value="success:Logged in successfully!", max_age=5, samesite="lax") # Flash message
         return response
 
     except Exception as e:
@@ -744,7 +745,7 @@ async def new_card_form(request: Request, user: User = Depends(get_current_activ
 async def create_new_card(question: str = Form(...), answer: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     crud.create_card_for_user(conn, question, answer, user.auth_user_id)
     response = RedirectResponse(url="/", status_code=303)
-    response.set_cookie(key="flash", value="success:Card created successfully!", max_age=5)
+    response.set_cookie(key="flash", value="success:Card created successfully!", max_age=5, samesite="lax")
     return response
 
 @app.get("/edit-card/{card_id}", response_class=HTMLResponse)
@@ -764,5 +765,5 @@ async def update_existing_card(card_id: int, question: str = Form(...), answer: 
 async def delete_card(card_id: int, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     crud.delete_card_for_user(conn, card_id, user.auth_user_id)
     response = RedirectResponse(url="/manage", status_code=303)
-    response.set_cookie(key="flash", value="success:Card deleted successfully!", max_age=5)
+    response.set_cookie(key="flash", value="success:Card deleted successfully!", max_age=5, samesite="lax")
     return response
