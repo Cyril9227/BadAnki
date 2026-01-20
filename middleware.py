@@ -1,7 +1,10 @@
-from fastapi import Request, Response, Form
+from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.requests import Request as StarletteRequest
+from starlette.types import ASGIApp, Receive, Scope, Send, Message
 import secrets
+from urllib.parse import parse_qs
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -30,56 +33,136 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
         return response
 
-class CSRFMiddleware(BaseHTTPMiddleware):
-    async def _get_csrf_token_from_request(self, request: Request) -> str | None:
-        """Helper to extract CSRF token from header or form data."""
-        csrf_token_from_header = request.headers.get("X-CSRF-Token")
-        if csrf_token_from_header:
-            return csrf_token_from_header
-        
-        try:
-            # This is a bit tricky because we can only read the form once.
-            # We clone the request to avoid consuming the form body here.
-            form_data = await request.form()
-            return form_data.get("csrf_token")
-        except Exception:
-            # This will happen if the request is not a form, which is fine.
-            return None
 
-    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+class CSRFMiddleware:
+    """
+    Pure ASGI middleware for CSRF protection.
+
+    Unlike BaseHTTPMiddleware, this properly handles request body caching
+    so the body can be read both in the middleware and in endpoint handlers.
+    """
+
+    def __init__(self, app: ASGIApp):
+        self.app = app
+        self.exempt_paths = ["/webhook/", "/docs", "/openapi.json", "/health", "/auth/callback"]
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request = StarletteRequest(scope, receive)
+        path = scope.get("path", "")
+        method = scope.get("method", "GET")
+
         # Paths that should be exempt from CSRF protection
-        exempt_paths = ["/webhook/", "/docs", "/openapi.json", "/health", "/auth/callback"]
-        if any(request.url.path.startswith(path) for path in exempt_paths):
-            return await call_next(request)
+        if any(path.startswith(exempt) for exempt in self.exempt_paths):
+            await self.app(scope, receive, send)
+            return
 
-        # For GET requests, generate and set the token BEFORE handler runs
-        if request.method == "GET":
+        # For GET requests, generate and set the token
+        if method == "GET":
             csrf_token = secrets.token_hex(16)
-            request.state.csrf_token = csrf_token  # Set before handler so templates can access it
-            response = await call_next(request)
-            response.set_cookie(
-                key="csrf_token",
-                value=csrf_token,
-                httponly=True,  # Prevent JavaScript access to CSRF token
-                samesite="lax",
-                max_age=3600,
-                secure=request.url.scheme == "https",
-            )
-            return response
+            # Store in scope state so templates can access it
+            if "state" not in scope:
+                scope["state"] = {}
+            scope["state"]["csrf_token"] = csrf_token
+
+            # Wrap send to add the CSRF cookie to the response
+            async def send_with_csrf_cookie(message: Message) -> None:
+                if message["type"] == "http.response.start":
+                    headers = list(message.get("headers", []))
+                    is_https = scope.get("scheme", "http") == "https"
+                    cookie_value = f"csrf_token={csrf_token}; HttpOnly; SameSite=Lax; Max-Age=3600; Path=/"
+                    if is_https:
+                        cookie_value += "; Secure"
+                    headers.append((b"set-cookie", cookie_value.encode()))
+                    message = {**message, "headers": headers}
+                await send(message)
+
+            await self.app(scope, receive, send_with_csrf_cookie)
+            return
 
         # For state-changing methods, validate the token
-        if request.method in ["POST", "PUT", "DELETE", "PATCH"]:
-            csrf_token_from_cookie = request.cookies.get("csrf_token")
-            csrf_token_from_request = await self._get_csrf_token_from_request(request)
+        if method in ["POST", "PUT", "DELETE", "PATCH"]:
+            # Get CSRF token from cookie
+            csrf_token_from_cookie = None
+            cookies_header = None
+            for header_name, header_value in scope.get("headers", []):
+                if header_name == b"cookie":
+                    cookies_header = header_value.decode()
+                    break
 
+            if cookies_header:
+                for cookie in cookies_header.split(";"):
+                    cookie = cookie.strip()
+                    if cookie.startswith("csrf_token="):
+                        csrf_token_from_cookie = cookie[len("csrf_token="):]
+                        break
+
+            # Get CSRF token from request (header or form body)
+            csrf_token_from_request = None
+
+            # Check header first
+            for header_name, header_value in scope.get("headers", []):
+                if header_name == b"x-csrf-token":
+                    csrf_token_from_request = header_value.decode()
+                    break
+
+            # If not in header, read from form body
+            body_bytes = b""
+            if csrf_token_from_request is None:
+                # Read the entire body
+                while True:
+                    message = await receive()
+                    body_bytes += message.get("body", b"")
+                    if not message.get("more_body", False):
+                        break
+
+                # Try to parse as form data
+                try:
+                    content_type = None
+                    for header_name, header_value in scope.get("headers", []):
+                        if header_name == b"content-type":
+                            content_type = header_value.decode()
+                            break
+
+                    if content_type and "application/x-www-form-urlencoded" in content_type:
+                        form_data = parse_qs(body_bytes.decode(), keep_blank_values=True)
+                        csrf_tokens = form_data.get("csrf_token", [])
+                        if csrf_tokens:
+                            csrf_token_from_request = csrf_tokens[0]
+                except Exception:
+                    pass
+
+            # Validate CSRF token
             if not csrf_token_from_cookie or not csrf_token_from_request or not secrets.compare_digest(csrf_token_from_cookie, csrf_token_from_request):
-                return JSONResponse(
+                response = JSONResponse(
                     status_code=403,
                     content={"detail": "CSRF token mismatch"},
                 )
+                await response(scope, receive, send)
+                return
 
-            # Set the token on request.state so templates can use it when re-rendering
-            # (e.g., when a login form is shown again after a failed login attempt)
-            request.state.csrf_token = csrf_token_from_cookie
+            # Store token in state for templates
+            if "state" not in scope:
+                scope["state"] = {}
+            scope["state"]["csrf_token"] = csrf_token_from_cookie
 
-        return await call_next(request)
+            # Create a new receive function that returns the cached body
+            # This is critical - it allows the endpoint handler to re-read the body
+            body_consumed = False
+
+            async def receive_with_cached_body() -> Message:
+                nonlocal body_consumed
+                if not body_consumed:
+                    body_consumed = True
+                    return {"type": "http.request", "body": body_bytes, "more_body": False}
+                # Return empty body for subsequent calls
+                return {"type": "http.request", "body": b"", "more_body": False}
+
+            await self.app(scope, receive_with_cached_body, send)
+            return
+
+        # For other methods, just pass through
+        await self.app(scope, receive, send)
