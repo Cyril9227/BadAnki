@@ -7,6 +7,7 @@ from psycopg2.extras import RealDictCursor
 from datetime import datetime, timedelta
 from unittest.mock import patch, MagicMock
 import uuid
+from supabase_auth.errors import AuthApiError
 
 # --- Set test environment variables BEFORE importing main ---
 os.environ["ENVIRONMENT"] = "test"
@@ -100,22 +101,25 @@ def create_test_user(db_conn, email="testuser@example.com"):
         db_conn.commit()
     return auth_user_id
 
-@patch("main.supabase.auth.get_user")
 def authenticate_client(mock_get_user, client, db_conn, email="testuser@example.com"):
-    """Sets up a mock authenticated user and configures the client."""
+    """Sets up a mock authenticated user and configures the client.
+
+    Note: The mock_get_user parameter should be provided by the test function's
+    @patch("main.supabase.auth.get_user") decorator.
+    """
     auth_user_id = create_test_user(db_conn, email=email)
-    
+
     mock_user = MagicMock()
-    mock_user.id = auth_user_id
+    mock_user.id = str(auth_user_id)  # Ensure it's a string for consistency
     mock_user.email = email
     mock_get_user.return_value = MagicMock(user=mock_user)
-    
+
     client.cookies.set("access_token", "fake-test-token")
-    
+
     # Also fetch a CSRF token for the authenticated session
     csrf_token = get_csrf_token(client)
-    
-    return client, auth_user_id, csrf_token
+
+    return client, str(auth_user_id), csrf_token
 
 # --- Tests ---
 @patch("main.supabase.auth.admin.list_users")
@@ -241,7 +245,7 @@ def create_test_card(db_conn, user_id, question, answer, due_date=None):
 @patch("main.supabase.auth.get_user")
 def test_logout(mock_get_user, mock_sign_out, client, db_conn):
     # Mock authenticated user
-    auth_client, user_id = authenticate_client(mock_get_user, client, db_conn, email="logoutuser@example.com")
+    auth_client, user_id, _ = authenticate_client(mock_get_user, client, db_conn, email="logoutuser@example.com")
     assert "access_token" in auth_client.cookies
 
     # Logout

@@ -78,4 +78,8 @@ class CSRFMiddleware(BaseHTTPMiddleware):
                     content={"detail": "CSRF token mismatch"},
                 )
 
+            # Set the token on request.state so templates can use it when re-rendering
+            # (e.g., when a login form is shown again after a failed login attempt)
+            request.state.csrf_token = csrf_token_from_cookie
+
         return await call_next(request)
