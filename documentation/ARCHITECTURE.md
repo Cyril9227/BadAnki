@@ -63,7 +63,7 @@ BadAnki is a **spaced repetition learning application** that helps users create,
 │  │         │                                                            │   │
 │  │         ▼                                                            │   │
 │  │  ┌────────────────────────────────────────────────────────────────┐  │   │
-│  │  │                        Route Handlers                           │ │   │
+│  │  │                        Route Handlers                          │  │   │
 │  │  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐           │  │   │
 │  │  │  │   Auth   │ │  Review  │ │  Courses │ │   Cards  │           │  │   │
 │  │  │  │  Routes  │ │  Routes  │ │  Routes  │ │  Routes  │           │  │   │
