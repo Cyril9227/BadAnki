@@ -2,6 +2,28 @@
 
 {% block title %}View Card{% endblock %}
 
+{% block head %}
+{{ super() }}
+<style>
+    /* Card viewer mobile optimizations */
+    @media (max-width: 576px) {
+        .container.mt-5 {
+            margin-top: 1rem !important;
+            padding-left: 0.5rem;
+            padding-right: 0.5rem;
+        }
+
+        .card-body {
+            padding: 1rem;
+        }
+
+        .card-text {
+            overflow-x: auto;
+        }
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container mt-5">
     <div class="row justify-content-center">

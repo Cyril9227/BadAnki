@@ -3,6 +3,39 @@
 
 {% block title %}Review Card - Anki Clone{% endblock %}
 
+{% block head %}
+{{ super() }}
+<style>
+    /* Review page specific mobile optimizations */
+    @media (max-width: 576px) {
+        .card.text-center {
+            margin-left: 0.5rem;
+            margin-right: 0.5rem;
+        }
+
+        .card-body {
+            padding: 1rem;
+        }
+
+        /* Stack buttons vertically on very small screens */
+        .d-sm-flex {
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .d-sm-flex .btn {
+            width: 100%;
+        }
+    }
+
+    /* Ensure question/answer text doesn't overflow */
+    .question .card-text,
+    .answer .card-text {
+        overflow-x: auto;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="card text-center mx-auto" style="max-width: 40rem;">
     <div class="card-header">
