@@ -7,6 +7,7 @@ from psycopg2.extras import RealDictCursor
 from datetime import datetime, timedelta
 from unittest.mock import patch, MagicMock
 import uuid
+from supabase_auth.errors import AuthApiError
 
 # --- Set test environment variables BEFORE importing main ---
 os.environ["ENVIRONMENT"] = "test"
@@ -100,22 +101,25 @@ def create_test_user(db_conn, email="testuser@example.com"):
         db_conn.commit()
     return auth_user_id
 
-@patch("main.supabase.auth.get_user")
 def authenticate_client(mock_get_user, client, db_conn, email="testuser@example.com"):
-    """Sets up a mock authenticated user and configures the client."""
+    """Sets up a mock authenticated user and configures the client.
+
+    Note: The mock_get_user parameter should be provided by the test function's
+    @patch("main.supabase.auth.get_user") decorator.
+    """
     auth_user_id = create_test_user(db_conn, email=email)
-    
+
     mock_user = MagicMock()
-    mock_user.id = auth_user_id
+    mock_user.id = str(auth_user_id)  # Ensure it's a string for consistency
     mock_user.email = email
     mock_get_user.return_value = MagicMock(user=mock_user)
-    
+
     client.cookies.set("access_token", "fake-test-token")
-    
+
     # Also fetch a CSRF token for the authenticated session
     csrf_token = get_csrf_token(client)
-    
-    return client, auth_user_id, csrf_token
+
+    return client, str(auth_user_id), csrf_token
 
 # --- Tests ---
 @patch("main.supabase.auth.admin.list_users")
@@ -153,7 +157,7 @@ def test_auth_login_incorrect_password(mock_sign_in, mock_list_users, client):
     mock_auth_user = MagicMock()
     mock_auth_user.email = email
     mock_list_users.return_value = [mock_auth_user] # User exists
-    mock_sign_in.side_effect = AuthApiError("Invalid password", status_code=400)
+    mock_sign_in.side_effect = AuthApiError("Invalid login credentials", 400, "invalid_credentials")
 
     response = client.post(
         "/auth",
@@ -241,7 +245,7 @@ def create_test_card(db_conn, user_id, question, answer, due_date=None):
 @patch("main.supabase.auth.get_user")
 def test_logout(mock_get_user, mock_sign_out, client, db_conn):
     # Mock authenticated user
-    auth_client, user_id = authenticate_client(mock_get_user, client, db_conn, email="logoutuser@example.com")
+    auth_client, user_id, _ = authenticate_client(mock_get_user, client, db_conn, email="logoutuser@example.com")
     assert "access_token" in auth_client.cookies
 
     # Logout
@@ -346,10 +350,11 @@ def test_get_manage_cards_page_authenticated(mock_get_user, client, db_conn):
 @patch("main.supabase.auth.get_user")
 def test_create_card(mock_get_user, client, db_conn):
     auth_client, user_id, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="cardcreator@example.com")
-    
+
     response = auth_client.post(
         "/new",
-        data={"question": "What is FastAPI?", "answer": "A web framework.", "csrf_token": csrf_token},
+        data={"question": "What is FastAPI?", "answer": "A web framework."},
+        headers={"X-CSRF-Token": csrf_token},
         follow_redirects=False
     )
     assert response.status_code == 303
@@ -365,12 +370,13 @@ def test_create_card(mock_get_user, client, db_conn):
 @patch("main.supabase.auth.get_user")
 def test_update_card(mock_get_user, client, db_conn):
     auth_client, user_id, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="cardupdater@example.com")
-    
+
     card_id = create_test_card(db_conn, user_id, "Q1", "A1")
-    
+
     response = auth_client.post(
         f"/edit-card/{card_id}",
-        data={"question": "Updated Q1", "answer": "Updated A1", "csrf_token": csrf_token},
+        data={"question": "Updated Q1", "answer": "Updated A1"},
+        headers={"X-CSRF-Token": csrf_token},
         follow_redirects=False
     )
     assert response.status_code == 303
@@ -386,12 +392,12 @@ def test_update_card(mock_get_user, client, db_conn):
 @patch("main.supabase.auth.get_user")
 def test_delete_card(mock_get_user, client, db_conn):
     auth_client, user_id, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="carddeleter@example.com")
-    
+
     card_id = create_test_card(db_conn, user_id, "ToDelete", "ToDelete")
-    
+
     response = auth_client.post(
-        f"/delete/{card_id}", 
-        data={"csrf_token": csrf_token},
+        f"/delete/{card_id}",
+        headers={"X-CSRF-Token": csrf_token},
         follow_redirects=False
     )
     assert response.status_code == 303
@@ -424,12 +430,13 @@ def test_get_review_page_no_due_cards(mock_get_user, client, db_conn):
 @patch("main.supabase.auth.get_user")
 def test_update_review_status(mock_get_user, client, db_conn):
     auth_client, user_id, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="reviewuser3@example.com")
-    
+
     card_id = create_test_card(db_conn, user_id, "Q", "A")
-    
+
     response = auth_client.post(
         f"/review/{card_id}",
-        data={"status": "remembered", "csrf_token": csrf_token},
+        data={"status": "remembered"},
+        headers={"X-CSRF-Token": csrf_token},
         follow_redirects=False
     )
     assert response.status_code == 303
