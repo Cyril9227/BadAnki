@@ -1,9 +1,6 @@
 # Ignore virtual environment
 .venv/
 
-# Ignore GEMINI.md
-GEMINI.md
-
 # Ignore python cache
 __pycache__/
 *.pyc
@@ -18,10 +15,6 @@ migrate_data.py
 # Node.js
 node_modules/
 /animated-menu/
-
-# Python
-__pycache__/
-.venv/
 
 # Course content
 /courses/

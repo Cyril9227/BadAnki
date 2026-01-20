@@ -35,6 +35,7 @@ from bot import get_bot_application
 from database import get_db_connection, release_db_connection
 from scheduler import run_scheduler
 from utils.parsing import normalize_cards, robust_json_loads, sanitize_tags
+from middleware import CSRFMiddleware
 
 
 # --- Supabase & JWT Configuration ---
@@ -62,6 +63,7 @@ logging.basicConfig(level=logging.INFO)
 
 # --- FastAPI App ---
 app = FastAPI()
+app.add_middleware(CSRFMiddleware)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
@@ -191,6 +193,10 @@ class Secrets(BaseModel):
     telegram_chat_id: str | None = None
     scheduler_secret: str | None = None
 
+class AuthCallback(BaseModel):
+    access_token: str
+    refresh_token: str | None = None
+
 # --- Database Dependency ---
 def get_db(request: Request):
     """
@@ -218,20 +224,6 @@ async def get_current_user(request: Request, conn: psycopg2.extensions.connectio
     except Exception:
         return None
     return None
-
-def generate_csrf_token(session_id: str) -> str:
-    """Generate a CSRF token."""
-    return jwt.encode({"session_id": session_id, "exp": datetime.utcnow() + timedelta(minutes=30)}, SECRET_KEY, algorithm=ALGORITHM)
-
-async def csrf_protect(request: Request):
-    """CSRF protection dependency."""
-    csrf_token = request.headers.get("X-CSRF-Token")
-    if not csrf_token:
-        raise HTTPException(status_code=403, detail="Missing CSRF token")
-    try:
-        jwt.decode(csrf_token, SECRET_KEY, algorithms=[ALGORITHM])
-    except JWTError:
-        raise HTTPException(status_code=403, detail="Invalid CSRF token")
 
 @app.get("/logout")
 async def logout(request: Request, response: Response):
@@ -300,7 +292,7 @@ def generate_cards(text: str, mode="gemini", api_key: str = None) -> list[dict]:
             
         elif mode == "ollama":
             response = ollama.chat(
-                model='gpt-oss:20b', 
+                model='gpt-oss:20b',
                 messages=[{'role': 'user', 'content': prompt}]
             )
             response_text = response['message']['content']
@@ -310,8 +302,8 @@ def generate_cards(text: str, mode="gemini", api_key: str = None) -> list[dict]:
                 raise ValueError("Anthropic API key is required.")
             client = anthropic.Anthropic(api_key=api_key)
             message = client.messages.create(
-                model="claude-haiku-4-5-20251001",
-                max_tokens=4096,
+                model='claude-sonnet-4-5-20250929',
+                max_tokens=2048,
                 messages=[
                     {
                         "role": "user",
@@ -333,18 +325,21 @@ def generate_cards(text: str, mode="gemini", api_key: str = None) -> list[dict]:
 
 @app.get("/api-keys", response_class=HTMLResponse)
 async def api_keys_form(request: Request, user: User = Depends(get_current_active_user)):
-    return templates.TemplateResponse(request, "api_keys.html", {"api_keys": request.state.api_keys})
+    return templates.TemplateResponse(request, "api_keys.html", {
+        "api_keys": request.state.api_keys,
+        "csrf_token": request.state.csrf_token,
+        "user": user
+    })
 
 @app.get("/secrets", response_class=HTMLResponse)
 async def secrets_form(request: Request, user: User = Depends(get_current_active_user)):
-    csrf_token = generate_csrf_token(user.username)
     return templates.TemplateResponse(request, "secrets.html", {
         "secrets": user, 
-        "csrf_token": csrf_token,
+        "csrf_token": request.state.csrf_token,
         "telegram_bot_username": TELEGRAM_BOT_USERNAME
     })
 
-@app.post("/secrets", dependencies=[Depends(csrf_protect)])
+@app.post("/secrets")
 async def save_secrets(request: Request, user: User = Depends(get_current_active_user), telegram_chat_id: str = Form(None)):
     # If the chat ID is an empty string, treat it as None
     if telegram_chat_id == "":
@@ -360,7 +355,8 @@ async def auth_form(request: Request):
     """Display the unified authentication form."""
     return templates.TemplateResponse(request, "auth.html", {
         "supabase_url": SUPABASE_URL,
-        "supabase_key": SUPABASE_KEY
+        "supabase_key": SUPABASE_KEY,
+        "csrf_token": request.state.csrf_token
     })
 
 @app.get("/login", response_class=HTMLResponse)
@@ -411,7 +407,8 @@ async def handle_auth(
                     "error": "Incorrect password. Please try again.", 
                     "email": email,
                     "supabase_url": SUPABASE_URL,
-                    "supabase_key": SUPABASE_KEY
+                    "supabase_key": SUPABASE_KEY,
+                    "csrf_token": request.state.csrf_token
                 })
         else:
             # --- USER DOES NOT EXIST ---
@@ -419,13 +416,13 @@ async def handle_auth(
                 # User wants to register
                 if len(password) < 8 or not any(char.isdigit() for char in password):
                     error_msg = "Password must be at least 8 characters and contain one number."
-                    return templates.TemplateResponse("auth.html", {"request": request, "error": error_msg, "email": email, "supabase_url": SUPABASE_URL, "supabase_key": SUPABASE_KEY})
+                    return templates.TemplateResponse("auth.html", {"request": request, "error": error_msg, "email": email, "supabase_url": SUPABASE_URL, "supabase_key": SUPABASE_KEY, "csrf_token": request.state.csrf_token})
 
                 # Create user in Supabase
                 auth_response = supabase.auth.sign_up({"email": email, "password": password})
                 if not auth_response.user:
                     error_msg = "Could not create account. The email may be invalid."
-                    return templates.TemplateResponse("auth.html", {"request": request, "error": error_msg, "email": email, "supabase_url": SUPABASE_URL, "supabase_key": SUPABASE_KEY})
+                    return templates.TemplateResponse("auth.html", {"request": request, "error": error_msg, "email": email, "supabase_url": SUPABASE_URL, "supabase_key": SUPABASE_KEY, "csrf_token": request.state.csrf_token})
 
                 # Create local profile and auto-login
                 crud.create_profile(conn, username=email, auth_user_id=auth_response.user.id)
@@ -444,7 +441,8 @@ async def handle_auth(
                     "email": email,
                     "message": "Account not found. Would you like to create one?",
                     "supabase_url": SUPABASE_URL,
-                    "supabase_key": SUPABASE_KEY
+                    "supabase_key": SUPABASE_KEY,
+                    "csrf_token": request.state.csrf_token
                 })
 
     except Exception as e:
@@ -454,12 +452,9 @@ async def handle_auth(
             "error": "An unexpected error occurred.", 
             "email": email,
             "supabase_url": SUPABASE_URL,
-            "supabase_key": SUPABASE_KEY
+            "supabase_key": SUPABASE_KEY,
+            "csrf_token": request.state.csrf_token
         })
-
-class AuthCallback(BaseModel):
-    access_token: str
-    refresh_token: str
 
 @app.post("/auth/callback")
 async def auth_callback(
@@ -532,10 +527,13 @@ async def edit_course(request: Request, course_path: str, user: User = Depends(g
             if request.state.api_keys.anthropic_api_key:
                 anthropic_api_key_exists = True
         
+        csrf_token = request.state.csrf_token
+        
         return templates.TemplateResponse(request, "course_editor.html", {
             "course_path": course_path,
             "gemini_api_key_exists": gemini_api_key_exists,
-            "anthropic_api_key_exists": anthropic_api_key_exists
+            "anthropic_api_key_exists": anthropic_api_key_exists,
+            "csrf_token": csrf_token
         })
         
     except Exception as e:
@@ -569,11 +567,12 @@ async def view_course(request: Request, course_path: str, conn: psycopg2.extensi
             anthropic_api_key_exists = True
 
     return templates.TemplateResponse(request, "course_viewer.html", {
-        "metadata": post.metadata, 
-        "content": post.content, 
+        "metadata": post.metadata,
+        "content": post.content,
         "course_path": course_path,
         "gemini_api_key_exists": gemini_api_key_exists,
-        "anthropic_api_key_exists": anthropic_api_key_exists
+        "anthropic_api_key_exists": anthropic_api_key_exists,
+        "csrf_token": request.state.csrf_token
     })
 
 # --- API for Courses ---
@@ -716,11 +715,13 @@ async def review(request: Request, conn: psycopg2.extensions.connection = Depend
     if card is None:
         return templates.TemplateResponse(request, "no_cards.html")
 
+    csrf_token = request.state.csrf_token
     return templates.TemplateResponse(request, "review.html", {
         "card": card, 
         "due_today_count": stats['due_today'], 
         "new_cards_count": stats['new_cards'], 
-        "total_cards": stats['total_cards']
+        "total_cards": stats['total_cards'],
+        "csrf_token": csrf_token
     })
 
 @app.post("/review/{card_id}")
@@ -731,11 +732,13 @@ async def update_review(card_id: int, status: str = Form(...), conn: psycopg2.ex
 @app.get("/manage", response_class=HTMLResponse)
 async def manage_cards(request: Request, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     cards = crud.get_all_cards_for_user(conn, user.auth_user_id)
-    return templates.TemplateResponse(request, "manage_cards.html", {"cards": cards})
+    csrf_token = request.state.csrf_token
+    return templates.TemplateResponse(request, "manage_cards.html", {"cards": cards, "csrf_token": csrf_token})
 
 @app.get("/new", response_class=HTMLResponse)
 async def new_card_form(request: Request, user: User = Depends(get_current_active_user)):
-    return templates.TemplateResponse(request, "new_card.html")
+    csrf_token = request.state.csrf_token
+    return templates.TemplateResponse(request, "new_card.html", {"csrf_token": csrf_token})
 
 @app.post("/new")
 async def create_new_card(question: str = Form(...), answer: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
@@ -749,7 +752,8 @@ async def edit_card_form(request: Request, card_id: int, conn: psycopg2.extensio
     card = crud.get_card_for_user(conn, card_id, user.auth_user_id)
     if card is None:
         raise HTTPException(status_code=404, detail="Card not found")
-    return templates.TemplateResponse(request, "edit_card.html", {"card": card})
+    csrf_token = request.state.csrf_token
+    return templates.TemplateResponse(request, "edit_card.html", {"card": card, "csrf_token": csrf_token})
 
 @app.post("/edit-card/{card_id}")
 async def update_existing_card(card_id: int, question: str = Form(...), answer: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):

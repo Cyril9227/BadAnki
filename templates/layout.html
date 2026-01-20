@@ -316,7 +316,7 @@ document.addEventListener('DOMContentLoaded', function () {
     ];
 
     // This function is now globally available
-    window.handleGenerateCards = function(apiUrl, contentProvider) {
+    window.handleGenerateCards = function(apiUrl, contentProvider, csrfToken) {
         const content = contentProvider();
         if (!content || !content.trim()) {
             Swal.fire({
@@ -346,7 +346,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         fetch(apiUrl, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
             body: JSON.stringify({ content: content })
         })
         .then(response => {
@@ -466,6 +466,7 @@ document.addEventListener('DOMContentLoaded', function () {
     saveCardsBtn.addEventListener('click', function() {
         const approvedCards = [];
         const cardElements = cardsModalBody.querySelectorAll('.card');
+        const csrfToken = document.getElementById('csrf-token')?.value; // Get CSRF token if available
 
         cardElements.forEach(cardElement => {
             const index = parseInt(cardElement.dataset.cardIndex, 10);
@@ -489,9 +490,14 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
+        const headers = { 'Content-Type': 'application/json' };
+        if (csrfToken) {
+            headers['X-CSRF-Token'] = csrfToken;
+        }
+
         fetch('/api/save-cards', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: headers,
             body: JSON.stringify({ cards: approvedCards })
         })
         .then(response => {
