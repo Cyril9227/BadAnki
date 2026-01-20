@@ -171,10 +171,10 @@ BadAnki/
 
 The project uses a **flat structure** for the main application code rather than a deeply nested package structure. This choice was made because:
 
-1. **Simplicity** - For a medium-sized application, flat structure reduces cognitive overhead
-2. **Import clarity** - No complex relative imports
-3. **Serverless compatibility** - Simpler module resolution in serverless environments
-4. **Refactoring ease** - Easy to split into packages later if needed
+1. **Simplicity**
+2. **Import clarity**
+3. **Serverless compatibility**
+4. **Refactoring ease**
 
 ---
 
@@ -191,20 +191,20 @@ The project uses a **flat structure** for the main application code rather than 
                               │ 1:1
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                         profiles                                 │
+│                         profiles                                │
 ├─────────────────────────────────────────────────────────────────┤
 │  auth_user_id (PK, FK)  │ UUID    │ Links to Supabase auth      │
-│  username               │ TEXT    │ Display name (unique)        │
-│  telegram_chat_id       │ TEXT    │ For bot notifications        │
-│  gemini_api_key         │ TEXT    │ User's Gemini API key        │
-│  anthropic_api_key      │ TEXT    │ User's Anthropic API key     │
+│  username               │ TEXT    │ Display name (unique)       │
+│  telegram_chat_id       │ TEXT    │ For bot notifications       │
+│  gemini_api_key         │ TEXT    │ User's Gemini API key       │
+│  anthropic_api_key      │ TEXT    │ User's Anthropic API key    │
 └─────────────────────────────────────────────────────────────────┘
                               │
               ┌───────────────┴───────────────┐
               │ 1:N                           │ 1:N
               ▼                               ▼
 ┌─────────────────────────────┐   ┌─────────────────────────────┐
-│          cards              │   │         courses              │
+│          cards              │   │         courses             │
 ├─────────────────────────────┤   ├─────────────────────────────┤
 │  id (PK)      │ SERIAL      │   │  id (PK)      │ SERIAL      │
 │  question     │ TEXT        │   │  path         │ TEXT        │
@@ -497,7 +497,7 @@ async def view_courses_by_tag(request: Request, tag_name: str, ...):
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│                        AUTHENTICATION FLOW                                    │
+│                        AUTHENTICATION FLOW                                   │
 └──────────────────────────────────────────────────────────────────────────────┘
 
 EMAIL/PASSWORD LOGIN:
@@ -827,7 +827,7 @@ if (flash) {
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     Card Generation Flow                         │
+│                     Card Generation Flow                        │
 └─────────────────────────────────────────────────────────────────┘
 
      User Content (Markdown)
@@ -946,7 +946,7 @@ def robust_json_loads(text: str) -> dict:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     Telegram Bot Flow                            │
+│                     Telegram Bot Flow                           │
 └─────────────────────────────────────────────────────────────────┘
 
 INCOMING MESSAGE:
@@ -1038,29 +1038,29 @@ async def _ensure_webhook():
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│              Vercel Cron (01:00 UTC Daily)                       │
+│              Vercel Cron (01:00 UTC Daily)                      │
 └─────────────────────────────────────────────────────────────────┘
                           │
                           │ GET /api/cron
                           ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                      api/cron.py                                 │
-│  1. Verify request is from Vercel                                │
-│  2. Call /api/trigger-scheduler?secret=SCHEDULER_SECRET          │
+│                      api/cron.py                                │
+│  1. Verify request is from Vercel                               │
+│  2. Call /api/trigger-scheduler?secret=SCHEDULER_SECRET         │
 └─────────────────────────────────────────────────────────────────┘
                           │
                           ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                     scheduler.py                                 │
-│                                                                  │
-│  async def run_scheduler():                                      │
-│      users = get_users_with_telegram()                           │
-│      for user in users:                                          │
-│          due_count = count_due_cards(user.auth_user_id)          │
-│          if due_count > 0:                                       │
-│              await send_notification(user, due_count)            │
-│          else:                                                   │
-│              await send_encouragement(user)                      │
+│                     scheduler.py                                │
+│                                                                 │
+│  async def run_scheduler():                                     │
+│      users = get_users_with_telegram()                          │
+│      for user in users:                                         │
+│          due_count = count_due_cards(user.auth_user_id)         │
+│          if due_count > 0:                                      │
+│              await send_notification(user, due_count)           │
+│          else:                                                  │
+│              await send_encouragement(user)                     │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -1111,15 +1111,15 @@ Feel free to jog your memory with /random.
                           │ Routes to region: sin1 (Singapore)
                           ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Serverless Functions                          │
-│                                                                  │
+│                    Serverless Functions                         │
+│                                                                 │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  │
 │  │    main.py      │  │   api/cron.py   │  │    (static)     │  │
 │  │  FastAPI App    │  │  Cron Handler   │  │   /static/*     │  │
 │  │                 │  │                 │  │                 │  │
 │  │ Cold start: ~2s │  │ Cold start: ~1s │  │ CDN cached      │  │
 │  └─────────────────┘  └─────────────────┘  └─────────────────┘  │
-│                                                                  │
+│                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -1171,7 +1171,7 @@ Feel free to jog your memory with /random.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                      Test Architecture                           │
+│                      Test Architecture                          │
 └─────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
@@ -1577,7 +1577,7 @@ def generate_cards(text: str, mode="gemini", api_key: str = None) -> list[dict]:
 
 ---
 
-## Interview Discussion Points
+## Discussion Points
 
 ### System Design Questions
 
@@ -1590,7 +1590,7 @@ A: Several changes would be needed:
 4. **Background Jobs**: Move scheduler to dedicated worker (not cron-triggered)
 5. **Rate Limiting**: Per-user limits on API calls and card generation
 
-**Q: Why did you choose Supabase over building your own auth?**
+**Q: Why Supabase over building your own auth?**
 
 A: Build vs buy tradeoff:
 - **Security**: Auth is hard to get right; Supabase handles password hashing, token rotation, OAuth complexity
@@ -1746,16 +1746,8 @@ A:
 5. **Card versioning**: Track edit history for undo/audit
 6. **Better card types**: Support image cards, cloze deletions
 
-### Behavioral Questions
 
-**Q: Describe a technical challenge you faced building this.**
-
-A: The CSRF middleware body consumption issue. Initially used `BaseHTTPMiddleware`, but form data couldn't be read by route handlers after middleware validation. Solution required:
-1. Researching ASGI lifecycle and request body streaming
-2. Understanding that bodies can only be read once without caching
-3. Implementing pure ASGI middleware with body replay mechanism
-
-**Q: How did you decide between different LLM providers?**
+**Q: Why these LLM providers?**
 
 A: Started with Gemini for cost-effectiveness, then added Claude for quality comparison, and Ollama for privacy-conscious users or offline use. The abstraction emerged naturally - same prompt template, different API calls, unified response format.
 
