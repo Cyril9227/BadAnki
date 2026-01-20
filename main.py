@@ -283,7 +283,7 @@ def generate_cards(text: str, mode="gemini", api_key: str = None) -> list[dict]:
                 raise ValueError("Gemini API key is required.")
             genai.configure(api_key=api_key)
             model = genai.GenerativeModel(
-                model_name="gemini-1.5-flash",
+                model_name="gemini-2.5-flash",
                 generation_config=generation_config,
                 safety_settings=safety_settings,
             )
@@ -292,7 +292,7 @@ def generate_cards(text: str, mode="gemini", api_key: str = None) -> list[dict]:
             
         elif mode == "ollama":
             response = ollama.chat(
-                model='mistral', 
+                model='gpt-oss:20b',
                 messages=[{'role': 'user', 'content': prompt}]
             )
             response_text = response['message']['content']
@@ -302,8 +302,8 @@ def generate_cards(text: str, mode="gemini", api_key: str = None) -> list[dict]:
                 raise ValueError("Anthropic API key is required.")
             client = anthropic.Anthropic(api_key=api_key)
             message = client.messages.create(
-                model="claude-3-haiku-20240307",
-                max_tokens=4096,
+                model='claude-sonnet-4-5-20250929',
+                max_tokens=2048,
                 messages=[
                     {
                         "role": "user",
