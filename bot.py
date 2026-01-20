@@ -80,10 +80,10 @@ async def random_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode=ParseMode.MARKDOWN_V2,
                     reply_markup=keyboard
                 )
-                logger.info(f"Sent random card {card['id']} to user {user['id']}.")
+                logger.info(f"Sent random card {card['id']} to user {user['auth_user_id']}.")
             else:
                 await update.message.reply_text("You have no cards in your deck.")
-                logger.info(f"No cards found for user {user['id']}.")
+                logger.info(f"No cards found for user {user['auth_user_id']}.")
         else:
             await update.message.reply_text(
                 "Your Telegram account is not linked. "
