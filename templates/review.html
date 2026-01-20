@@ -11,12 +11,12 @@
     <div class="card-body">
         <div class="question">
             <h5 class="card-title">Question</h5>
-            <div class="card-text fs-4">{{ card.question | safe }}</div>
+            <div class="card-text fs-4 markdown-content" data-content="{{ card.question }}"></div>
         </div>
         <hr>
         <div class="answer" id="answer" style="display: none;">
              <h5 class="card-title">Answer</h5>
-            <div class="card-text fs-4">{{ card.answer | safe }}</div>
+            <div class="card-text fs-4 markdown-content" data-content="{{ card.answer }}"></div>
         </div>
     </div>
     <div class="card-footer text-muted">
@@ -58,9 +58,8 @@
         Cards in Learning
     </div>
     <ul class="list-group list-group-flush">
-        {% for card in learning_cards %}
-        <li class="list-group-item">
-            {{ card.question | safe }}
+        {% for lcard in learning_cards %}
+        <li class="list-group-item markdown-content" data-content="{{ lcard.question }}">
         </li>
         {% endfor %}
     </ul>
@@ -72,20 +71,18 @@
 {% block scripts %}
 <script>
     document.addEventListener('DOMContentLoaded', (event) => {
-        // Select both question and answer text containers
-        const questionText = document.querySelector('.question .card-text');
-        const answerText = document.querySelector('.answer .card-text');
-
-        // Parse their content with marked.js
-        if (questionText) {
-            questionText.innerHTML = marked.parse(questionText.innerHTML);
-        }
-        if (answerText) {
-            answerText.innerHTML = marked.parse(answerText.innerHTML);
-        }
+        // Safely render all markdown content with DOMPurify
+        document.querySelectorAll('.markdown-content').forEach(function(el) {
+            const rawContent = el.dataset.content;
+            if (rawContent) {
+                el.innerHTML = window.safeMarkdown(rawContent);
+            }
+        });
 
         // After parsing, tell MathJax to typeset the new content
-        MathJax.typesetPromise();
+        if (window.MathJax) {
+            MathJax.typesetPromise();
+        }
     });
 
     function showAnswer() {
