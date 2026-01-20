@@ -2,9 +2,16 @@
 
 (Bad) Anki is a web-based adaptation of the popular Anki flashcard application, designed to help you study and remember information efficiently. It leverages a spaced repetition system (SRS) inspired by the SM-2 algorithm to optimize your learning process. The application is built with a modern Python backend, a simple and effective frontend, and includes powerful features like AI-powered card generation and Telegram integration for daily review reminders.
 
-The workflow is simple and powerful:
+## 🔄 The Learning Loop
 
-> Learn something cool → write or upload a Markdown file (with LaTeX support) → use an AI provider (Gemini, Anthropic) or a local Ollama instance to generate relevant Anki cards → review, edit, and approve the AI-generated cards → the cards are added to your deck, and the spaced repetition algorithm schedules them for review → receive a daily reminder on Telegram with a link to the cards that are due.
+> **Learn something cool**
+> → Write Markdown (LaTeX, code blocks etc.)  
+> → AI generates Anki cards  
+> → You review & approve  
+> → Spaced repetition schedules reviews  
+> → Daily Telegram reminder  
+> → **Back to learning !**
+
 
 ## Key Features
 
@@ -129,5 +136,15 @@ The project includes scripts for backing up and restoring the PostgreSQL databas
 
 *   Currently only handles Markdown files. Support for other formats like PDFs could be added in the future.
 *   Vibe coded! There may be some undiscovered bugs.
-*   The link between courses is based on a rudimentary tagging system.
 *   Local LLM calls for card generation can sometimes fail due to JSON parsing issues.
+
+
+## TODO / IDEAS:
+- [ ] Better links between courses etc rather than basic tags
+- [ ] Better documentation
+- [ ] Gamified experience / running user statistics etc
+- [ ] Make LLM calls as robust as possible / handle different providers
+- [ ] Handle different doc type PDF etc.
+- [ ] Maybe notebookLM integration to turn courses into podcasts ?
+- [ ] Quizz to solidify learning
+- [ ] Refactor app with NextJS / tailwind etc. to leverage beautiful community templates @ v0
