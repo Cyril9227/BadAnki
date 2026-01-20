@@ -5,6 +5,7 @@
 ## 🔄 The Learning Loop
 
 > **Learn something cool**
+> 
 > → Write Markdown (LaTeX, code blocks etc.)  
 > → AI generates Anki cards  
 > → You review & approve  
