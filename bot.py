@@ -22,8 +22,8 @@ logger = logging.getLogger(__name__)
 
 
 # --- Configuration ---
-
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+# Note: We read APP_URL at module level since it's not sensitive and rarely changes.
+# TELEGRAM_BOT_TOKEN is read at runtime in setup_bot() to avoid serverless cold-start issues.
 APP_URL = os.environ.get("APP_URL", "http://127.0.0.1:8000")
 
 
@@ -99,11 +99,13 @@ async def random_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def setup_bot():
     """Creates and configures the bot application."""
-    if not TELEGRAM_BOT_TOKEN:
+    # Read token at runtime to avoid serverless cold-start timing issues
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not token:
         logger.error("TELEGRAM_BOT_TOKEN environment variable not set!")
         return None
 
-    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    application = Application.builder().token(token).build()
 
     # Register the command handlers
     application.add_handler(CommandHandler("start", start))
@@ -121,9 +123,13 @@ def get_bot_application():
 
 if __name__ == "__main__":
     logger.info("Starting bot in standalone polling mode...")
-    bot_app = setup_bot()
-    if bot_app:
-        logger.info("Bot application created. Starting polling.")
-        bot_app.run_polling()
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not token:
+        logger.error("TELEGRAM_BOT_TOKEN environment variable not set!")
     else:
-        logger.error("Failed to create bot application. Check TELEGRAM_BOT_TOKEN.")
+        bot_app = setup_bot()
+        if bot_app:
+            logger.info("Bot application created. Starting polling.")
+            bot_app.run_polling()
+        else:
+            logger.error("Failed to create bot application.")
