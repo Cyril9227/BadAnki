@@ -157,7 +157,7 @@ def test_auth_login_incorrect_password(mock_sign_in, mock_list_users, client):
     mock_auth_user = MagicMock()
     mock_auth_user.email = email
     mock_list_users.return_value = [mock_auth_user] # User exists
-    mock_sign_in.side_effect = AuthApiError("Invalid login credentials")
+    mock_sign_in.side_effect = AuthApiError("Invalid login credentials", 400, "invalid_credentials")
 
     response = client.post(
         "/auth",
