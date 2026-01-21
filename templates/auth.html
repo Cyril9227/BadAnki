@@ -90,11 +90,11 @@
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const formData = new FormData(form);
-        
+
         try {
             const response = await fetch('/auth', {
                 method: 'POST',
-                body: formData,
+                body: new URLSearchParams(formData),  // Send as application/x-www-form-urlencoded
                 headers: {
                     'X-CSRF-Token': csrfToken
                 },
