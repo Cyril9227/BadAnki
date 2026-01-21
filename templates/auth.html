@@ -102,6 +102,9 @@
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
         hideError();
+        submitButton.disabled = true;
+        submitButton.textContent = isLogin ? 'Logging in...' : 'Registering...';
+
         const formData = new FormData(form);
 
         try {
@@ -110,50 +113,49 @@
                 body: new URLSearchParams(formData),  // Send as application/x-www-form-urlencoded
                 headers: {
                     'X-CSRF-Token': csrfToken
-                },
-                redirect: 'manual' // Important to handle redirects manually
+                }
             });
 
-            if (response.type === 'opaqueredirect') {
-                // This happens on a successful login/registration redirect
-                window.location.href = response.url || '/';
-            } else if (response.ok) {
-                 // If the server sends back a non-redirect response (like an error page)
-                const html = await response.text();
-                document.open();
-                document.write(html);
-                document.close();
-            } else {
-                // Handle non-OK responses - check if JSON (validation error) or HTML
-                const contentType = response.headers.get('content-type') || '';
-                if (contentType.includes('application/json')) {
-                    const data = await response.json();
-                    // FastAPI validation errors come as { detail: [...] }
-                    if (data.detail) {
-                        if (Array.isArray(data.detail)) {
-                            // Validation errors - extract field messages
-                            const messages = data.detail.map(err => {
-                                const field = err.loc && err.loc.length > 1 ? err.loc[err.loc.length - 1] : 'Field';
-                                return `${field}: ${err.msg}`;
-                            });
-                            showError(messages.join('. '));
-                        } else {
-                            showError(data.detail);
-                        }
+            const contentType = response.headers.get('content-type') || '';
+
+            if (contentType.includes('application/json')) {
+                const data = await response.json();
+
+                if (data.success) {
+                    // Successful login/registration - redirect
+                    window.location.href = data.redirect_url || '/';
+                } else if (data.detail) {
+                    // FastAPI validation errors (e.g., missing fields)
+                    if (Array.isArray(data.detail)) {
+                        const messages = data.detail.map(err => {
+                            const field = err.loc && err.loc.length > 1 ? err.loc[err.loc.length - 1] : 'Field';
+                            return `${field}: ${err.msg}`;
+                        });
+                        showError(messages.join('. '));
                     } else {
-                        showError('An error occurred. Please try again.');
+                        showError(data.detail);
+                    }
+                } else if (data.error) {
+                    // Application-level error
+                    showError(data.error);
+
+                    // If prompted to register, switch to register mode
+                    if (data.prompt_register) {
+                        setUI('register');
                     }
                 } else {
-                    // HTML error response - render it
-                    const html = await response.text();
-                    document.open();
-                    document.write(html);
-                    document.close();
+                    showError('An error occurred. Please try again.');
                 }
+            } else {
+                // Non-JSON response - shouldn't happen normally, but handle gracefully
+                showError('Unexpected response from server. Please try again.');
             }
         } catch (error) {
             console.error('Auth form submission error:', error);
             showError('A network error occurred. Please check your connection and try again.');
+        } finally {
+            submitButton.disabled = false;
+            submitButton.textContent = isLogin ? 'Login' : 'Register';
         }
     });
 

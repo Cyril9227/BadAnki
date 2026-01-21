@@ -375,87 +375,79 @@ async def handle_auth(
 ):
     """
     Handles both login and registration with a unified, intelligent endpoint.
-    - Checks if user exists before attempting to log in.
-    - If user does not exist on login attempt, prompts to register.
-    - If user exists, attempts login and gives specific password error.
-    - If action is 'register', creates the user.
+    - For login: attempts sign-in directly, handles errors appropriately
+    - For register: validates password, creates user, auto-logs in
+    - Returns JSON with redirect URL for frontend navigation
     """
+    def error_response(error: str, prompt_register: bool = False, message: str = None):
+        """Helper to return consistent error responses."""
+        return JSONResponse(content={
+            "success": False,
+            "error": error,
+            "prompt_register": prompt_register,
+            "message": message,
+            "email": email
+        })
+
+    def success_response(redirect_url: str, access_token: str, flash_message: str):
+        """Helper to return successful auth response with cookies."""
+        response = JSONResponse(content={
+            "success": True,
+            "redirect_url": redirect_url
+        })
+        response.set_cookie(key="access_token", value=access_token, httponly=True, max_age=3600 * 24 * 7, samesite="lax")
+        response.set_cookie(key="flash", value=f"success:{flash_message}", max_age=5, samesite="lax")
+        return response
+
     try:
-        # 1. Check if user exists
-        try:
-            # 1. Check if user exists using list_users and filtering
-            response = supabase.auth.admin.list_users()
-            user = next((u for u in response if u.email == email), None)
-        except AuthApiError as e:
-            user = None # Treat API errors as user not found for safety
+        if action == "register":
+            # --- REGISTRATION FLOW ---
+            if len(password) < 8 or not any(char.isdigit() for char in password):
+                return error_response("Password must be at least 8 characters and contain one number.")
 
-        # 2. Handle based on user existence
-        if user:
-            # --- USER EXISTS ---
             try:
-                # Attempt to sign in
-                auth_response = supabase.auth.sign_in_with_password({"email": email, "password": password})
-                if auth_response.session:
-                    access_token = auth_response.session.access_token
-                    response = RedirectResponse(url="/review", status_code=303) # Existing user
-                    response.set_cookie(key="access_token", value=access_token, httponly=True, max_age=3600 * 24 * 7, samesite="lax")
-                    response.set_cookie(key="flash", value="success:Welcome back!", max_age=5, samesite="lax") # Flash message
-                    return response
-            except AuthApiError:
-                # Sign in failed, so it must be an incorrect password
-                return templates.TemplateResponse("auth.html", {
-                    "request": request, 
-                    "error": "Incorrect password. Please try again.", 
-                    "email": email,
-                    "supabase_url": SUPABASE_URL,
-                    "supabase_key": SUPABASE_KEY,
-                    "csrf_token": request.state.csrf_token
-                })
-        else:
-            # --- USER DOES NOT EXIST ---
-            if action == "register":
-                # User wants to register
-                if len(password) < 8 or not any(char.isdigit() for char in password):
-                    error_msg = "Password must be at least 8 characters and contain one number."
-                    return templates.TemplateResponse("auth.html", {"request": request, "error": error_msg, "email": email, "supabase_url": SUPABASE_URL, "supabase_key": SUPABASE_KEY, "csrf_token": request.state.csrf_token})
-
                 # Create user in Supabase
                 auth_response = supabase.auth.sign_up({"email": email, "password": password})
                 if not auth_response.user:
-                    error_msg = "Could not create account. The email may be invalid."
-                    return templates.TemplateResponse("auth.html", {"request": request, "error": error_msg, "email": email, "supabase_url": SUPABASE_URL, "supabase_key": SUPABASE_KEY, "csrf_token": request.state.csrf_token})
+                    return error_response("Could not create account. The email may be invalid.")
 
                 # Create local profile and auto-login
                 crud.create_profile(conn, username=email, auth_user_id=auth_response.user.id)
                 auto_login_response = supabase.auth.sign_in_with_password({"email": email, "password": password})
                 access_token = auto_login_response.session.access_token
-                
-                response = RedirectResponse(url="/", status_code=303) # New user
-                response.set_cookie(key="access_token", value=access_token, httponly=True, max_age=3600 * 24 * 7, samesite="lax")
-                response.set_cookie(key="flash", value="success:Account created successfully!", max_age=5, samesite="lax") # Flash message
-                return response
-            else:
-                # User was trying to log in, but account doesn't exist. Prompt to register.
-                return templates.TemplateResponse("auth.html", {
-                    "request": request,
-                    "prompt_register": True,
-                    "email": email,
-                    "message": "Account not found. Would you like to create one?",
-                    "supabase_url": SUPABASE_URL,
-                    "supabase_key": SUPABASE_KEY,
-                    "csrf_token": request.state.csrf_token
-                })
+
+                return success_response("/", access_token, "Account created successfully!")
+
+            except AuthApiError as e:
+                error_msg = str(e)
+                if "already registered" in error_msg.lower() or "already exists" in error_msg.lower():
+                    return error_response("An account with this email already exists. Please login instead.")
+                return error_response(f"Registration failed: {error_msg}")
+        else:
+            # --- LOGIN FLOW ---
+            try:
+                auth_response = supabase.auth.sign_in_with_password({"email": email, "password": password})
+                if auth_response.session:
+                    access_token = auth_response.session.access_token
+                    return success_response("/review", access_token, "Welcome back!")
+                else:
+                    return error_response("Login failed. Please try again.")
+
+            except AuthApiError as e:
+                error_msg = str(e)
+                # Supabase returns "Invalid login credentials" for both wrong password and non-existent user
+                # We prompt to register since we can't distinguish between the two
+                if "invalid" in error_msg.lower() or "credentials" in error_msg.lower():
+                    return error_response(
+                        "Invalid email or password.",
+                        prompt_register=True,
+                        message="If you don't have an account, you can register below."
+                    )
+                return error_response(f"Login failed: {error_msg}")
 
     except Exception as e:
         logger.error(f"General auth error: {e}", exc_info=True)
-        return templates.TemplateResponse("auth.html", {
-            "request": request, 
-            "error": "An unexpected error occurred.", 
-            "email": email,
-            "supabase_url": SUPABASE_URL,
-            "supabase_key": SUPABASE_KEY,
-            "csrf_token": request.state.csrf_token
-        })
+        return error_response("An unexpected error occurred. Please try again.")
 
 @app.post("/auth/callback")
 async def auth_callback(
