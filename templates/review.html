@@ -144,12 +144,12 @@
             document.getElementById('cloze-card-display').style.display = 'block';
             document.getElementById('card-type-badge').style.display = 'inline';
 
-            // Format cloze question (replace {{c1::answer}} with [...])
+            // Format cloze question (replace cloze syntax with [...])
             const clozeQuestion = cardData.question.replace(/\{\{c\d+::([^}]+)\}\}/g,
                 '<span class="cloze-blank">[...]</span>');
             document.getElementById('cloze-question').innerHTML = window.safeMarkdown(clozeQuestion);
 
-            // Format cloze answer (replace {{c1::answer}} with highlighted answer)
+            // Format cloze answer (replace cloze syntax with highlighted answer)
             const clozeRevealed = cardData.question.replace(/\{\{c\d+::([^}]+)\}\}/g,
                 '<span class="cloze-answer">$1</span>');
             document.getElementById('cloze-revealed').innerHTML = window.safeMarkdown(clozeRevealed);

@@ -517,7 +517,7 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    // Helper to format cloze text for display (replace {{c1::answer}} with [...])
+    // Helper to format cloze text for display (replace cloze syntax with [...])
     function formatClozeForDisplay(text) {
         return text.replace(/\{\{c\d+::([^}]+)\}\}/g, '<span class="cloze-blank">[...]</span>');
     }
@@ -564,7 +564,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         </div>
                         <div class="edit-form" style="display: none;">
                             <div class="mb-2">
-                                <label class="form-label">${isCloze ? 'Text (use {{c1::answer}} for cloze):' : 'Question:'}</label>
+                                <label class="form-label">${isCloze ? 'Text (use {{ "{{" }}c1::answer{{ "}}" }} for cloze):' : 'Question:'}</label>
                                 <textarea class="form-control edit-question">${card.question}</textarea>
                             </div>
                             <div class="mb-2">

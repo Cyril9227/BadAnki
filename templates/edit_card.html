@@ -7,8 +7,8 @@
     <h1 class="mb-4">Edit Card <span id="card-type-badge"></span></h1>
 
     <div id="cloze-hint" class="alert alert-info" style="display: none;">
-        <strong>Cloze Card:</strong> Use <code>{{c1::answer}}</code> syntax to mark the hidden text.
-        <br>Example: <code>The {{c1::mitochondria}} is the powerhouse of the cell.</code>
+        <strong>Cloze Card:</strong> Use <code>{{ '{{' }}c1::answer{{ '}}' }}</code> syntax to mark the hidden text.
+        <br>Example: <code>The {{ '{{' }}c1::mitochondria{{ '}}' }} is the powerhouse of the cell.</code>
     </div>
 
     <form action="/edit-card/{{ card.id }}" method="post">
