@@ -144,7 +144,7 @@ def test_auth_login_successfully(mock_sign_in, client, db_conn):
     assert response.status_code == 200
     json_response = response.json()
     assert json_response["success"] is True
-    assert json_response["redirect_url"] == "/review"
+    assert json_response["redirect_url"] == "/"
     assert "access_token" in response.cookies
 
 @patch("main.supabase.auth.sign_in_with_password")
