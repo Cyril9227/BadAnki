@@ -419,7 +419,7 @@ async def handle_auth(
                 auth_response = supabase.auth.sign_in_with_password({"email": email, "password": password})
                 if auth_response.session:
                     access_token = auth_response.session.access_token
-                    return success_response("/review", access_token, "Welcome back!")
+                    return success_response("/", access_token, "Welcome back!")
                 else:
                     return error_response("Login failed. Please try again.")
 
@@ -457,10 +457,10 @@ async def auth_callback(
         if not auth_user:
             raise HTTPException(status_code=401, detail="Invalid token")
 
-        # Create a profile if it doesn't exist and check if the user is new.
-        is_new_user = crud.create_profile(conn, username=auth_user.email, auth_user_id=auth_user.id)
-        
-        redirect_url = "/" if is_new_user else "/review"
+        # Create a profile if it doesn't exist.
+        crud.create_profile(conn, username=auth_user.email, auth_user_id=auth_user.id)
+
+        redirect_url = "/"
 
         # Set the session cookie to log the user in
         response = JSONResponse(content={"success": True, "redirect_url": redirect_url})

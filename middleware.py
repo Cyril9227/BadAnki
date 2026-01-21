@@ -60,27 +60,44 @@ class CSRFMiddleware:
             await self.app(scope, receive, send)
             return
 
-        # For GET requests, generate and set the token
+        # For GET requests, generate and set the token (only if not already present)
         if method == "GET":
-            csrf_token = secrets.token_hex(16)
+            # Check if a CSRF token already exists in the cookie
+            existing_csrf_token = None
+            for header_name, header_value in scope.get("headers", []):
+                if header_name == b"cookie":
+                    cookies_header = header_value.decode()
+                    for cookie in cookies_header.split(";"):
+                        cookie = cookie.strip()
+                        if cookie.startswith("csrf_token="):
+                            existing_csrf_token = cookie[len("csrf_token="):]
+                            break
+                    break
+
+            # Use existing token or generate a new one
+            csrf_token = existing_csrf_token if existing_csrf_token else secrets.token_hex(16)
+
             # Store in scope state so templates can access it
             if "state" not in scope:
                 scope["state"] = {}
             scope["state"]["csrf_token"] = csrf_token
 
-            # Wrap send to add the CSRF cookie to the response
-            async def send_with_csrf_cookie(message: Message) -> None:
-                if message["type"] == "http.response.start":
-                    headers = list(message.get("headers", []))
-                    is_https = scope.get("scheme", "http") == "https"
-                    cookie_value = f"csrf_token={csrf_token}; HttpOnly; SameSite=Lax; Max-Age=3600; Path=/"
-                    if is_https:
-                        cookie_value += "; Secure"
-                    headers.append((b"set-cookie", cookie_value.encode()))
-                    message = {**message, "headers": headers}
-                await send(message)
+            # Only set the cookie if we generated a new token
+            if not existing_csrf_token:
+                async def send_with_csrf_cookie(message: Message) -> None:
+                    if message["type"] == "http.response.start":
+                        headers = list(message.get("headers", []))
+                        is_https = scope.get("scheme", "http") == "https"
+                        cookie_value = f"csrf_token={csrf_token}; SameSite=Lax; Max-Age=3600; Path=/"
+                        if is_https:
+                            cookie_value += "; Secure"
+                        headers.append((b"set-cookie", cookie_value.encode()))
+                        message = {**message, "headers": headers}
+                    await send(message)
 
-            await self.app(scope, receive, send_with_csrf_cookie)
+                await self.app(scope, receive, send_with_csrf_cookie)
+            else:
+                await self.app(scope, receive, send)
             return
 
         # For state-changing methods, validate the token
