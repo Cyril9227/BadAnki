@@ -26,6 +26,7 @@
                     </div>
 
                     <!-- Email/Password Form -->
+                    <div id="error-alert" class="alert alert-danger d-none"></div>
                     {% if error %}
                         <div class="alert alert-danger">{{ error }}</div>
                     {% endif %}
@@ -87,8 +88,20 @@
     // --- CSRF Token for AJAX ---
     const csrfToken = document.querySelector('input[name="csrf_token"]').value;
 
+    const errorAlert = document.getElementById('error-alert');
+
+    function showError(message) {
+        errorAlert.textContent = message;
+        errorAlert.classList.remove('d-none');
+    }
+
+    function hideError() {
+        errorAlert.classList.add('d-none');
+    }
+
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
+        hideError();
         const formData = new FormData(form);
 
         try {
@@ -111,15 +124,36 @@
                 document.write(html);
                 document.close();
             } else {
-                // Handle non-OK responses that are not redirects
-                const html = await response.text();
-                document.open();
-                document.write(html);
-                document.close();
+                // Handle non-OK responses - check if JSON (validation error) or HTML
+                const contentType = response.headers.get('content-type') || '';
+                if (contentType.includes('application/json')) {
+                    const data = await response.json();
+                    // FastAPI validation errors come as { detail: [...] }
+                    if (data.detail) {
+                        if (Array.isArray(data.detail)) {
+                            // Validation errors - extract field messages
+                            const messages = data.detail.map(err => {
+                                const field = err.loc && err.loc.length > 1 ? err.loc[err.loc.length - 1] : 'Field';
+                                return `${field}: ${err.msg}`;
+                            });
+                            showError(messages.join('. '));
+                        } else {
+                            showError(data.detail);
+                        }
+                    } else {
+                        showError('An error occurred. Please try again.');
+                    }
+                } else {
+                    // HTML error response - render it
+                    const html = await response.text();
+                    document.open();
+                    document.write(html);
+                    document.close();
+                }
             }
         } catch (error) {
             console.error('Auth form submission error:', error);
-            // You might want to display a generic error message to the user here
+            showError('A network error occurred. Please check your connection and try again.');
         }
     });
 

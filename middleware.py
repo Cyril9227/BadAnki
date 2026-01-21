@@ -100,6 +100,14 @@ class CSRFMiddleware:
                         csrf_token_from_cookie = cookie[len("csrf_token="):]
                         break
 
+            # Always read the entire body first so it can be passed to the endpoint
+            body_bytes = b""
+            while True:
+                message = await receive()
+                body_bytes += message.get("body", b"")
+                if not message.get("more_body", False):
+                    break
+
             # Get CSRF token from request (header or form body)
             csrf_token_from_request = None
 
@@ -109,17 +117,8 @@ class CSRFMiddleware:
                     csrf_token_from_request = header_value.decode()
                     break
 
-            # If not in header, read from form body
-            body_bytes = b""
+            # If not in header, try to parse from form body
             if csrf_token_from_request is None:
-                # Read the entire body
-                while True:
-                    message = await receive()
-                    body_bytes += message.get("body", b"")
-                    if not message.get("more_body", False):
-                        break
-
-                # Try to parse as form data
                 try:
                     content_type = None
                     for header_name, header_value in scope.get("headers", []):
