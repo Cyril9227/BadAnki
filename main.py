@@ -14,7 +14,7 @@ from urllib.parse import unquote, quote
 
 # Third-party
 import frontmatter
-import google.generativeai as genai
+from google import genai
 import ollama
 import psycopg2
 import anthropic
@@ -247,21 +247,6 @@ async def get_current_active_user(request: Request):
 
 # --- LLM & Card Generation ---
 
-generation_config = {
-  "temperature": 0.5,
-  "top_p": 0.95,
-  "top_k": 64,
-  "max_output_tokens": 8192,
-  "response_mime_type": "application/json",
-}
-safety_settings = [
-    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-]
-
-
 def generate_cards(text: str, mode="gemini", api_key: str = None) -> list[dict]:
     prompt = f"""
         Analyze the following text and generate a list of question-and-answer pairs for flashcards.
@@ -277,18 +262,23 @@ def generate_cards(text: str, mode="gemini", api_key: str = None) -> list[dict]:
         {text}
         ---
         """
-    
+
     try:
         if mode == "gemini":
             if not api_key:
                 raise ValueError("Gemini API key is required.")
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel(
-                model_name="gemini-2.5-flash",
-                generation_config=generation_config,
-                safety_settings=safety_settings,
+            client = genai.Client(api_key=api_key)
+            response = client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=prompt,
+                config={
+                    'temperature': 0.5,
+                    'top_p': 0.95,
+                    'top_k': 64,
+                    'max_output_tokens': 8192,
+                    'response_mime_type': 'application/json',
+                },
             )
-            response = model.generate_content(prompt)
             response_text = response.text.strip()
             
         elif mode == "ollama":

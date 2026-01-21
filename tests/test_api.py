@@ -122,9 +122,8 @@ def authenticate_client(mock_get_user, client, db_conn, email="testuser@example.
     return client, str(auth_user_id), csrf_token
 
 # --- Tests ---
-@patch("main.supabase.auth.admin.list_users")
 @patch("main.supabase.auth.sign_in_with_password")
-def test_auth_login_successfully(mock_sign_in, mock_list_users, client, db_conn):
+def test_auth_login_successfully(mock_sign_in, client, db_conn):
     email = "loginuser@example.com"
     csrf_token = get_csrf_token(client)
 
@@ -132,7 +131,6 @@ def test_auth_login_successfully(mock_sign_in, mock_list_users, client, db_conn)
     mock_auth_user = MagicMock()
     mock_auth_user.id = uuid.uuid4()
     mock_auth_user.email = email
-    mock_list_users.return_value = [mock_auth_user] # User exists
 
     mock_session = MagicMock()
     mock_session.access_token = "fake-token"
@@ -142,21 +140,18 @@ def test_auth_login_successfully(mock_sign_in, mock_list_users, client, db_conn)
         "/auth",
         data={"email": email, "password": "password123", "action": "login"},
         headers={"X-CSRF-Token": csrf_token},
-        follow_redirects=False,
     )
-    assert response.status_code == 303
-    assert response.headers["location"] == "/review"
+    assert response.status_code == 200
+    json_response = response.json()
+    assert json_response["success"] is True
+    assert json_response["redirect_url"] == "/review"
     assert "access_token" in response.cookies
 
-@patch("main.supabase.auth.admin.list_users")
 @patch("main.supabase.auth.sign_in_with_password")
-def test_auth_login_incorrect_password(mock_sign_in, mock_list_users, client):
+def test_auth_login_incorrect_password(mock_sign_in, client):
     email = "loginuser@example.com"
     csrf_token = get_csrf_token(client)
-    
-    mock_auth_user = MagicMock()
-    mock_auth_user.email = email
-    mock_list_users.return_value = [mock_auth_user] # User exists
+
     mock_sign_in.side_effect = AuthApiError("Invalid login credentials", 400, "invalid_credentials")
 
     response = client.post(
@@ -165,12 +160,16 @@ def test_auth_login_incorrect_password(mock_sign_in, mock_list_users, client):
         headers={"X-CSRF-Token": csrf_token},
     )
     assert response.status_code == 200
-    assert "Incorrect password" in response.text
+    json_response = response.json()
+    assert json_response["success"] is False
+    assert "Invalid email or password" in json_response["error"]
+    assert json_response["prompt_register"] is True
 
-@patch("main.supabase.auth.admin.list_users")
-def test_auth_login_user_not_found_prompts_register(mock_list_users, client):
+@patch("main.supabase.auth.sign_in_with_password")
+def test_auth_login_user_not_found_prompts_register(mock_sign_in, client):
     csrf_token = get_csrf_token(client)
-    mock_list_users.return_value = [] # User does not exist
+    # Supabase returns "Invalid login credentials" for non-existent users too
+    mock_sign_in.side_effect = AuthApiError("Invalid login credentials", 400, "invalid_credentials")
 
     response = client.post(
         "/auth",
@@ -178,16 +177,16 @@ def test_auth_login_user_not_found_prompts_register(mock_list_users, client):
         headers={"X-CSRF-Token": csrf_token},
     )
     assert response.status_code == 200
-    assert "Account not found. Would you like to create one?" in response.text
+    json_response = response.json()
+    assert json_response["success"] is False
+    assert json_response["prompt_register"] is True
+    assert "Invalid email or password" in json_response["error"]
 
-@patch("main.supabase.auth.admin.list_users")
 @patch("main.supabase.auth.sign_up")
 @patch("main.supabase.auth.sign_in_with_password")
-def test_auth_register_successfully(mock_sign_in, mock_sign_up, mock_list_users, client, db_conn):
+def test_auth_register_successfully(mock_sign_in, mock_sign_up, client, db_conn):
     email = "newuser@example.com"
     csrf_token = get_csrf_token(client)
-    
-    mock_list_users.return_value = [] # User does not exist
 
     mock_user = MagicMock()
     mock_user.id = uuid.uuid4()
@@ -205,10 +204,12 @@ def test_auth_register_successfully(mock_sign_in, mock_sign_up, mock_list_users,
         "/auth",
         data={"email": email, "password": "password123", "action": "register"},
         headers={"X-CSRF-Token": csrf_token},
-        follow_redirects=False,
     )
-    assert response.status_code == 303
-    assert response.headers["location"] == "/"
+    assert response.status_code == 200
+    json_response = response.json()
+    assert json_response["success"] is True
+    assert json_response["redirect_url"] == "/"
+    assert "access_token" in response.cookies
     mock_sign_up.assert_called_once()
     mock_sign_in.assert_called_once()
 
