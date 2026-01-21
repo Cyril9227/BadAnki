@@ -4,12 +4,17 @@
 
 {% block content %}
 <div class="container mt-4">
-    <h1 class="mb-4">Edit Card</h1>
+    <h1 class="mb-4">Edit Card <span id="card-type-badge"></span></h1>
+
+    <div id="cloze-hint" class="alert alert-info" style="display: none;">
+        <strong>Cloze Card:</strong> Use <code>{{c1::answer}}</code> syntax to mark the hidden text.
+        <br>Example: <code>The {{c1::mitochondria}} is the powerhouse of the cell.</code>
+    </div>
 
     <form action="/edit-card/{{ card.id }}" method="post">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div class="mb-3">
-            <label for="question" class="form-label">Question</label>
+            <label for="question" class="form-label" id="question-label">Question</label>
             <textarea class="form-control" id="question" name="question" rows="3" required>{{ card.question }}</textarea>
         </div>
         <div class="mb-3">
@@ -20,4 +25,22 @@
         <a href="/manage" class="btn btn-secondary">Cancel</a>
     </form>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const question = document.getElementById('question').value;
+    const clozePattern = /\{\{c\d+::([^}]+)\}\}/;
+    const isCloze = clozePattern.test(question);
+
+    if (isCloze) {
+        document.getElementById('card-type-badge').innerHTML = '<span class="badge bg-info">Cloze</span>';
+        document.getElementById('cloze-hint').style.display = 'block';
+        document.getElementById('question-label').textContent = 'Text (with cloze syntax)';
+    } else {
+        document.getElementById('card-type-badge').innerHTML = '<span class="badge bg-secondary">Q&A</span>';
+    }
+});
+</script>
 {% endblock %}

@@ -40,20 +40,37 @@
 <div class="card text-center mx-auto" style="max-width: 40rem;">
     <div class="card-header">
         Review Card
+        <span id="card-type-badge" class="badge bg-info ms-2" style="display: none;">Cloze</span>
     </div>
     <div class="card-body">
-        <div class="question">
-            <h5 class="card-title">Question</h5>
-            <div class="card-text fs-4 markdown-content" data-content="{{ card.question }}"></div>
+        <!-- Basic Q&A card display -->
+        <div id="basic-card-display">
+            <div class="question">
+                <h5 class="card-title">Question</h5>
+                <div class="card-text fs-4 markdown-content" id="basic-question" data-content="{{ card.question }}"></div>
+            </div>
+            <hr>
+            <div class="answer" id="basic-answer" style="display: none;">
+                <h5 class="card-title">Answer</h5>
+                <div class="card-text fs-4 markdown-content" data-content="{{ card.answer }}"></div>
+            </div>
         </div>
-        <hr>
-        <div class="answer" id="answer" style="display: none;">
-             <h5 class="card-title">Answer</h5>
-            <div class="card-text fs-4 markdown-content" data-content="{{ card.answer }}"></div>
+
+        <!-- Cloze card display -->
+        <div id="cloze-card-display" style="display: none;">
+            <div class="question">
+                <h5 class="card-title">Fill in the blank</h5>
+                <div class="card-text fs-4" id="cloze-question"></div>
+            </div>
+            <hr>
+            <div class="answer" id="cloze-answer" style="display: none;">
+                <h5 class="card-title">Answer</h5>
+                <div class="card-text fs-4" id="cloze-revealed"></div>
+            </div>
         </div>
     </div>
     <div class="card-footer text-muted">
-        <button class="btn btn-primary" onclick="showAnswer()">Show Answer</button>
+        <button class="btn btn-primary" id="show-answer-btn" onclick="showAnswer()">Show Answer</button>
 
         <form id="review-form" action="/review/{{ card.id }}" method="post" class="mt-3" style="display: none;">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -64,6 +81,15 @@
         </form>
     </div>
 </div>
+
+<!-- Store raw card data for JavaScript -->
+<script id="card-data" type="application/json">
+{
+    "question": {{ card.question | tojson }},
+    "answer": {{ card.answer | tojson }},
+    "card_type": {{ (card.card_type or 'basic') | tojson }}
+}
+</script>
 
 <div class="card mt-4 mx-auto" style="max-width: 40rem;">
     <div class="card-header">
@@ -104,13 +130,38 @@
 {% block scripts %}
 <script>
     document.addEventListener('DOMContentLoaded', (event) => {
-        // Safely render all markdown content with DOMPurify
-        document.querySelectorAll('.markdown-content').forEach(function(el) {
-            const rawContent = el.dataset.content;
-            if (rawContent) {
-                el.innerHTML = window.safeMarkdown(rawContent);
-            }
-        });
+        // Get card data
+        const cardDataEl = document.getElementById('card-data');
+        const cardData = JSON.parse(cardDataEl.textContent);
+
+        // Detect if this is a cloze card (either by card_type or by pattern)
+        const clozePattern = /\{\{c\d+::([^}]+)\}\}/;
+        const isCloze = cardData.card_type === 'cloze' || clozePattern.test(cardData.question);
+
+        if (isCloze) {
+            // Show cloze card display, hide basic
+            document.getElementById('basic-card-display').style.display = 'none';
+            document.getElementById('cloze-card-display').style.display = 'block';
+            document.getElementById('card-type-badge').style.display = 'inline';
+
+            // Format cloze question (replace {{c1::answer}} with [...])
+            const clozeQuestion = cardData.question.replace(/\{\{c\d+::([^}]+)\}\}/g,
+                '<span class="cloze-blank">[...]</span>');
+            document.getElementById('cloze-question').innerHTML = window.safeMarkdown(clozeQuestion);
+
+            // Format cloze answer (replace {{c1::answer}} with highlighted answer)
+            const clozeRevealed = cardData.question.replace(/\{\{c\d+::([^}]+)\}\}/g,
+                '<span class="cloze-answer">$1</span>');
+            document.getElementById('cloze-revealed').innerHTML = window.safeMarkdown(clozeRevealed);
+        } else {
+            // Basic Q&A card - render as before
+            document.querySelectorAll('.markdown-content').forEach(function(el) {
+                const rawContent = el.dataset.content;
+                if (rawContent) {
+                    el.innerHTML = window.safeMarkdown(rawContent);
+                }
+            });
+        }
 
         // After parsing, tell MathJax to typeset the new content
         if (window.MathJax) {
@@ -119,9 +170,23 @@
     });
 
     function showAnswer() {
-        document.getElementById('answer').style.display = 'block';
+        // Show the appropriate answer section based on card type
+        const basicAnswer = document.getElementById('basic-answer');
+        const clozeAnswer = document.getElementById('cloze-answer');
+
+        if (basicAnswer.closest('#basic-card-display').style.display !== 'none') {
+            basicAnswer.style.display = 'block';
+        } else {
+            clozeAnswer.style.display = 'block';
+        }
+
         document.getElementById('review-form').style.display = 'block';
-        document.querySelector('button[onclick="showAnswer()"]').style.display = 'none';
+        document.getElementById('show-answer-btn').style.display = 'none';
+
+        // Re-typeset MathJax after showing answer
+        if (window.MathJax) {
+            MathJax.typesetPromise();
+        }
     }
 </script>
 {% endblock %}

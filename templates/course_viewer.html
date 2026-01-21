@@ -64,6 +64,10 @@
     <div class="btn-group-vertical btn-group-sm" role="group" aria-label="Course Actions">
         <a href="/edit-course/{{ course_path | urlencode }}" class="btn btn-primary edit-course-btn">Edit Course</a>
         <button type="button" id="download-btn" class="btn btn-info">Download File</button>
+        <select id="card-type-select" class="form-select form-select-sm">
+            <option value="basic">Q&A Cards</option>
+            <option value="cloze">Cloze Cards</option>
+        </select>
         <div class="btn-group" role="group">
             <button type="button" id="generate-cards-btn" class="btn {{ 'btn-success' if gemini_api_key_exists or anthropic_api_key_exists else 'btn-secondary' }} dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" {% if not gemini_api_key_exists and not anthropic_api_key_exists %}disabled{% endif %}>
                 Generate Cards
@@ -150,19 +154,21 @@
 
         // --- Card Generation Logic ---
         const csrfToken = document.getElementById('csrf-token').value;
+        const cardTypeSelect = document.getElementById('card-type-select');
         document.addEventListener('click', function(e) {
             const contentProvider = () => document.getElementById('raw-content').textContent;
+            const cardType = cardTypeSelect ? cardTypeSelect.value : 'basic';
             if (e.target.matches('#generate-cards-gemini-btn')) {
                 e.preventDefault();
-                window.handleGenerateCards('/api/generate-cards', contentProvider, csrfToken);
+                window.handleGenerateCards('/api/generate-cards', contentProvider, csrfToken, cardType);
             }
             if (e.target.matches('#generate-cards-anthropic-btn')) {
                 e.preventDefault();
-                window.handleGenerateCards('/api/generate-cards-anthropic', contentProvider, csrfToken);
+                window.handleGenerateCards('/api/generate-cards-anthropic', contentProvider, csrfToken, cardType);
             }
             if (e.target.matches('#generate-cards-ollama-btn')) {
                 e.preventDefault();
-                window.handleGenerateCards('/api/generate-cards-ollama', contentProvider, csrfToken);
+                window.handleGenerateCards('/api/generate-cards-ollama', contentProvider, csrfToken, cardType);
             }
         });
     });

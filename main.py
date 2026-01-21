@@ -178,9 +178,11 @@ class CourseItem(BaseModel):
 class GeneratedCard(BaseModel):
     question: str
     answer: str
+    card_type: str = "basic"  # "basic" or "cloze"
 
 class CourseContentForGeneration(BaseModel):
     content: str
+    card_type: str = "basic"  # "basic" or "cloze"
 
 class GeneratedCards(BaseModel):
     cards: list[GeneratedCard]
@@ -247,14 +249,37 @@ async def get_current_active_user(request: Request):
 
 # --- LLM & Card Generation ---
 
-def generate_cards(text: str, mode="gemini", api_key: str = None) -> list[dict]:
-    prompt = f"""
+def generate_cards(text: str, mode="gemini", api_key: str = None, card_type: str = "basic") -> list[dict]:
+    if card_type == "cloze":
+        prompt = f"""
+        Analyze the following text and generate cloze deletion flashcards.
+        **Instructions:**
+        1.  **Language:** Generate the cards in the same language as the provided text.
+        2.  **Focus:** Concentrate on the core concepts, definitions, key terms, and formulas. Avoid trivial details.
+        3.  **Cloze Format:** Create fill-in-the-blank cards using the {{{{c1::answer}}}} syntax.
+            - The "question" field contains the full sentence with cloze deletions, e.g., "The {{{{c1::mitochondria}}}} is the powerhouse of the cell."
+            - The "answer" field contains ONLY the hidden word(s), e.g., "mitochondria"
+            - Each card should have exactly ONE cloze deletion.
+        4.  **LaTeX:** Use LaTeX for mathematical formulas. Enclose inline math with `$` and block math with `$$`.
+        5.  **Format:** Return ONLY a raw JSON object with a "cards" key, containing a list of objects, each with "question", "answer", and "card_type" keys. The "card_type" must be "cloze". Do not include markdown formatting like ```json.
+        6.  **JSON Escaping:** CRITICALLY IMPORTANT: Ensure that any backslashes `\\` within strings are properly escaped as `\\\\`. This is essential for valid JSON, especially for LaTeX content.
+
+        **Example Output:**
+        {{"cards": [{{"question": "The {{{{c1::mitochondria}}}} is the powerhouse of the cell.", "answer": "mitochondria", "card_type": "cloze"}}]}}
+
+        **Text to Analyze:**
+        ---
+        {text}
+        ---
+        """
+    else:
+        prompt = f"""
         Analyze the following text and generate a list of question-and-answer pairs for flashcards.
         **Instructions:**
         1.  **Language:** Generate the cards in the same language as the provided text.
         2.  **Focus:** Concentrate on the core concepts, definitions, and key formulas. Avoid trivial details.
         3.  **LaTeX:** Use LaTeX for all mathematical formulas. Enclose inline math with `$` and block math with `$$`.
-        4.  **Format:** Return ONLY a raw JSON object with a "cards" key, containing a list of objects, each with "question" and "answer" keys. Do not include markdown formatting like ```json.
+        4.  **Format:** Return ONLY a raw JSON object with a "cards" key, containing a list of objects, each with "question", "answer", and "card_type" keys. The "card_type" must be "basic". Do not include markdown formatting like ```json.
         5.  **JSON Escaping:** CRITICALLY IMPORTANT: Ensure that any backslashes `\\` within the question or answer strings are properly escaped as `\\`. This is essential for valid JSON, especially for LaTeX content like `\\frac` or `\\mathbb`.
 
         **Text to Analyze:**
@@ -614,12 +639,12 @@ async def api_manage_course_item(item: CourseItem, request: Request, conn: psyco
 async def api_generate_cards(request: Request, data: CourseContentForGeneration, user: User = Depends(get_current_active_user)):
     if not data.content.strip():
         raise HTTPException(status_code=400, detail="Content cannot be empty.")
-    
+
     api_key = None
     if request.state.api_keys:
         api_key = request.state.api_keys.gemini_api_key
 
-    generated_cards = generate_cards(data.content, mode="gemini", api_key=api_key)
+    generated_cards = generate_cards(data.content, mode="gemini", api_key=api_key, card_type=data.card_type)
     if not generated_cards:
         raise HTTPException(status_code=500, detail="Failed to generate cards.")
     return {"cards": generated_cards}
@@ -628,7 +653,7 @@ async def api_generate_cards(request: Request, data: CourseContentForGeneration,
 async def api_generate_cards_ollama(data: CourseContentForGeneration, user: User = Depends(get_current_active_user)):
     if not data.content.strip():
         raise HTTPException(status_code=400, detail="Content cannot be empty.")
-    generated_cards = generate_cards(data.content, mode="ollama")
+    generated_cards = generate_cards(data.content, mode="ollama", card_type=data.card_type)
     if not generated_cards:
         raise HTTPException(status_code=500, detail="Failed to generate cards.")
     return {"cards": generated_cards}
@@ -638,12 +663,12 @@ async def api_generate_cards_ollama(data: CourseContentForGeneration, user: User
 async def api_generate_cards_anthropic(request: Request, data: CourseContentForGeneration, user: User = Depends(get_current_active_user)):
     if not data.content.strip():
         raise HTTPException(status_code=400, detail="Content cannot be empty.")
-    
+
     api_key = None
     if request.state.api_keys:
         api_key = request.state.api_keys.anthropic_api_key
 
-    generated_cards = generate_cards(data.content, mode="anthropic", api_key=api_key)
+    generated_cards = generate_cards(data.content, mode="anthropic", api_key=api_key, card_type=data.card_type)
     if not generated_cards:
         raise HTTPException(status_code=500, detail="Failed to generate cards.")
     return {"cards": generated_cards}

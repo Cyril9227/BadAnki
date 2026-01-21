@@ -171,7 +171,8 @@
         <table class="table table-striped mb-0">
             <thead>
                 <tr>
-                    <th class="ps-4 question-col">Question</th>
+                    <th class="ps-4">Type</th>
+                    <th class="question-col">Question</th>
                     <th class="answer-col">Answer</th>
                     <th>Due Date</th>
                     <th>Ease Factor</th>
@@ -181,7 +182,8 @@
             </thead>
             <tbody>
                 {% for card in cards %}
-                <tr>
+                <tr data-question="{{ card.question }}">
+                    <td data-label="Type" class="card-type-cell"></td>
                     <td data-label="Question" class="question-col markdown-content" data-content="{{ card.question }}"></td>
                     <td data-label="Answer" class="answer-col markdown-content" data-content="{{ card.answer }}"></td>
                     <td data-label="Due Date">{{ card.due_date.strftime('%Y-%m-%d') if card.due_date else 'N/A' }}</td>
@@ -214,10 +216,31 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+    const clozePattern = /\{\{c\d+::([^}]+)\}\}/;
+
+    // Process each row to detect card type and format content
+    document.querySelectorAll('tr[data-question]').forEach(function(row) {
+        const question = row.dataset.question;
+        const isCloze = clozePattern.test(question);
+        const typeCell = row.querySelector('.card-type-cell');
+
+        if (typeCell) {
+            if (isCloze) {
+                typeCell.innerHTML = '<span class="badge bg-info">Cloze</span>';
+            } else {
+                typeCell.innerHTML = '<span class="badge bg-secondary">Q&A</span>';
+            }
+        }
+    });
+
     // Safely render all markdown content with DOMPurify
     document.querySelectorAll('.markdown-content').forEach(function(el) {
-        const rawContent = el.dataset.content;
+        let rawContent = el.dataset.content;
         if (rawContent) {
+            // For cloze cards, format the question to show blanks
+            if (clozePattern.test(rawContent)) {
+                rawContent = rawContent.replace(/\{\{c\d+::([^}]+)\}\}/g, '[...]');
+            }
             el.innerHTML = window.safeMarkdownInline(rawContent);
         }
     });

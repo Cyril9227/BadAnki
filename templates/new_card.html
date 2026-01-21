@@ -6,12 +6,32 @@
 <h1 class="mb-4 text-center">Create a New Card</h1>
 <form action="/new" method="post">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <!-- Card Type Selector -->
+    <div class="row mb-4">
+        <div class="col-md-6 mx-auto">
+            <div class="card">
+                <div class="card-body">
+                    <label for="card-type-select" class="form-label"><strong>Card Type</strong></label>
+                    <select id="card-type-select" class="form-select" onchange="toggleCardType()">
+                        <option value="basic">Basic Q&A</option>
+                        <option value="cloze">Cloze (Fill-in-the-blank)</option>
+                    </select>
+                    <div id="cloze-hint" class="alert alert-info mt-3" style="display: none;">
+                        <strong>Cloze format:</strong> Use <code>{{c1::answer}}</code> to mark the hidden text.
+                        <br>Example: <code>The {{c1::mitochondria}} is the powerhouse of the cell.</code>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="row g-4">
         <!-- Question Editor -->
         <div class="col-md-6">
             <div class="card h-100">
                 <div class="card-header">
-                    <h3>Question</h3>
+                    <h3 id="question-label">Question</h3>
                 </div>
                 <div class="card-body">
                     <textarea name="question" id="question-input" class="form-control" style="height: 200px;" oninput="updatePreview('question')"></textarea>
@@ -63,11 +83,36 @@
 {% block scripts %}
 <script>
     function updatePreview(field) {
-        const input = document.getElementById(`${field}-input`).value;
+        let input = document.getElementById(`${field}-input`).value;
         const preview = document.getElementById(`${field}-preview`);
+
+        // For cloze cards, show the blanks in preview
+        const cardType = document.getElementById('card-type-select').value;
+        if (cardType === 'cloze' && field === 'question') {
+            input = input.replace(/\{\{c\d+::([^}]+)\}\}/g, '<span class="cloze-blank">[...]</span>');
+        }
+
         preview.innerHTML = marked.parse(input);
         MathJax.typesetPromise([preview]);
     }
+
+    function toggleCardType() {
+        const cardType = document.getElementById('card-type-select').value;
+        const clozeHint = document.getElementById('cloze-hint');
+        const questionLabel = document.getElementById('question-label');
+
+        if (cardType === 'cloze') {
+            clozeHint.style.display = 'block';
+            questionLabel.textContent = 'Text (with cloze syntax)';
+        } else {
+            clozeHint.style.display = 'none';
+            questionLabel.textContent = 'Question';
+        }
+
+        // Update preview to reflect the change
+        updatePreview('question');
+    }
+
     // Initial preview update for both fields
     updatePreview('question');
     updatePreview('answer');

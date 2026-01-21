@@ -342,20 +342,46 @@ def get_random_card_for_user(conn, auth_user_id: str):
     return card
 
 def save_generated_cards_for_user(conn, cards: list, auth_user_id: str):
+    """
+    Saves generated cards to the database.
+    Attempts to save with card_type if the column exists, otherwise falls back to basic insert.
+    """
     cursor = conn.cursor()
     try:
-        card_data = [(card.question, card.answer, datetime.now(), auth_user_id) for card in cards]
+        # Try to insert with card_type column (if it exists after migration)
+        card_data = [
+            (card.question, card.answer, getattr(card, 'card_type', 'basic'), datetime.now(), auth_user_id)
+            for card in cards
+        ]
         extras.execute_values(
             cursor,
-            "INSERT INTO cards (question, answer, due_date, user_id) VALUES %s",
+            "INSERT INTO cards (question, answer, card_type, due_date, user_id) VALUES %s",
             card_data
         )
         conn.commit()
     except Exception as e:
+        # If card_type column doesn't exist, fall back to basic insert
         conn.rollback()
-        raise e
+        if 'card_type' in str(e).lower() or 'column' in str(e).lower():
+            cursor = conn.cursor()
+            try:
+                card_data = [(card.question, card.answer, datetime.now(), auth_user_id) for card in cards]
+                extras.execute_values(
+                    cursor,
+                    "INSERT INTO cards (question, answer, due_date, user_id) VALUES %s",
+                    card_data
+                )
+                conn.commit()
+            except Exception as e2:
+                conn.rollback()
+                raise e2
+            finally:
+                cursor.close()
+        else:
+            raise e
     finally:
-        cursor.close()
+        if not cursor.closed:
+            cursor.close()
 
 # --- API Key and Secrets CRUD Functions ---
 
