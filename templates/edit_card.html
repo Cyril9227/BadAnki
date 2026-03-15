@@ -31,15 +31,12 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const question = document.getElementById('question').value;
-    const clozePattern = /\{\{c\d+::([^}]+)\}\}/;
-    const isCloze = clozePattern.test(question);
+    const isCloze = window.isClozeText(question);
 
+    document.getElementById('card-type-badge').innerHTML = window.cardTypeBadge(isCloze);
     if (isCloze) {
-        document.getElementById('card-type-badge').innerHTML = '<span class="badge bg-info">Cloze</span>';
         document.getElementById('cloze-hint').style.display = 'block';
         document.getElementById('question-label').textContent = 'Text (with cloze syntax)';
-    } else {
-        document.getElementById('card-type-badge').innerHTML = '<span class="badge bg-secondary">Q&A</span>';
     }
 });
 </script>

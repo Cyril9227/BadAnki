@@ -517,31 +517,32 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    // Helper to format cloze text for display (replace cloze syntax with [...])
-    function formatClozeForDisplay(text) {
-        return text.replace(/\{\{c\d+::([^}]+)\}\}/g, '<span class="cloze-blank">[...]</span>');
-    }
-
-    // Helper to format cloze text showing the answer highlighted
-    function formatClozeWithAnswer(text) {
-        return text.replace(/\{\{c\d+::([^}]+)\}\}/g, '<span class="cloze-answer">$1</span>');
-    }
+    // Cloze helpers (used by multiple templates)
+    window.CLOZE_PATTERN = /\{\{c\d+::([^}]+)\}\}/;
+    window.CLOZE_PATTERN_GLOBAL = /\{\{c\d+::([^}]+)\}\}/g;
+    window.isClozeText = function(text) { return window.CLOZE_PATTERN.test(text); };
+    window.formatClozeForDisplay = function(text) {
+        return text.replace(window.CLOZE_PATTERN_GLOBAL, '<span class="cloze-blank">[...]</span>');
+    };
+    window.formatClozeWithAnswer = function(text) {
+        return text.replace(window.CLOZE_PATTERN_GLOBAL, '<span class="cloze-answer">$1</span>');
+    };
+    window.cardTypeBadge = function(isCloze) {
+        return isCloze
+            ? '<span class="badge bg-info ms-2">Cloze</span>'
+            : '<span class="badge bg-secondary ms-2">Q&A</span>';
+    };
 
     function displayGeneratedCards(cards) {
         let html = '<div id="generated-cards-container">';
         cards.forEach((card, index) => {
             const isCloze = card.card_type === 'cloze';
-            const cardTypeLabel = isCloze ? '<span class="badge bg-info ms-2">Cloze</span>' : '';
+            const cardTypeLabel = isCloze ? window.cardTypeBadge(true) : '';
 
-            let questionDisplay, answerDisplay;
-            if (isCloze) {
-                // For cloze: show text with [...] and the answer separately
-                questionDisplay = window.safeMarkdownInline(formatClozeForDisplay(card.question || ''));
-                answerDisplay = window.safeMarkdownInline(card.answer || '');
-            } else {
-                questionDisplay = window.safeMarkdownInline(card.question || '');
-                answerDisplay = window.safeMarkdownInline(card.answer || '');
-            }
+            const questionDisplay = window.safeMarkdownInline(
+                isCloze ? window.formatClozeForDisplay(card.question || '') : (card.question || '')
+            );
+            const answerDisplay = window.safeMarkdownInline(card.answer || '');
 
             html += `
                 <div class="card mb-3" data-card-index="${index}" data-card-type="${card.card_type || 'basic'}">

@@ -216,33 +216,25 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    const clozePattern = /\{\{c\d+::([^}]+)\}\}/;
-
-    // Process each row to detect card type and format content
+    // Process each row: detect card type, set badge, and render markdown in one pass
     document.querySelectorAll('tr[data-question]').forEach(function(row) {
         const question = row.dataset.question;
-        const isCloze = clozePattern.test(question);
+        const isCloze = window.isClozeText(question);
         const typeCell = row.querySelector('.card-type-cell');
 
         if (typeCell) {
-            if (isCloze) {
-                typeCell.innerHTML = '<span class="badge bg-info">Cloze</span>';
-            } else {
-                typeCell.innerHTML = '<span class="badge bg-secondary">Q&A</span>';
-            }
+            typeCell.innerHTML = window.cardTypeBadge(isCloze);
         }
-    });
 
-    // Safely render all markdown content with DOMPurify
-    document.querySelectorAll('.markdown-content').forEach(function(el) {
-        let rawContent = el.dataset.content;
-        if (rawContent) {
-            // For cloze cards, format the question to show blanks
-            if (clozePattern.test(rawContent)) {
-                rawContent = rawContent.replace(/\{\{c\d+::([^}]+)\}\}/g, '[...]');
+        row.querySelectorAll('.markdown-content').forEach(function(el) {
+            let rawContent = el.dataset.content;
+            if (rawContent) {
+                if (isCloze && window.isClozeText(rawContent)) {
+                    rawContent = window.formatClozeForDisplay(rawContent);
+                }
+                el.innerHTML = window.safeMarkdownInline(rawContent);
             }
-            el.innerHTML = window.safeMarkdownInline(rawContent);
-        }
+        });
     });
 
     // Re-render MathJax for the card content

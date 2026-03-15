@@ -43,30 +43,14 @@
         <span id="card-type-badge" class="badge bg-info ms-2" style="display: none;">Cloze</span>
     </div>
     <div class="card-body">
-        <!-- Basic Q&A card display -->
-        <div id="basic-card-display">
-            <div class="question">
-                <h5 class="card-title">Question</h5>
-                <div class="card-text fs-4 markdown-content" id="basic-question" data-content="{{ card.question }}"></div>
-            </div>
-            <hr>
-            <div class="answer" id="basic-answer" style="display: none;">
-                <h5 class="card-title">Answer</h5>
-                <div class="card-text fs-4 markdown-content" data-content="{{ card.answer }}"></div>
-            </div>
+        <div class="question">
+            <h5 class="card-title" id="question-title">Question</h5>
+            <div class="card-text fs-4" id="question-content"></div>
         </div>
-
-        <!-- Cloze card display -->
-        <div id="cloze-card-display" style="display: none;">
-            <div class="question">
-                <h5 class="card-title">Fill in the blank</h5>
-                <div class="card-text fs-4" id="cloze-question"></div>
-            </div>
-            <hr>
-            <div class="answer" id="cloze-answer" style="display: none;">
-                <h5 class="card-title">Answer</h5>
-                <div class="card-text fs-4" id="cloze-revealed"></div>
-            </div>
+        <hr>
+        <div class="answer" id="answer-section" style="display: none;">
+            <h5 class="card-title">Answer</h5>
+            <div class="card-text fs-4" id="answer-content"></div>
         </div>
     </div>
     <div class="card-footer text-muted">
@@ -130,60 +114,39 @@
 {% block scripts %}
 <script>
     document.addEventListener('DOMContentLoaded', (event) => {
-        // Get card data
-        const cardDataEl = document.getElementById('card-data');
-        const cardData = JSON.parse(cardDataEl.textContent);
-
-        // Detect if this is a cloze card (either by card_type or by pattern)
-        const clozePattern = /\{\{c\d+::([^}]+)\}\}/;
-        const isCloze = cardData.card_type === 'cloze' || clozePattern.test(cardData.question);
+        const cardData = JSON.parse(document.getElementById('card-data').textContent);
+        const isCloze = cardData.card_type === 'cloze' || window.isClozeText(cardData.question);
 
         if (isCloze) {
-            // Show cloze card display, hide basic
-            document.getElementById('basic-card-display').style.display = 'none';
-            document.getElementById('cloze-card-display').style.display = 'block';
             document.getElementById('card-type-badge').style.display = 'inline';
-
-            // Format cloze question (replace cloze syntax with [...])
-            const clozeQuestion = cardData.question.replace(/\{\{c\d+::([^}]+)\}\}/g,
-                '<span class="cloze-blank">[...]</span>');
-            document.getElementById('cloze-question').innerHTML = window.safeMarkdown(clozeQuestion);
-
-            // Format cloze answer (replace cloze syntax with highlighted answer)
-            const clozeRevealed = cardData.question.replace(/\{\{c\d+::([^}]+)\}\}/g,
-                '<span class="cloze-answer">$1</span>');
-            document.getElementById('cloze-revealed').innerHTML = window.safeMarkdown(clozeRevealed);
+            document.getElementById('question-title').textContent = 'Fill in the blank';
+            document.getElementById('question-content').innerHTML = window.safeMarkdown(
+                window.formatClozeForDisplay(cardData.question)
+            );
+            document.getElementById('answer-content').innerHTML = window.safeMarkdown(cardData.answer);
         } else {
-            // Basic Q&A card - render as before
-            document.querySelectorAll('.markdown-content').forEach(function(el) {
-                const rawContent = el.dataset.content;
-                if (rawContent) {
-                    el.innerHTML = window.safeMarkdown(rawContent);
-                }
-            });
+            document.getElementById('question-content').innerHTML = window.safeMarkdown(cardData.question);
+            document.getElementById('answer-content').innerHTML = window.safeMarkdown(cardData.answer);
         }
 
-        // After parsing, tell MathJax to typeset the new content
+        // Render markdown for learning cards list
+        document.querySelectorAll('.markdown-content').forEach(function(el) {
+            const rawContent = el.dataset.content;
+            if (rawContent) {
+                el.innerHTML = window.safeMarkdown(rawContent);
+            }
+        });
+
         if (window.MathJax) {
             MathJax.typesetPromise();
         }
     });
 
     function showAnswer() {
-        // Show the appropriate answer section based on card type
-        const basicAnswer = document.getElementById('basic-answer');
-        const clozeAnswer = document.getElementById('cloze-answer');
-
-        if (basicAnswer.closest('#basic-card-display').style.display !== 'none') {
-            basicAnswer.style.display = 'block';
-        } else {
-            clozeAnswer.style.display = 'block';
-        }
-
+        document.getElementById('answer-section').style.display = 'block';
         document.getElementById('review-form').style.display = 'block';
         document.getElementById('show-answer-btn').style.display = 'none';
 
-        // Re-typeset MathJax after showing answer
         if (window.MathJax) {
             MathJax.typesetPromise();
         }

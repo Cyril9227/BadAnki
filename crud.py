@@ -287,12 +287,18 @@ def update_card_for_user(conn, card_id: int, auth_user_id: str, remembered: bool
     conn.commit()
     cursor.close()
 
-def create_card_for_user(conn, question: str, answer: str, auth_user_id: str):
+def create_card_for_user(conn, question: str, answer: str, auth_user_id: str, card_type: str = "basic"):
     cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO cards (question, answer, due_date, user_id) VALUES (%s, %s, %s, %s)",
-        (question, answer, datetime.now(), auth_user_id)
-    )
+    if _check_card_type_column(conn):
+        cursor.execute(
+            "INSERT INTO cards (question, answer, card_type, due_date, user_id) VALUES (%s, %s, %s, %s, %s)",
+            (question, answer, card_type, datetime.now(), auth_user_id)
+        )
+    else:
+        cursor.execute(
+            "INSERT INTO cards (question, answer, due_date, user_id) VALUES (%s, %s, %s, %s)",
+            (question, answer, datetime.now(), auth_user_id)
+        )
     conn.commit()
     cursor.close()
 
@@ -341,47 +347,46 @@ def get_random_card_for_user(conn, auth_user_id: str):
     cursor.close()
     return card
 
+_has_card_type_column = None
+
+def _check_card_type_column(conn):
+    """Check once whether the cards table has a card_type column."""
+    global _has_card_type_column
+    if _has_card_type_column is None:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT 1 FROM information_schema.columns WHERE table_name = 'cards' AND column_name = 'card_type'"
+        )
+        _has_card_type_column = cursor.fetchone() is not None
+        cursor.close()
+    return _has_card_type_column
+
 def save_generated_cards_for_user(conn, cards: list, auth_user_id: str):
-    """
-    Saves generated cards to the database.
-    Attempts to save with card_type if the column exists, otherwise falls back to basic insert.
-    """
     cursor = conn.cursor()
     try:
-        # Try to insert with card_type column (if it exists after migration)
-        card_data = [
-            (card.question, card.answer, getattr(card, 'card_type', 'basic'), datetime.now(), auth_user_id)
-            for card in cards
-        ]
-        extras.execute_values(
-            cursor,
-            "INSERT INTO cards (question, answer, card_type, due_date, user_id) VALUES %s",
-            card_data
-        )
+        if _check_card_type_column(conn):
+            card_data = [
+                (card.question, card.answer, getattr(card, 'card_type', 'basic'), datetime.now(), auth_user_id)
+                for card in cards
+            ]
+            extras.execute_values(
+                cursor,
+                "INSERT INTO cards (question, answer, card_type, due_date, user_id) VALUES %s",
+                card_data
+            )
+        else:
+            card_data = [(card.question, card.answer, datetime.now(), auth_user_id) for card in cards]
+            extras.execute_values(
+                cursor,
+                "INSERT INTO cards (question, answer, due_date, user_id) VALUES %s",
+                card_data
+            )
         conn.commit()
     except Exception as e:
-        # If card_type column doesn't exist, fall back to basic insert
         conn.rollback()
-        if 'card_type' in str(e).lower() or 'column' in str(e).lower():
-            cursor = conn.cursor()
-            try:
-                card_data = [(card.question, card.answer, datetime.now(), auth_user_id) for card in cards]
-                extras.execute_values(
-                    cursor,
-                    "INSERT INTO cards (question, answer, due_date, user_id) VALUES %s",
-                    card_data
-                )
-                conn.commit()
-            except Exception as e2:
-                conn.rollback()
-                raise e2
-            finally:
-                cursor.close()
-        else:
-            raise e
+        raise e
     finally:
-        if not cursor.closed:
-            cursor.close()
+        cursor.close()
 
 # --- API Key and Secrets CRUD Functions ---
 

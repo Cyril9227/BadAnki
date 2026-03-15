@@ -749,8 +749,8 @@ async def new_card_form(request: Request, user: User = Depends(get_current_activ
     return templates.TemplateResponse(request, "new_card.html", {"csrf_token": csrf_token})
 
 @app.post("/new")
-async def create_new_card(question: str = Form(...), answer: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    crud.create_card_for_user(conn, question, answer, user.auth_user_id)
+async def create_new_card(question: str = Form(...), answer: str = Form(...), card_type: str = Form("basic"), conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
+    crud.create_card_for_user(conn, question, answer, user.auth_user_id, card_type=card_type)
     response = RedirectResponse(url="/", status_code=303)
     response.set_cookie(key="flash", value="success:Card created successfully!", max_age=5, samesite="lax")
     return response
