@@ -252,6 +252,22 @@ window.MathJax = {
             ALLOW_DATA_ATTR: false
         });
     };
+
+    // Cloze helpers (used by multiple templates - must be global, not inside DOMContentLoaded)
+    window.CLOZE_PATTERN = /\{\{c\d+::([^}]+)\}\}/;
+    window.CLOZE_PATTERN_GLOBAL = /\{\{c\d+::([^}]+)\}\}/g;
+    window.isClozeText = function(text) { return window.CLOZE_PATTERN.test(text); };
+    window.formatClozeForDisplay = function(text) {
+        return text.replace(window.CLOZE_PATTERN_GLOBAL, '<span class="cloze-blank">[...]</span>');
+    };
+    window.formatClozeWithAnswer = function(text) {
+        return text.replace(window.CLOZE_PATTERN_GLOBAL, '<span class="cloze-answer">$1</span>');
+    };
+    window.cardTypeBadge = function(isCloze) {
+        return isCloze
+            ? '<span class="badge bg-info ms-2">Cloze</span>'
+            : '<span class="badge bg-secondary ms-2">Q&A</span>';
+    };
 </script>
 <script>
     !function(){if(window.si)return;window.si=function(){(window.si.q=window.si.q||[]).push(arguments)};var a=document.createElement("script");a.defer=true;a.src="https://script.speed-insights.com/v2/script.js";document.head.appendChild(a);}();
@@ -516,22 +532,6 @@ document.addEventListener('DOMContentLoaded', function () {
             console.error('Error generating cards:', error);
         });
     }
-
-    // Cloze helpers (used by multiple templates)
-    window.CLOZE_PATTERN = /\{\{c\d+::([^}]+)\}\}/;
-    window.CLOZE_PATTERN_GLOBAL = /\{\{c\d+::([^}]+)\}\}/g;
-    window.isClozeText = function(text) { return window.CLOZE_PATTERN.test(text); };
-    window.formatClozeForDisplay = function(text) {
-        return text.replace(window.CLOZE_PATTERN_GLOBAL, '<span class="cloze-blank">[...]</span>');
-    };
-    window.formatClozeWithAnswer = function(text) {
-        return text.replace(window.CLOZE_PATTERN_GLOBAL, '<span class="cloze-answer">$1</span>');
-    };
-    window.cardTypeBadge = function(isCloze) {
-        return isCloze
-            ? '<span class="badge bg-info ms-2">Cloze</span>'
-            : '<span class="badge bg-secondary ms-2">Q&A</span>';
-    };
 
     function displayGeneratedCards(cards) {
         let html = '<div id="generated-cards-container">';
