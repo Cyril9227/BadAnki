@@ -40,20 +40,21 @@
 <div class="card text-center mx-auto" style="max-width: 40rem;">
     <div class="card-header">
         Review Card
+        <span id="card-type-badge" class="badge bg-info ms-2" style="display: none;">Cloze</span>
     </div>
     <div class="card-body">
         <div class="question">
-            <h5 class="card-title">Question</h5>
-            <div class="card-text fs-4 markdown-content" data-content="{{ card.question }}"></div>
+            <h5 class="card-title" id="question-title">Question</h5>
+            <div class="card-text fs-4" id="question-content"></div>
         </div>
         <hr>
-        <div class="answer" id="answer" style="display: none;">
-             <h5 class="card-title">Answer</h5>
-            <div class="card-text fs-4 markdown-content" data-content="{{ card.answer }}"></div>
+        <div class="answer" id="answer-section" style="display: none;">
+            <h5 class="card-title">Answer</h5>
+            <div class="card-text fs-4" id="answer-content"></div>
         </div>
     </div>
     <div class="card-footer text-muted">
-        <button class="btn btn-primary" onclick="showAnswer()">Show Answer</button>
+        <button class="btn btn-primary" id="show-answer-btn" onclick="showAnswer()">Show Answer</button>
 
         <form id="review-form" action="/review/{{ card.id }}" method="post" class="mt-3" style="display: none;">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -64,6 +65,15 @@
         </form>
     </div>
 </div>
+
+<!-- Store raw card data for JavaScript -->
+<script id="card-data" type="application/json">
+{
+    "question": {{ card.question | tojson }},
+    "answer": {{ card.answer | tojson }},
+    "card_type": {{ (card.card_type or 'basic') | tojson }}
+}
+</script>
 
 <div class="card mt-4 mx-auto" style="max-width: 40rem;">
     <div class="card-header">
@@ -104,7 +114,22 @@
 {% block scripts %}
 <script>
     document.addEventListener('DOMContentLoaded', (event) => {
-        // Safely render all markdown content with DOMPurify
+        const cardData = JSON.parse(document.getElementById('card-data').textContent);
+        const isCloze = cardData.card_type === 'cloze' || window.isClozeText(cardData.question);
+
+        if (isCloze) {
+            document.getElementById('card-type-badge').style.display = 'inline';
+            document.getElementById('question-title').textContent = 'Fill in the blank';
+            document.getElementById('question-content').innerHTML = window.safeMarkdown(
+                window.formatClozeForDisplay(cardData.question)
+            );
+            document.getElementById('answer-content').innerHTML = window.safeMarkdown(cardData.answer);
+        } else {
+            document.getElementById('question-content').innerHTML = window.safeMarkdown(cardData.question);
+            document.getElementById('answer-content').innerHTML = window.safeMarkdown(cardData.answer);
+        }
+
+        // Render markdown for learning cards list
         document.querySelectorAll('.markdown-content').forEach(function(el) {
             const rawContent = el.dataset.content;
             if (rawContent) {
@@ -112,16 +137,19 @@
             }
         });
 
-        // After parsing, tell MathJax to typeset the new content
         if (window.MathJax) {
             MathJax.typesetPromise();
         }
     });
 
     function showAnswer() {
-        document.getElementById('answer').style.display = 'block';
+        document.getElementById('answer-section').style.display = 'block';
         document.getElementById('review-form').style.display = 'block';
-        document.querySelector('button[onclick="showAnswer()"]').style.display = 'none';
+        document.getElementById('show-answer-btn').style.display = 'none';
+
+        if (window.MathJax) {
+            MathJax.typesetPromise();
+        }
     }
 </script>
 {% endblock %}

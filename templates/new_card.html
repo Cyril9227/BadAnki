@@ -6,12 +6,32 @@
 <h1 class="mb-4 text-center">Create a New Card</h1>
 <form action="/new" method="post">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <!-- Card Type Selector -->
+    <div class="row mb-4">
+        <div class="col-md-6 mx-auto">
+            <div class="card">
+                <div class="card-body">
+                    <label for="card-type-select" class="form-label"><strong>Card Type</strong></label>
+                    <select id="card-type-select" name="card_type" class="form-select" onchange="toggleCardType()">
+                        <option value="basic">Basic Q&A</option>
+                        <option value="cloze">Cloze (Fill-in-the-blank)</option>
+                    </select>
+                    <div id="cloze-hint" class="alert alert-info mt-3" style="display: none;">
+                        <strong>Cloze format:</strong> Use <code>{{ '{{' }}c1::answer{{ '}}' }}</code> to mark the hidden text.
+                        <br>Example: <code>The {{ '{{' }}c1::mitochondria{{ '}}' }} is the powerhouse of the cell.</code>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="row g-4">
         <!-- Question Editor -->
         <div class="col-md-6">
             <div class="card h-100">
                 <div class="card-header">
-                    <h3>Question</h3>
+                    <h3 id="question-label">Question</h3>
                 </div>
                 <div class="card-body">
                     <textarea name="question" id="question-input" class="form-control" style="height: 200px;" oninput="updatePreview('question')"></textarea>
@@ -31,12 +51,15 @@
         </div>
 
         <!-- Answer Editor -->
-        <div class="col-md-6">
+        <div class="col-md-6" id="answer-editor-section">
             <div class="card h-100">
                 <div class="card-header">
-                    <h3>Answer</h3>
+                    <h3 id="answer-label">Answer</h3>
                 </div>
                 <div class="card-body">
+                    <div id="cloze-answer-note" class="alert alert-success mb-2 py-2" style="display: none;">
+                        <small>Auto-filled from cloze syntax. You can edit if needed.</small>
+                    </div>
                     <textarea name="answer" id="answer-input" class="form-control" style="height: 200px;" oninput="updatePreview('answer')"></textarea>
                 </div>
             </div>
@@ -62,12 +85,68 @@
 
 {% block scripts %}
 <script>
+    const answerInput = document.getElementById('answer-input');
+    const answerLabel = document.getElementById('answer-label');
+    const clozeAnswerNote = document.getElementById('cloze-answer-note');
+
+    function extractClozeAnswers(text) {
+        const matches = [...text.matchAll(window.CLOZE_PATTERN_GLOBAL)];
+        return matches.map(m => m[1]).join(', ');
+    }
+
     function updatePreview(field) {
-        const input = document.getElementById(`${field}-input`).value;
+        let input = document.getElementById(`${field}-input`).value;
         const preview = document.getElementById(`${field}-preview`);
+
+        const cardType = document.getElementById('card-type-select').value;
+        if (cardType === 'cloze' && field === 'question') {
+            // Auto-fill answer from cloze syntax
+            const extracted = extractClozeAnswers(input);
+            if (extracted) {
+                answerInput.value = extracted;
+                updatePreview('answer');
+            }
+            input = window.formatClozeForDisplay(input);
+        }
+
         preview.innerHTML = marked.parse(input);
         MathJax.typesetPromise([preview]);
     }
+
+    function toggleCardType() {
+        const cardType = document.getElementById('card-type-select').value;
+        const clozeHint = document.getElementById('cloze-hint');
+        const questionLabel = document.getElementById('question-label');
+
+        if (cardType === 'cloze') {
+            clozeHint.style.display = 'block';
+            questionLabel.textContent = 'Text (with cloze syntax)';
+            answerLabel.textContent = 'Answer (auto-filled)';
+            clozeAnswerNote.style.display = 'block';
+        } else {
+            clozeHint.style.display = 'none';
+            questionLabel.textContent = 'Question';
+            answerLabel.textContent = 'Answer';
+            clozeAnswerNote.style.display = 'none';
+        }
+
+        updatePreview('question');
+    }
+
+    // Validate cloze syntax before submit
+    document.querySelector('form').addEventListener('submit', function(e) {
+        const cardType = document.getElementById('card-type-select').value;
+        const question = document.getElementById('question-input').value;
+        if (cardType === 'cloze' && !window.isClozeText(question)) {
+            e.preventDefault();
+            Swal.fire({
+                icon: 'warning',
+                title: 'Missing cloze syntax',
+                text: 'Please add at least one cloze deletion using {{ "{{" }}c1::answer{{ "}}" }} syntax.',
+            });
+        }
+    });
+
     // Initial preview update for both fields
     updatePreview('question');
     updatePreview('answer');

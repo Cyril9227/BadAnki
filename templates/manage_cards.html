@@ -171,7 +171,8 @@
         <table class="table table-striped mb-0">
             <thead>
                 <tr>
-                    <th class="ps-4 question-col">Question</th>
+                    <th class="ps-4">Type</th>
+                    <th class="question-col">Question</th>
                     <th class="answer-col">Answer</th>
                     <th>Due Date</th>
                     <th>Ease Factor</th>
@@ -181,7 +182,8 @@
             </thead>
             <tbody>
                 {% for card in cards %}
-                <tr>
+                <tr data-question="{{ card.question }}">
+                    <td data-label="Type" class="card-type-cell"></td>
                     <td data-label="Question" class="question-col markdown-content" data-content="{{ card.question }}"></td>
                     <td data-label="Answer" class="answer-col markdown-content" data-content="{{ card.answer }}"></td>
                     <td data-label="Due Date">{{ card.due_date.strftime('%Y-%m-%d') if card.due_date else 'N/A' }}</td>
@@ -214,12 +216,25 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    // Safely render all markdown content with DOMPurify
-    document.querySelectorAll('.markdown-content').forEach(function(el) {
-        const rawContent = el.dataset.content;
-        if (rawContent) {
-            el.innerHTML = window.safeMarkdownInline(rawContent);
+    // Process each row: detect card type, set badge, and render markdown in one pass
+    document.querySelectorAll('tr[data-question]').forEach(function(row) {
+        const question = row.dataset.question;
+        const isCloze = window.isClozeText(question);
+        const typeCell = row.querySelector('.card-type-cell');
+
+        if (typeCell) {
+            typeCell.innerHTML = window.cardTypeBadge(isCloze);
         }
+
+        row.querySelectorAll('.markdown-content').forEach(function(el) {
+            let rawContent = el.dataset.content;
+            if (rawContent) {
+                if (isCloze && window.isClozeText(rawContent)) {
+                    rawContent = window.formatClozeForDisplay(rawContent);
+                }
+                el.innerHTML = window.safeMarkdownInline(rawContent);
+            }
+        });
     });
 
     // Re-render MathJax for the card content
