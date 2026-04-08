@@ -9,7 +9,7 @@
     {% if courses %}
         <div class="list-group">
             {% for course in courses %}
-                <a href="/courses/{{ course.path }}" class="list-group-item list-group-item-action">
+                <a href="#" class="list-group-item list-group-item-action course-link" data-path="{{ course.path | e }}">
                     <strong>{{ course.title }}</strong>
                     <br>
                     <small class="text-muted">{{ course.path }}</small>
@@ -26,4 +26,14 @@
         </a>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('.course-link').forEach(function(link) {
+        link.href = `/courses/${encodeURIComponent(link.dataset.path)}`;
+    });
+});
+</script>
 {% endblock %}
