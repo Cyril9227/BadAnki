@@ -72,7 +72,7 @@ document.addEventListener('DOMContentLoaded', function () {
             } else {
                 files.forEach(item => {
                     const displayName = item.title || item.name.replace('.md', '');
-                    html += `<a href="/courses/${item.path}" class="list-group-item list-group-item-action">
+                    html += `<a href="/courses/${encodeURIComponent(item.path)}" class="list-group-item list-group-item-action">
                                 <strong>${displayName}</strong>
                                 <br>
                                 <small class="text-muted">${item.path}</small>

@@ -90,7 +90,7 @@
     {% if metadata.get('tags') %}
         <div class="card-tags mb-3">
             {% for tag in metadata.get('tags') %}
-                <a href="/tags/{{ tag }}" class="card-tag">{{ tag }}</a>
+                <a href="#" class="card-tag tag-link" data-tag="{{ tag | e }}">{{ tag }}</a>
             {% endfor %}
         </div>
     {% endif %}
@@ -151,6 +151,10 @@
                 }
             });
         }
+
+        document.querySelectorAll('.tag-link').forEach(function(link) {
+            link.href = `/tags/${encodeURIComponent(link.dataset.tag)}`;
+        });
 
         // --- Card Generation Logic ---
         const csrfToken = document.getElementById('csrf-token').value;

@@ -248,7 +248,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function loadEditorContent(path) {
-        fetch(`/api/course-content/${path}`)
+        fetch(`/api/course-content/${encodeURIComponent(path)}`)
             .then(handleResponse)
             .then(content => {
                 currentDirectory = path.substring(0, path.lastIndexOf('/'));
@@ -334,7 +334,7 @@ document.addEventListener('DOMContentLoaded', function () {
     downloadBtn.addEventListener('click', function() {
         const path = currentFilePathInput.value;
         if (path) {
-            window.location.href = `/api/download-course/${path}`;
+            window.location.href = `/api/download-course/${encodeURIComponent(path)}`;
         } else {
             Swal.fire({
                 toast: true,
