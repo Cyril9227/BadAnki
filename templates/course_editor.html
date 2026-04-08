@@ -125,8 +125,10 @@ document.addEventListener('DOMContentLoaded', function () {
     const dropZoneEditor = document.getElementById('drop-zone-editor');
     const fileInput = document.getElementById('file-input');
     const csrfToken = document.getElementById('csrf-token').value;
+    const PREVIEW_DEBOUNCE_MS = 150;
 
     let currentDirectory = ''; // Tracks the currently selected directory
+    let previewUpdateTimeout = null;
 
     function loadFileTree() {
         fetch('/api/courses-tree')
@@ -499,10 +501,18 @@ document.addEventListener('DOMContentLoaded', function () {
         console.error(error);
     }
 
-    markdownEditor.addEventListener('input', updatePreview);
+    markdownEditor.addEventListener('input', schedulePreviewUpdate);
+
+    function schedulePreviewUpdate() {
+        clearTimeout(previewUpdateTimeout);
+        previewUpdateTimeout = setTimeout(updatePreview, PREVIEW_DEBOUNCE_MS);
+    }
+
     function updatePreview() {
         livePreview.innerHTML = marked.parse(markdownEditor.value);
-        MathJax.typesetPromise([livePreview]);
+        if (window.MathJax && window.MathJax.startup) {
+            MathJax.typesetPromise([livePreview]);
+        }
     }
 
     window.addEventListener('pageshow', function(event) {
