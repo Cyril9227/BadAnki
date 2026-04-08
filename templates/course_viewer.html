@@ -126,11 +126,9 @@
         const rawContentDiv = document.getElementById('raw-content');
         const rawContent = rawContentDiv.textContent;
 
-        // Use a promise to handle the asynchronous nature of parsing and typesetting
+        // Use the shared sanitized markdown helper before running MathJax.
         new Promise((resolve) => {
-            // Parse the markdown content
-            const htmlContent = marked.parse(rawContent);
-            courseContentDiv.innerHTML = htmlContent;
+            courseContentDiv.innerHTML = window.safeMarkdown(rawContent);
             resolve();
         }).then(() => {
             // Once the content is set, typeset it with MathJax
