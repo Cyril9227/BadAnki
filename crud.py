@@ -90,9 +90,9 @@ def get_courses_tree_for_user(conn, auth_user_id: str):
             if not path:
                 continue
         
-        path_parts = path.split(os.sep)
+        path_parts = [part for part in path.split('/') if part]
         for i in range(len(path_parts)):
-            current_path = os.path.join(*path_parts[:i+1])
+            current_path = "/".join(path_parts[:i+1])
             if current_path not in nodes:
                 part = path_parts[i]
                 is_dir = (i < len(path_parts) - 1) or (is_placeholder)
