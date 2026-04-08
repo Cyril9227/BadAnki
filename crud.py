@@ -187,7 +187,11 @@ def delete_course_item_for_user(conn, path: str, item_type: str, auth_user_id: s
             cursor.execute("DELETE FROM courses WHERE path = %s AND user_id = %s", (path, auth_user_id))
         elif item_type in ['directory', 'folder']:
             placeholder_path = os.path.join(path, ".placeholder")
-            cursor.execute("DELETE FROM courses WHERE (path = %s OR path LIKE %s) AND user_id = %s", (placeholder_path, f"{path}/%", auth_user_id))
+            escaped_path = path.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            cursor.execute(
+                "DELETE FROM courses WHERE (path = %s OR path LIKE %s ESCAPE '\\') AND user_id = %s",
+                (placeholder_path, f"{escaped_path}/%", auth_user_id)
+            )
         conn.commit()
     except Exception as e:
         conn.rollback()
