@@ -266,6 +266,57 @@ window.MathJax = {
             ? '<span class="badge bg-info ms-2">Cloze</span>'
             : '<span class="badge bg-secondary ms-2">Q&A</span>';
     };
+
+    // Escape HTML for safe insertion into template strings that are later
+    // assigned to innerHTML. Prevents content like `</textarea><script>` from
+    // breaking out of raw-text elements.
+    window.escapeHtml = function(text) {
+        if (text === null || text === undefined) return '';
+        return String(text)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    };
+
+    // Read CSRF token from cookie (survives full-page caching where a hidden
+    // input on the page may be stale).
+    window.getCsrfToken = function() {
+        const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]*)/);
+        return match ? decodeURIComponent(match[1]) : null;
+    };
+
+    // Centralised JSON fetch helper: enforces r.ok, parses JSON safely, and
+    // surfaces server-sent `detail` fields as error messages. Callers get a
+    // resolved body on success or a rejected promise with a useful message.
+    window.fetchJson = async function(url, options = {}) {
+        const headers = Object.assign({ 'Accept': 'application/json' }, options.headers || {});
+        if (options.body && !headers['Content-Type'] && typeof options.body === 'string') {
+            headers['Content-Type'] = 'application/json';
+        }
+        const method = (options.method || 'GET').toUpperCase();
+        if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method) && !headers['X-CSRF-Token']) {
+            const token = window.getCsrfToken();
+            if (token) headers['X-CSRF-Token'] = token;
+        }
+        const response = await fetch(url, Object.assign({}, options, { headers }));
+        const contentType = response.headers.get('content-type') || '';
+        let payload = null;
+        if (contentType.includes('application/json')) {
+            try { payload = await response.json(); } catch (_) { payload = null; }
+        } else {
+            try { payload = await response.text(); } catch (_) { payload = null; }
+        }
+        if (!response.ok) {
+            const detail = payload && typeof payload === 'object' ? payload.detail : payload;
+            const err = new Error(detail || `HTTP ${response.status}: ${response.statusText}`);
+            err.status = response.status;
+            err.payload = payload;
+            throw err;
+        }
+        return payload;
+    };
 </script>
 {% block head %}{% endblock %}
 </head>
@@ -273,7 +324,7 @@ window.MathJax = {
     <nav class="navbar navbar-expand-lg fixed-top">
         <div class="container-fluid">
             <!-- Hamburger Menu -->
-            <button class="navbar-toggler" type="button" data-bs-toggle="offcanvas" data-bs-target="#offcanvasNavbar">
+            <button class="navbar-toggler" type="button" data-bs-toggle="offcanvas" data-bs-target="#offcanvasNavbar" aria-controls="offcanvasNavbar" aria-label="Open navigation menu">
                 <span class="navbar-toggler-icon"></span>
             </button>
 
@@ -320,10 +371,10 @@ window.MathJax = {
     </nav>
 
     <!-- Offcanvas for mobile -->
-    <div class="offcanvas offcanvas-start d-lg-none" tabindex="-1" id="offcanvasNavbar">
+    <div class="offcanvas offcanvas-start d-lg-none" tabindex="-1" id="offcanvasNavbar" aria-labelledby="offcanvasNavbarLabel">
         <div class="offcanvas-header">
-            <h5 class="offcanvas-title">Menu</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button>
+            <h5 class="offcanvas-title" id="offcanvasNavbarLabel">Menu</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close menu"></button>
         </div>
         <div class="offcanvas-body">
             <ul class="navbar-nav">
@@ -339,8 +390,11 @@ window.MathJax = {
     <!-- Theme Toggle (Desktop) -->
     <div class="theme-toggle d-none d-lg-block">
         <div class="form-check form-switch">
-            <input class="form-check-input" type="checkbox" id="themeSwitchDesktop">
-            <label class="form-check-label" for="themeSwitchDesktop"><i class="fas fa-sun"></i> / <i class="fas fa-moon"></i></label>
+            <input class="form-check-input" type="checkbox" id="themeSwitchDesktop" aria-label="Toggle dark mode">
+            <label class="form-check-label" for="themeSwitchDesktop">
+                <i class="fas fa-sun" aria-hidden="true"></i> / <i class="fas fa-moon" aria-hidden="true"></i>
+                <span class="visually-hidden">Toggle dark mode</span>
+            </label>
         </div>
     </div>
 
@@ -358,30 +412,41 @@ window.MathJax = {
 
     <script>
     document.addEventListener('DOMContentLoaded', () => {
-        // Flash message handler
+        // Flash message handler. Guard decodeURIComponent — a malformed cookie
+        // (e.g. truncated %-escape) would otherwise throw and break everything
+        // else inside this listener.
         const flashCookie = document.cookie.split('; ').find(row => row.startsWith('flash='));
         if (flashCookie) {
-            const flashMessage = decodeURIComponent(flashCookie.split('=')[1]);
-            const [status, message] = flashMessage.split(':');
-            
-            const Toast = Swal.mixin({
-                toast: true,
-                position: 'top-end',
-                showConfirmButton: false,
-                timer: 3000,
-                timerProgressBar: true,
-                didOpen: (toast) => {
-                    toast.addEventListener('mouseenter', Swal.stopTimer)
-                    toast.addEventListener('mouseleave', Swal.resumeTimer)
-                }
-            });
+            let status, message;
+            try {
+                const raw = flashCookie.slice('flash='.length);
+                const flashMessage = decodeURIComponent(raw);
+                const idx = flashMessage.indexOf(':');
+                status = idx === -1 ? 'info' : flashMessage.slice(0, idx);
+                message = idx === -1 ? flashMessage : flashMessage.slice(idx + 1);
+            } catch (e) {
+                console.warn('Ignoring malformed flash cookie:', e);
+                status = null;
+            }
 
-            Toast.fire({
-                icon: status,
-                title: message
-            });
+            if (status) {
+                const Toast = Swal.mixin({
+                    toast: true,
+                    position: 'top-end',
+                    showConfirmButton: false,
+                    timer: 3000,
+                    timerProgressBar: true,
+                    didOpen: (toast) => {
+                        toast.addEventListener('mouseenter', Swal.stopTimer)
+                        toast.addEventListener('mouseleave', Swal.resumeTimer)
+                    }
+                });
 
-            // Clear the cookie
+                Toast.fire({ icon: status, title: message });
+            }
+
+            // Clear the cookie regardless — we don't want a malformed cookie
+            // to re-fire on every page load.
             document.cookie = 'flash=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;';
         }
 
@@ -461,16 +526,23 @@ document.addEventListener('DOMContentLoaded', function () {
         "Hold on, polishing the virtual cards."
     ];
 
-    // Helper to get CSRF token from cookie (fallback for cached pages)
-    function getCsrfTokenFromCookie() {
-        const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]*)/);
-        return match ? match[1] : null;
-    }
+    let generateInFlight = false;
 
     // This function is now globally available
     window.handleGenerateCards = function(apiUrl, contentProvider, csrfToken, cardType = 'basic') {
-        // Use token from cookie as primary source (more reliable than hidden input on cached pages)
-        const effectiveToken = getCsrfTokenFromCookie() || csrfToken;
+        if (generateInFlight) return;  // Ignore re-entrant clicks while a request is pending.
+
+        // Cookie is more reliable than a hidden input on cached pages.
+        const effectiveToken = window.getCsrfToken() || csrfToken;
+        if (!effectiveToken) {
+            Swal.fire({
+                icon: 'error',
+                title: 'Missing security token',
+                text: 'Please refresh the page and try again.'
+            });
+            return;
+        }
+
         const content = contentProvider();
         if (!content || !content.trim()) {
             Swal.fire({
@@ -485,11 +557,15 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
+        // Clear any stale interval from a previous run before starting a new one.
+        if (messageInterval) clearInterval(messageInterval);
+
         cardsModalBody.innerHTML = '';
         loadingSpinner.style.display = 'block';
         if(loadingMessage) loadingMessage.textContent = loadingMessages[0];
         saveCardsBtn.disabled = true;
         cardsModal.show();
+        generateInFlight = true;
 
         // Start showing random messages
         let messageIndex = 0;
@@ -505,13 +581,15 @@ document.addEventListener('DOMContentLoaded', function () {
         })
         .then(response => {
             if (!response.ok) {
-                return response.json().then(err => { throw new Error(err.detail || `HTTP error! status: ${response.status}`) });
+                const contentType = response.headers.get('content-type') || '';
+                if (contentType.includes('application/json')) {
+                    return response.json().then(err => { throw new Error(err.detail || `HTTP error! status: ${response.status}`) });
+                }
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
             return response.json();
         })
         .then(data => {
-            clearInterval(messageInterval);
-            loadingSpinner.style.display = 'none';
             generatedCardsData = data.cards || [];
             if (generatedCardsData.length > 0) {
                 displayGeneratedCards(generatedCardsData);
@@ -521,61 +599,119 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         })
         .catch(error => {
-            clearInterval(messageInterval);
-            loadingSpinner.style.display = 'none';
-            cardsModalBody.innerHTML = `<p class="text-danger">Error: ${error.message}</p>`;
+            cardsModalBody.innerHTML = `<p class="text-danger">Error: ${window.escapeHtml(error.message)}</p>`;
             console.error('Error generating cards:', error);
+        })
+        .finally(() => {
+            if (messageInterval) { clearInterval(messageInterval); messageInterval = null; }
+            loadingSpinner.style.display = 'none';
+            generateInFlight = false;
         });
     }
 
     function displayGeneratedCards(cards) {
-        let html = '<div id="generated-cards-container">';
+        // Render from a clean container — no more template-string innerHTML with
+        // untrusted content, which previously allowed `</textarea>` in an LLM
+        // response to break out of the raw-text element and inject HTML.
+        cardsModalBody.innerHTML = '';
+        const container = document.createElement('div');
+        container.id = 'generated-cards-container';
+
         cards.forEach((card, index) => {
             const isCloze = card.card_type === 'cloze';
-            const cardTypeLabel = isCloze ? window.cardTypeBadge(true) : '';
-
+            const questionRaw = card.question || '';
+            const answerRaw = card.answer || '';
             const questionDisplay = window.safeMarkdownInline(
-                isCloze ? window.formatClozeForDisplay(card.question || '') : (card.question || '')
+                isCloze ? window.formatClozeForDisplay(questionRaw) : questionRaw
             );
-            const answerDisplay = window.safeMarkdownInline(card.answer || '');
+            const answerDisplay = window.safeMarkdownInline(answerRaw);
 
-            html += `
-                <div class="card mb-3" data-card-index="${index}" data-card-type="${card.card_type || 'basic'}">
-                    <div class="card-header d-flex flex-column flex-sm-row justify-content-sm-between align-items-start align-items-sm-center">
-                        <div class="form-check">
-                            <input class="form-check-input approve-checkbox" type="checkbox" id="approve-${index}" checked>
-                            <label class="form-check-label" for="approve-${index}">
-                                <strong>Card ${index + 1}</strong>${cardTypeLabel}
-                            </label>
-                        </div>
-                        <div class="mt-2 mt-sm-0">
-                            <button class="btn btn-sm btn-outline-primary edit-card-btn">Edit</button>
-                            <button class="btn btn-sm btn-outline-danger delete-card-btn">Delete</button>
-                        </div>
-                    </div>
-                    <div class="card-body">
-                        <div class="card-content">
-                            <p><strong>${isCloze ? 'Text:' : 'Q:'}</strong> <span class="card-question">${questionDisplay}</span></p>
-                            <p><strong>${isCloze ? 'Answer:' : 'A:'}</strong> <span class="card-answer">${answerDisplay}</span></p>
-                        </div>
-                        <div class="edit-form" style="display: none;">
-                            <div class="mb-2">
-                                <label class="form-label">${isCloze ? 'Text (use {{ "{{" }}c1::answer{{ "}}" }} for cloze):' : 'Question:'}</label>
-                                <textarea class="form-control edit-question">${card.question}</textarea>
-                            </div>
-                            <div class="mb-2">
-                                <label class="form-label">Answer:</label>
-                                <textarea class="form-control edit-answer">${card.answer}</textarea>
-                            </div>
-                            <button class="btn btn-sm btn-success save-edit-btn">Save</button>
-                            <button class="btn btn-sm btn-secondary cancel-edit-btn">Cancel</button>
-                        </div>
-                    </div>
-                </div>
-            `;
+            const cardEl = document.createElement('div');
+            cardEl.className = 'card mb-3';
+            cardEl.dataset.cardIndex = String(index);
+            cardEl.dataset.cardType = card.card_type || 'basic';
+
+            const header = document.createElement('div');
+            header.className = 'card-header d-flex flex-column flex-sm-row justify-content-sm-between align-items-start align-items-sm-center';
+            const checkWrap = document.createElement('div');
+            checkWrap.className = 'form-check';
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.className = 'form-check-input approve-checkbox';
+            checkbox.id = `approve-${index}`;
+            checkbox.checked = true;
+            const checkLabel = document.createElement('label');
+            checkLabel.className = 'form-check-label';
+            checkLabel.htmlFor = checkbox.id;
+            const strong = document.createElement('strong');
+            strong.textContent = `Card ${index + 1}`;
+            checkLabel.appendChild(strong);
+            if (isCloze) {
+                // cardTypeBadge returns a trusted static string.
+                checkLabel.insertAdjacentHTML('beforeend', window.cardTypeBadge(true));
+            }
+            checkWrap.appendChild(checkbox);
+            checkWrap.appendChild(checkLabel);
+            const actions = document.createElement('div');
+            actions.className = 'mt-2 mt-sm-0';
+            actions.innerHTML = '<button class="btn btn-sm btn-outline-primary edit-card-btn">Edit</button> <button class="btn btn-sm btn-outline-danger delete-card-btn">Delete</button>';
+            header.appendChild(checkWrap);
+            header.appendChild(actions);
+
+            const body = document.createElement('div');
+            body.className = 'card-body';
+
+            const viewWrap = document.createElement('div');
+            viewWrap.className = 'card-content';
+            const qP = document.createElement('p');
+            qP.innerHTML = `<strong>${isCloze ? 'Text:' : 'Q:'}</strong> <span class="card-question">${questionDisplay}</span>`;
+            const aP = document.createElement('p');
+            aP.innerHTML = `<strong>${isCloze ? 'Answer:' : 'A:'}</strong> <span class="card-answer">${answerDisplay}</span>`;
+            viewWrap.appendChild(qP);
+            viewWrap.appendChild(aP);
+
+            const editForm = document.createElement('div');
+            editForm.className = 'edit-form';
+            editForm.style.display = 'none';
+
+            const qGroup = document.createElement('div');
+            qGroup.className = 'mb-2';
+            const qLabel = document.createElement('label');
+            qLabel.className = 'form-label';
+            qLabel.textContent = isCloze ? 'Text (use {{ "{{" }}c1::answer{{ "}}" }} for cloze):' : 'Question:';
+            const qTextarea = document.createElement('textarea');
+            qTextarea.className = 'form-control edit-question';
+            qTextarea.value = questionRaw;  // Setting .value is XSS-safe.
+            qGroup.appendChild(qLabel);
+            qGroup.appendChild(qTextarea);
+
+            const aGroup = document.createElement('div');
+            aGroup.className = 'mb-2';
+            const aLabel = document.createElement('label');
+            aLabel.className = 'form-label';
+            aLabel.textContent = 'Answer:';
+            const aTextarea = document.createElement('textarea');
+            aTextarea.className = 'form-control edit-answer';
+            aTextarea.value = answerRaw;
+            aGroup.appendChild(aLabel);
+            aGroup.appendChild(aTextarea);
+
+            editForm.appendChild(qGroup);
+            editForm.appendChild(aGroup);
+            editForm.insertAdjacentHTML('beforeend',
+                '<button class="btn btn-sm btn-success save-edit-btn">Save</button> ' +
+                '<button class="btn btn-sm btn-secondary cancel-edit-btn">Cancel</button>'
+            );
+
+            body.appendChild(viewWrap);
+            body.appendChild(editForm);
+
+            cardEl.appendChild(header);
+            cardEl.appendChild(body);
+            container.appendChild(cardEl);
         });
-        html += '</div>';
-        cardsModalBody.innerHTML = html;
+
+        cardsModalBody.appendChild(container);
         if (window.MathJax) {
             MathJax.typesetPromise([cardsModalBody]);
         }
@@ -587,12 +723,15 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!cardElement) return;
 
         const index = parseInt(cardElement.dataset.cardIndex, 10);
+        const cardData = generatedCardsData[index];
 
         if (target.classList.contains('delete-card-btn')) {
+            // Keep the array in sync with the DOM: index is still a stable key
+            // because we never shift other entries; null marks "removed".
             generatedCardsData[index] = null;
             cardElement.remove();
         } else if (target.classList.contains('edit-card-btn')) {
-            const cardData = generatedCardsData[index];
+            if (!cardData) { cardElement.remove(); return; }
             cardElement.querySelector('.edit-question').value = cardData.question;
             cardElement.querySelector('.edit-answer').value = cardData.answer;
             cardElement.querySelector('.card-content').style.display = 'none';
@@ -601,13 +740,12 @@ document.addEventListener('DOMContentLoaded', function () {
             cardElement.querySelector('.card-content').style.display = 'block';
             cardElement.querySelector('.edit-form').style.display = 'none';
         } else if (target.classList.contains('save-edit-btn')) {
-            const questionTextarea = cardElement.querySelector('.edit-question');
-            const answerTextarea = cardElement.querySelector('.edit-answer');
-            const newQuestion = questionTextarea.value;
-            const newAnswer = answerTextarea.value;
+            if (!cardData) { cardElement.remove(); return; }
+            const newQuestion = cardElement.querySelector('.edit-question').value;
+            const newAnswer = cardElement.querySelector('.edit-answer').value;
 
-            generatedCardsData[index].question = newQuestion;
-            generatedCardsData[index].answer = newAnswer;
+            cardData.question = newQuestion;
+            cardData.answer = newAnswer;
 
             const questionSpan = cardElement.querySelector('.card-question');
             const answerSpan = cardElement.querySelector('.card-answer');
@@ -623,15 +761,15 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     });
 
+    let saveInFlight = false;
     saveCardsBtn.addEventListener('click', function() {
+        if (saveInFlight) return;
+
         const approvedCards = [];
         const cardElements = cardsModalBody.querySelectorAll('.card');
-        const csrfToken = document.getElementById('csrf-token')?.value; // Get CSRF token if available
-
         cardElements.forEach(cardElement => {
             const index = parseInt(cardElement.dataset.cardIndex, 10);
             const isApproved = cardElement.querySelector('.approve-checkbox').checked;
-
             if (isApproved && generatedCardsData[index]) {
                 approvedCards.push(generatedCardsData[index]);
             }
@@ -650,32 +788,32 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
-        const headers = { 'Content-Type': 'application/json' };
-        if (csrfToken) {
-            headers['X-CSRF-Token'] = csrfToken;
+        const csrfToken = window.getCsrfToken() || document.getElementById('csrf-token')?.value;
+        if (!csrfToken) {
+            Swal.fire({
+                icon: 'error',
+                title: 'Missing security token',
+                text: 'Please refresh the page and try again.'
+            });
+            return;
         }
 
-        fetch('/api/save-cards', {
+        saveInFlight = true;
+        saveCardsBtn.disabled = true;
+        const originalLabel = saveCardsBtn.textContent;
+        saveCardsBtn.textContent = 'Saving...';
+
+        window.fetchJson('/api/save-cards', {
             method: 'POST',
-            headers: headers,
+            headers: { 'X-CSRF-Token': csrfToken },
             body: JSON.stringify({ cards: approvedCards })
         })
-        .then(response => {
-             if (!response.ok) {
-                return response.json().then(err => { throw new Error(err.detail || `HTTP error! status: ${response.status}`) });
-            }
-            return response.json();
-        })
         .then(data => {
-            Swal.fire({
-                icon: 'success',
-                title: 'Success!',
-                text: data.message,
-            });
+            Swal.fire({ icon: 'success', title: 'Success!', text: data.message });
             cardsModal.hide();
         })
         .catch(error => {
-             Swal.fire({
+            Swal.fire({
                 toast: true,
                 position: 'top-end',
                 icon: 'error',
@@ -685,6 +823,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 timerProgressBar: true
             });
             console.error(error);
+        })
+        .finally(() => {
+            saveInFlight = false;
+            saveCardsBtn.disabled = false;
+            saveCardsBtn.textContent = originalLabel;
         });
     });
 });

@@ -42,9 +42,9 @@
                         </div>
                         <div class="mb-3">
                             <label for="password" class="form-label">Password</label>
-                            <input type="password" class="form-control" id="password" name="password" required>
-                            <small id="password-hint" class="form-text text-muted d-none">
-                                Must be at least 8 characters and contain a number.
+                            <input type="password" class="form-control" id="password" name="password" required minlength="8" aria-describedby="password-hint">
+                            <small id="password-hint" class="form-text text-muted">
+                                New accounts: password must be at least 8 characters and contain a number.
                             </small>
                         </div>
                         <div class="d-grid">
@@ -82,7 +82,6 @@
     const submitButton = document.getElementById('submit-button');
     const toggleLink = document.getElementById('auth-toggle-link');
     const toggleText = document.getElementById('auth-toggle-text');
-    const passwordHint = document.getElementById('password-hint');
     let isLogin = true;
 
     // --- CSRF Token for AJAX ---
@@ -164,13 +163,11 @@
             isLogin = true;
             actionInput.value = 'login';
             submitButton.textContent = 'Login';
-            passwordHint.classList.add('d-none');
             toggleText.innerHTML = 'Don\'t have an account? <a href="#" id="auth-toggle-link">Register here</a>.';
         } else {
             isLogin = false;
             actionInput.value = 'register';
             submitButton.textContent = 'Register';
-            passwordHint.classList.remove('d-none');
             toggleText.innerHTML = 'Already have an account? <a href="#" id="auth-toggle-link">Login here</a>.';
         }
         // Re-attach event listener since innerHTML is replaced

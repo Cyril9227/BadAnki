@@ -68,10 +68,13 @@
             <option value="basic">Q&A Cards</option>
             <option value="cloze">Cloze Cards</option>
         </select>
-        <div class="btn-group" role="group">
-            <button type="button" id="generate-cards-btn" class="btn {{ 'btn-success' if gemini_api_key_exists or anthropic_api_key_exists else 'btn-secondary' }} dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" {% if not gemini_api_key_exists and not anthropic_api_key_exists %}disabled{% endif %}>
+        <div class="btn-group" role="group" {% if not gemini_api_key_exists and not anthropic_api_key_exists %}title="Add a Gemini or Anthropic API key in Settings to enable card generation."{% endif %}>
+            <button type="button" id="generate-cards-btn" class="btn {{ 'btn-success' if gemini_api_key_exists or anthropic_api_key_exists else 'btn-secondary' }} dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" {% if not gemini_api_key_exists and not anthropic_api_key_exists %}disabled aria-describedby="generate-cards-help"{% endif %}>
                 Generate Cards
             </button>
+            {% if not gemini_api_key_exists and not anthropic_api_key_exists %}
+            <span id="generate-cards-help" class="visually-hidden">Add a Gemini or Anthropic API key in Settings to enable card generation.</span>
+            {% endif %}
             <ul class="dropdown-menu dropdown-menu-end">
                 {% if gemini_api_key_exists %}
                     <li><a class="dropdown-item" href="#" id="generate-cards-gemini-btn">Using Gemini</a></li>
@@ -86,11 +89,13 @@
     </div>
 </div>
 
-    <!-- Tags as stylized buttons -->
+    <!-- Tags as stylized buttons. Render hrefs server-side so the links work
+         even if JS hasn't loaded yet; the JS fallback below is kept as a
+         belt-and-braces override for old pages. -->
     {% if metadata.get('tags') %}
         <div class="card-tags mb-3">
             {% for tag in metadata.get('tags') %}
-                <a href="#" class="card-tag tag-link" data-tag="{{ tag | e }}">{{ tag }}</a>
+                <a href="/tags/{{ tag | urlencode }}" class="card-tag tag-link" data-tag="{{ tag | e }}">{{ tag }}</a>
             {% endfor %}
         </div>
     {% endif %}
