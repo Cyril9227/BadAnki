@@ -13,7 +13,7 @@
             <div class="card">
                 <div class="card-body">
                     <label for="card-type-select" class="form-label"><strong>Card Type</strong></label>
-                    <select id="card-type-select" name="card_type" class="form-select" onchange="toggleCardType()">
+                    <select id="card-type-select" name="card_type" class="form-select">
                         <option value="basic">Basic Q&A</option>
                         <option value="cloze">Cloze (Fill-in-the-blank)</option>
                     </select>
@@ -34,7 +34,7 @@
                     <h3 id="question-label">Question</h3>
                 </div>
                 <div class="card-body">
-                    <textarea name="question" id="question-input" class="form-control" style="height: 200px;" oninput="updatePreview('question')"></textarea>
+                    <textarea name="question" id="question-input" class="form-control" style="height: 200px;" required></textarea>
                 </div>
             </div>
         </div>
@@ -60,7 +60,7 @@
                     <div id="cloze-answer-note" class="alert alert-success mb-2 py-2" style="display: none;">
                         <small>Auto-filled from cloze syntax. You can edit if needed.</small>
                     </div>
-                    <textarea name="answer" id="answer-input" class="form-control" style="height: 200px;" oninput="updatePreview('answer')"></textarea>
+                    <textarea name="answer" id="answer-input" class="form-control" style="height: 200px;" required></textarea>
                 </div>
             </div>
         </div>
@@ -85,40 +85,50 @@
 
 {% block scripts %}
 <script>
+document.addEventListener('DOMContentLoaded', function () {
+    const questionInput = document.getElementById('question-input');
     const answerInput = document.getElementById('answer-input');
+    const questionPreview = document.getElementById('question-preview');
+    const answerPreview = document.getElementById('answer-preview');
+    const cardTypeSelect = document.getElementById('card-type-select');
+    const clozeHint = document.getElementById('cloze-hint');
+    const questionLabel = document.getElementById('question-label');
     const answerLabel = document.getElementById('answer-label');
     const clozeAnswerNote = document.getElementById('cloze-answer-note');
+    const form = document.querySelector('form');
+    const submitBtn = form.querySelector('button[type="submit"]');
 
     function extractClozeAnswers(text) {
         const matches = [...text.matchAll(window.CLOZE_PATTERN_GLOBAL)];
         return matches.map(m => m[1]).join(', ');
     }
 
-    function updatePreview(field) {
-        let input = document.getElementById(`${field}-input`).value;
-        const preview = document.getElementById(`${field}-preview`);
+    function renderPreview(preview, text) {
+        preview.innerHTML = window.safeMarkdown(text);
+        if (window.MathJax) {
+            MathJax.typesetPromise([preview]);
+        }
+    }
 
-        const cardType = document.getElementById('card-type-select').value;
-        if (cardType === 'cloze' && field === 'question') {
-            // Auto-fill answer from cloze syntax
+    function updateQuestionPreview() {
+        let input = questionInput.value;
+        if (cardTypeSelect.value === 'cloze') {
             const extracted = extractClozeAnswers(input);
             if (extracted) {
                 answerInput.value = extracted;
-                updatePreview('answer');
+                renderPreview(answerPreview, extracted);
             }
             input = window.formatClozeForDisplay(input);
         }
+        renderPreview(questionPreview, input);
+    }
 
-        preview.innerHTML = marked.parse(input);
-        MathJax.typesetPromise([preview]);
+    function updateAnswerPreview() {
+        renderPreview(answerPreview, answerInput.value);
     }
 
     function toggleCardType() {
-        const cardType = document.getElementById('card-type-select').value;
-        const clozeHint = document.getElementById('cloze-hint');
-        const questionLabel = document.getElementById('question-label');
-
-        if (cardType === 'cloze') {
+        if (cardTypeSelect.value === 'cloze') {
             clozeHint.style.display = 'block';
             questionLabel.textContent = 'Text (with cloze syntax)';
             answerLabel.textContent = 'Answer (auto-filled)';
@@ -129,26 +139,42 @@
             answerLabel.textContent = 'Answer';
             clozeAnswerNote.style.display = 'none';
         }
-
-        updatePreview('question');
+        updateQuestionPreview();
     }
 
-    // Validate cloze syntax before submit
-    document.querySelector('form').addEventListener('submit', function(e) {
-        const cardType = document.getElementById('card-type-select').value;
-        const question = document.getElementById('question-input').value;
-        if (cardType === 'cloze' && !window.isClozeText(question)) {
+    questionInput.addEventListener('input', updateQuestionPreview);
+    answerInput.addEventListener('input', updateAnswerPreview);
+    cardTypeSelect.addEventListener('change', toggleCardType);
+
+    form.addEventListener('submit', function(e) {
+        const question = questionInput.value.trim();
+        const answer = answerInput.value.trim();
+        if (!question || !answer) {
+            e.preventDefault();
+            Swal.fire({
+                icon: 'warning',
+                title: 'Missing content',
+                text: 'Both the question and answer are required.'
+            });
+            return;
+        }
+        if (cardTypeSelect.value === 'cloze' && !window.isClozeText(question)) {
             e.preventDefault();
             Swal.fire({
                 icon: 'warning',
                 title: 'Missing cloze syntax',
                 text: 'Please add at least one cloze deletion using {{ "{{" }}c1::answer{{ "}}" }} syntax.',
             });
+            return;
         }
+        // Browsers replay POST submissions on back/forward — disabling the
+        // button prevents a double-submit from a fast double-click.
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Saving...';
     });
 
-    // Initial preview update for both fields
-    updatePreview('question');
-    updatePreview('answer');
+    updateQuestionPreview();
+    updateAnswerPreview();
+});
 </script>
 {% endblock %}

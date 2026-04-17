@@ -68,10 +68,13 @@
                             <option value="basic">Q&A Cards</option>
                             <option value="cloze">Cloze Cards</option>
                         </select>
-                        <div class="btn-group">
-                            <button type="button" id="generate-cards-btn" class="btn {{ 'btn-success' if gemini_api_key_exists or anthropic_api_key_exists else 'btn-secondary' }} dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" {% if not gemini_api_key_exists and not anthropic_api_key_exists %}disabled{% endif %}>
+                        <div class="btn-group" {% if not gemini_api_key_exists and not anthropic_api_key_exists %}title="Add a Gemini or Anthropic API key in Settings to enable card generation."{% endif %}>
+                            <button type="button" id="generate-cards-btn" class="btn {{ 'btn-success' if gemini_api_key_exists or anthropic_api_key_exists else 'btn-secondary' }} dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" {% if not gemini_api_key_exists and not anthropic_api_key_exists %}disabled aria-describedby="generate-cards-help"{% endif %}>
                                 Generate Cards
                             </button>
+                            {% if not gemini_api_key_exists and not anthropic_api_key_exists %}
+                            <span id="generate-cards-help" class="visually-hidden">Add a Gemini or Anthropic API key in Settings to enable card generation.</span>
+                            {% endif %}
                             <ul class="dropdown-menu">
                                 {% if gemini_api_key_exists %}
                                     <li><a class="dropdown-item" href="#" id="generate-cards-gemini-btn">Using Gemini</a></li>
@@ -139,22 +142,25 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function buildTreeHTML(nodes) {
+        const esc = window.escapeHtml;
         let html = '<div class="list-group list-group-flush">';
         nodes.forEach((node, index) => {
             const padding = (node.depth || 0) * 20;
             const safePath = node.path.replace(/[^a-zA-Z0-9]/g, '-');
             const collapseId = `collapse-${safePath}-${index}`;
+            const dataPath = esc(node.path);
+            const displayName = esc(node.type === 'directory' ? node.name : (node.title || node.name));
 
             if (node.type === 'directory') {
                 html += `
                     <div style="padding-left: ${padding}px;">
                         <div class="list-group-item d-flex justify-content-between align-items-center" data-bs-toggle="collapse" href="#${collapseId}" role="button" aria-expanded="false" aria-controls="${collapseId}">
-                            <span class="item-name folder-item" data-path="${node.path}">
-                                <i class="fas fa-folder"></i> ${node.name}
+                            <span class="item-name folder-item" data-path="${dataPath}">
+                                <i class="fas fa-folder" aria-hidden="true"></i> ${displayName}
                             </span>
                             <span class="item-actions">
-                                <button class="btn btn-outline-success new-file-btn" data-path="${node.path}" title="New File"><i class="fas fa-plus"></i></button>
-                                <button class="btn btn-outline-danger delete-item-btn" data-path="${node.path}" data-type="folder" title="Delete Folder"><i class="fas fa-trash-alt"></i></button>
+                                <button class="btn btn-outline-success new-file-btn" data-path="${dataPath}" title="New File" aria-label="New file in folder"><i class="fas fa-plus" aria-hidden="true"></i></button>
+                                <button class="btn btn-outline-danger delete-item-btn" data-path="${dataPath}" data-type="folder" title="Delete Folder" aria-label="Delete folder"><i class="fas fa-trash-alt" aria-hidden="true"></i></button>
                             </span>
                         </div>
                         <div class="collapse" id="${collapseId}">
@@ -166,11 +172,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 html += `
                     <div style="padding-left: ${padding}px;">
                         <div class="list-group-item d-flex justify-content-between align-items-center">
-                            <span class="item-name file-item" data-path="${node.path}">
-                                <i class="fas fa-file-alt"></i> ${node.title || node.name}
+                            <span class="item-name file-item" data-path="${dataPath}">
+                                <i class="fas fa-file-alt" aria-hidden="true"></i> ${displayName}
                             </span>
                             <span class="item-actions">
-                                <button class="btn btn-outline-danger delete-item-btn" data-path="${node.path}" data-type="file" title="Delete File"><i class="fas fa-trash-alt"></i></button>
+                                <button class="btn btn-outline-danger delete-item-btn" data-path="${dataPath}" data-type="file" title="Delete File" aria-label="Delete file"><i class="fas fa-trash-alt" aria-hidden="true"></i></button>
                             </span>
                         </div>
                     </div>
@@ -307,10 +313,19 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     });
 
+    let saveInFlight = false;
     editorForm.addEventListener('submit', function (e) {
         e.preventDefault();
+        if (saveInFlight) return;
+
         const path = currentFilePathInput.value;
         const content = markdownEditor.value;
+        if (!path) { return; }
+
+        saveInFlight = true;
+        saveBtn.disabled = true;
+        const originalLabel = saveBtn.textContent;
+        saveBtn.textContent = 'Saving...';
 
         fetch(`/api/course-content`, {
             method: 'POST',
@@ -330,7 +345,12 @@ document.addEventListener('DOMContentLoaded', function () {
             });
             loadFileTree();
         })
-        .catch(handleError);
+        .catch(handleError)
+        .finally(() => {
+            saveInFlight = false;
+            saveBtn.disabled = false;
+            saveBtn.textContent = originalLabel;
+        });
     });
 
     downloadBtn.addEventListener('click', function() {
@@ -509,7 +529,9 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function updatePreview() {
-        livePreview.innerHTML = marked.parse(markdownEditor.value);
+        // Sanitize preview output — the editor may be rendering markdown that
+        // was pasted from an untrusted source (e.g. downloaded course files).
+        livePreview.innerHTML = window.safeMarkdown(markdownEditor.value);
         if (window.MathJax && window.MathJax.startup) {
             MathJax.typesetPromise([livePreview]);
         }

@@ -7,14 +7,19 @@
     <div class="row">
         <div class="col-md-12">
             <h2 class="mb-3">Tags</h2>
-            <div id="tags-list" class="d-flex flex-wrap gap-2 mb-4">
-                <!-- Tags will be loaded here -->
+            <div id="tags-list" class="d-flex flex-wrap gap-2 mb-4" aria-live="polite">
+                <div class="d-flex align-items-center text-muted">
+                    <div class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></div>
+                    <span>Loading tags…</span>
+                </div>
             </div>
 
             <h2 class="mb-4">All Courses</h2>
-            <div id="course-list" class="list-group">
-                <!-- Course list will be loaded here by JavaScript -->
-                <p class="text-muted">Loading courses...</p>
+            <div id="course-list" class="list-group" aria-live="polite">
+                <div class="d-flex align-items-center text-muted p-3">
+                    <div class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></div>
+                    <span>Loading courses…</span>
+                </div>
             </div>
         </div>
     </div>
@@ -26,63 +31,53 @@
 document.addEventListener('DOMContentLoaded', function () {
     const courseList = document.getElementById('course-list');
     const tagsList = document.getElementById('tags-list');
+    const esc = window.escapeHtml;
 
-    // Fetch and display all tags
-    fetch('/api/tags')
-        .then(response => response.json())
+    window.fetchJson('/api/tags')
         .then(tags => {
-            if (tags.length > 0) {
-                const tagsHtml = tags.map(tag =>
-                    `<a href="/tags/${encodeURIComponent(tag)}" class="btn btn-sm btn-outline-primary">${tag}</a>`
-                ).join('');
-                tagsList.innerHTML = tagsHtml;
+            if (Array.isArray(tags) && tags.length > 0) {
+                tagsList.innerHTML = tags.map(tag => {
+                    const safe = esc(tag);
+                    return `<a href="/tags/${encodeURIComponent(tag)}" class="btn btn-sm btn-outline-primary">${safe}</a>`;
+                }).join('');
             } else {
-                tagsList.innerHTML = '<p class="text-muted">No tags found.</p>';
+                tagsList.innerHTML = '<p class="text-muted mb-0">No tags found.</p>';
             }
         })
         .catch(error => {
-            tagsList.innerHTML = '<p class="text-danger">Error loading tags.</p>';
+            tagsList.innerHTML = `<p class="text-danger mb-0">Error loading tags: ${esc(error.message)}</p>`;
             console.error('Error fetching tags:', error);
         });
 
-    // Fetch and display all courses
-    fetch('/api/courses-tree')
-        .then(response => response.json())
+    window.fetchJson('/api/courses-tree')
         .then(data => {
-            let html = '';
-            
-            // Recursive function to find all files in the tree
             function findFiles(nodes) {
                 let files = [];
-                for (const node of nodes) {
-                    if (node.type === 'file') {
-                        files.push(node);
-                    }
-                    if (node.children) {
-                        files = files.concat(findFiles(node.children));
-                    }
+                for (const node of nodes || []) {
+                    if (node.type === 'file') files.push(node);
+                    if (node.children) files = files.concat(findFiles(node.children));
                 }
                 return files;
             }
 
             const files = findFiles(data);
-
             if (files.length === 0) {
-                html = '<p>No courses found. You can create one in the editor.</p>';
-            } else {
-                files.forEach(item => {
-                    const displayName = item.title || item.name.replace('.md', '');
-                    html += `<a href="/courses/${encodeURIComponent(item.path)}" class="list-group-item list-group-item-action">
-                                <strong>${displayName}</strong>
-                                <br>
-                                <small class="text-muted">${item.path}</small>
-                             </a>`;
-                });
+                courseList.innerHTML = '<p class="p-3 mb-0">No courses found. You can create one in the editor.</p>';
+                return;
             }
-            courseList.innerHTML = html;
+
+            courseList.innerHTML = files.map(item => {
+                const displayName = esc(item.title || item.name.replace('.md', ''));
+                const safePath = esc(item.path);
+                return `<a href="/courses/${encodeURIComponent(item.path)}" class="list-group-item list-group-item-action">
+                            <strong>${displayName}</strong>
+                            <br>
+                            <small class="text-muted">${safePath}</small>
+                        </a>`;
+            }).join('');
         })
         .catch(error => {
-            courseList.innerHTML = '<p class="text-danger">Error loading courses.</p>';
+            courseList.innerHTML = `<p class="text-danger p-3 mb-0">Error loading courses: ${esc(error.message)}</p>`;
             console.error('Error fetching course tree:', error);
         });
 });

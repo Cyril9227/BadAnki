@@ -6,8 +6,11 @@ import json
 import logging
 import os
 import secrets
+import time
+from collections import deque
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
+from threading import Lock
 from typing import Optional
 import uuid
 from urllib.parse import unquote, quote
@@ -77,10 +80,14 @@ async def webhook(request: Request, secret: str):
     This is called by Telegram servers when users interact with the bot.
     """
     logger.info("Webhook endpoint was hit!")
-    
-    # Validate the secret
-    expected_secret = TELEGRAM_WEBHOOK_SECRET or "default_secret"
-    if not secrets.compare_digest(secret, expected_secret):
+
+    # Validate the secret. Refuse to accept any request if the server has not
+    # been configured with a webhook secret — otherwise an attacker could
+    # exploit a guessed fallback value.
+    if not TELEGRAM_WEBHOOK_SECRET:
+        logger.error("TELEGRAM_WEBHOOK_SECRET is not configured; rejecting webhook.")
+        raise HTTPException(status_code=503, detail="Webhook not configured")
+    if not secrets.compare_digest(secret, TELEGRAM_WEBHOOK_SECRET):
         logger.warning("Invalid secret received in webhook request.")
         raise HTTPException(status_code=403, detail="Invalid secret")
     
@@ -220,12 +227,15 @@ async def get_current_user(request: Request, conn: psycopg2.extensions.connectio
             # This is the key change: ensure a profile exists for any valid Supabase user.
             # It's idempotent, so it's safe to call on every authenticated request.
             crud.create_profile(conn, username=auth_user.email, auth_user_id=auth_user.id)
-            
+
             profile = crud.get_profile_by_auth_id(conn, auth_user.id)
             if profile:
                 return User(**profile)
-    except Exception:
-        return None
+    except AuthApiError as e:
+        # Expired/invalid tokens are normal — debug level avoids log spam.
+        logger.debug("Supabase auth rejected token: %s", e)
+    except Exception as e:
+        logger.warning("Unexpected error resolving current user: %s", e, exc_info=True)
     return None
 
 @app.get("/logout")
@@ -246,6 +256,94 @@ async def get_current_active_user(request: Request):
         # Redirect to the unified auth page if user is not authenticated
         raise HTTPException(status_code=303, headers={"Location": "/auth"})
     return request.state.user
+
+# --- Input Validation Helpers ---
+
+def _validate_course_path(path: str) -> str:
+    """Reject paths that try to traverse outside the user's course space.
+
+    Courses are stored keyed by a relative path per user; we never hit the
+    filesystem, but validating at the boundary keeps untrusted input from
+    reaching the DB and avoids surprises if callers ever interpret the path
+    as a filesystem location (e.g. for downloads).
+    """
+    if not path:
+        raise HTTPException(status_code=400, detail="Course path cannot be empty.")
+    if "\x00" in path:
+        raise HTTPException(status_code=400, detail="Invalid course path.")
+    normalized = path.replace("\\", "/")
+    if normalized.startswith("/"):
+        raise HTTPException(status_code=400, detail="Invalid course path.")
+    if any(part == ".." for part in normalized.split("/")):
+        raise HTTPException(status_code=400, detail="Invalid course path.")
+    return path
+
+
+# --- Rate Limiting ---
+# Simple in-memory per-user token bucket. Sufficient as a first line of defence
+# against a single logged-in user burning through their own LLM quota or
+# flooding the provider. On Vercel each serverless instance gets its own map,
+# so the effective limit is per-instance — good enough for now. Swap for a
+# shared store (Redis) if you need a strict global cap.
+_LLM_RATE_LIMIT_MAX = 10
+_LLM_RATE_LIMIT_WINDOW_SECS = 60
+_llm_rate_limit_state: dict[str, deque] = {}
+_llm_rate_limit_lock = Lock()
+
+
+def _check_llm_rate_limit(user_id: str) -> None:
+    now = time.monotonic()
+    window_start = now - _LLM_RATE_LIMIT_WINDOW_SECS
+    with _llm_rate_limit_lock:
+        bucket = _llm_rate_limit_state.setdefault(user_id, deque())
+        while bucket and bucket[0] < window_start:
+            bucket.popleft()
+        if len(bucket) >= _LLM_RATE_LIMIT_MAX:
+            retry_after = int(_LLM_RATE_LIMIT_WINDOW_SECS - (now - bucket[0])) + 1
+            raise HTTPException(
+                status_code=429,
+                detail=f"Too many card-generation requests. Please retry in {retry_after}s.",
+                headers={"Retry-After": str(retry_after)},
+            )
+        bucket.append(now)
+
+
+# --- LLM Output Validation ---
+
+_MAX_CARD_QUESTION_LEN = 10_000
+_MAX_CARD_ANSWER_LEN = 50_000
+
+
+def _validate_generated_cards(cards) -> list[dict]:
+    """Coerce whatever the LLM returned into a safe list of card dicts.
+
+    The LLM is instructed to return a specific schema but can drift. We drop
+    malformed entries rather than failing the whole batch so the user still
+    gets something useful, and we cap lengths so a runaway response can't
+    flood the UI or the DB.
+    """
+    if not isinstance(cards, list):
+        return []
+    valid: list[dict] = []
+    for card in cards:
+        if not isinstance(card, dict):
+            continue
+        question = card.get("question")
+        answer = card.get("answer")
+        if not isinstance(question, str) or not isinstance(answer, str):
+            continue
+        question = question.strip()
+        answer = answer.strip()
+        if not question or not answer:
+            continue
+        if len(question) > _MAX_CARD_QUESTION_LEN or len(answer) > _MAX_CARD_ANSWER_LEN:
+            continue
+        card_type = card.get("card_type", "basic")
+        if card_type not in ("basic", "cloze"):
+            card_type = "basic"
+        valid.append({"question": question, "answer": answer, "card_type": card_type})
+    return valid
+
 
 # --- LLM & Card Generation ---
 
@@ -331,9 +429,10 @@ def generate_cards(text: str, mode="gemini", api_key: str = None, card_type: str
         
         # Need to carefully escape latex for JSON parsing and then for frontend rendering...
         parsed = robust_json_loads(response_text)
-        cards = parsed.get("cards", [])
+        raw_cards = parsed.get("cards", []) if isinstance(parsed, dict) else []
+        cards = _validate_generated_cards(raw_cards)
         return normalize_cards(cards)
-            
+
     except Exception as e:
         logger.error(f"An error occurred during {mode} API call: {e}")
         return []
@@ -341,10 +440,12 @@ def generate_cards(text: str, mode="gemini", api_key: str = None, card_type: str
 
 @app.get("/api-keys", response_class=HTMLResponse)
 async def api_keys_form(request: Request, user: User = Depends(get_current_active_user)):
+    # Never send stored secrets back to the browser. Surface only a boolean so
+    # the UI can indicate whether a key is configured.
     return templates.TemplateResponse(request, "api_keys.html", {
-        "api_keys": request.state.api_keys,
         "csrf_token": request.state.csrf_token,
-        "user": user
+        "gemini_key_set": bool(user.gemini_api_key),
+        "anthropic_key_set": bool(user.anthropic_api_key),
     })
 
 @app.get("/secrets", response_class=HTMLResponse)
@@ -523,7 +624,7 @@ async def list_courses(request: Request, user: User = Depends(get_current_active
 
 @app.get("/edit-course/{course_path:path}", response_class=HTMLResponse)
 async def edit_course(request: Request, course_path: str, user: User = Depends(get_current_active_user)):
-    course_path = unquote(course_path)
+    course_path = _validate_course_path(unquote(course_path))
     gemini_api_key_exists = False
     anthropic_api_key_exists = False
     
@@ -550,7 +651,7 @@ async def edit_course(request: Request, course_path: str, user: User = Depends(g
 
 @app.get("/courses/{course_path:path}", response_class=HTMLResponse)
 async def view_course(request: Request, course_path: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    course_path = unquote(course_path)
+    course_path = _validate_course_path(unquote(course_path))
     course = crud.get_course_content_for_user(conn, course_path, auth_user_id=user.auth_user_id)
     if not course or not course['content']:
         raise HTTPException(status_code=404, detail="Course not found")
@@ -590,7 +691,7 @@ async def api_get_courses_tree(conn: psycopg2.extensions.connection = Depends(ge
 
 @app.get("/api/download-course/{course_path:path}")
 async def download_course(course_path: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    course_path = unquote(course_path)
+    course_path = _validate_course_path(unquote(course_path))
     course = crud.get_course_content_for_user(conn, course_path, auth_user_id=user.auth_user_id)
     if not course:
         raise HTTPException(status_code=404, detail="File not found")
@@ -616,7 +717,7 @@ async def download_course(course_path: str, conn: psycopg2.extensions.connection
 
 @app.get("/api/course-content/{course_path:path}", response_class=JSONResponse)
 async def api_get_course_content(course_path: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    course_path = unquote(course_path)
+    course_path = _validate_course_path(unquote(course_path))
     course = crud.get_course_content_for_user(conn, course_path, auth_user_id=user.auth_user_id)
     if not course:
         raise HTTPException(status_code=404, detail="File not found")
@@ -624,21 +725,24 @@ async def api_get_course_content(course_path: str, conn: psycopg2.extensions.con
 
 @app.post("/api/course-content")
 async def api_save_course_content(item: CourseContent, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    crud.save_course_content_for_user(conn, item.path, item.content, auth_user_id=user.auth_user_id)
+    path = _validate_course_path(item.path)
+    crud.save_course_content_for_user(conn, path, item.content, auth_user_id=user.auth_user_id)
     return {"success": True}
 
 @app.api_route("/api/course-item", methods=["POST", "DELETE"])
 async def api_manage_course_item(item: CourseItem, request: Request, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
+    path = _validate_course_path(item.path)
     if request.method == "POST":
-        crud.create_course_item_for_user(conn, item.path, item.type, auth_user_id=user.auth_user_id)
+        crud.create_course_item_for_user(conn, path, item.type, auth_user_id=user.auth_user_id)
     elif request.method == "DELETE":
-        crud.delete_course_item_for_user(conn, item.path, item.type, auth_user_id=user.auth_user_id)
+        crud.delete_course_item_for_user(conn, path, item.type, auth_user_id=user.auth_user_id)
     return {"success": True}
 
 @app.post("/api/generate-cards")
 async def api_generate_cards(request: Request, data: CourseContentForGeneration, user: User = Depends(get_current_active_user)):
     if not data.content.strip():
         raise HTTPException(status_code=400, detail="Content cannot be empty.")
+    _check_llm_rate_limit(str(user.auth_user_id))
 
     api_key = None
     if request.state.api_keys:
@@ -653,6 +757,7 @@ async def api_generate_cards(request: Request, data: CourseContentForGeneration,
 async def api_generate_cards_ollama(data: CourseContentForGeneration, user: User = Depends(get_current_active_user)):
     if not data.content.strip():
         raise HTTPException(status_code=400, detail="Content cannot be empty.")
+    _check_llm_rate_limit(str(user.auth_user_id))
     generated_cards = generate_cards(data.content, mode="ollama", card_type=data.card_type)
     if not generated_cards:
         raise HTTPException(status_code=500, detail="Failed to generate cards.")
@@ -663,6 +768,7 @@ async def api_generate_cards_ollama(data: CourseContentForGeneration, user: User
 async def api_generate_cards_anthropic(request: Request, data: CourseContentForGeneration, user: User = Depends(get_current_active_user)):
     if not data.content.strip():
         raise HTTPException(status_code=400, detail="Content cannot be empty.")
+    _check_llm_rate_limit(str(user.auth_user_id))
 
     api_key = None
     if request.state.api_keys:
@@ -685,7 +791,19 @@ async def api_get_tags(conn: psycopg2.extensions.connection = Depends(get_db), u
 
 @app.post("/api/save-api-keys")
 async def api_save_api_keys(data: ApiKeys, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    crud.save_api_keys_for_user(conn, user.auth_user_id, data.gemini_api_key, data.anthropic_api_key)
+    # Treat blank/omitted fields as "leave existing value alone" rather than
+    # wiping the stored key. The form deliberately does not round-trip the
+    # current value, so a user who only wants to update one key can leave the
+    # other blank without losing it.
+    def _resolve(submitted: Optional[str], current: Optional[str]) -> Optional[str]:
+        if submitted is None:
+            return current
+        trimmed = submitted.strip()
+        return trimmed if trimmed else current
+
+    gemini_key = _resolve(data.gemini_api_key, user.gemini_api_key)
+    anthropic_key = _resolve(data.anthropic_api_key, user.anthropic_api_key)
+    crud.save_api_keys_for_user(conn, user.auth_user_id, gemini_key, anthropic_key)
     return {"success": True}
 
 # --- Tag-based Views ---
