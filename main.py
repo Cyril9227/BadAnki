@@ -81,20 +81,21 @@ async def webhook(request: Request, secret: str):
     """
     logger.info("Webhook endpoint was hit!")
 
-    # Validate the secret. Refuse to accept any request if the server has not
-    # been configured with a webhook secret — otherwise an attacker could
-    # exploit a guessed fallback value.
+    # Refuse webhook requests when no secret is configured; otherwise a guessed
+    # fallback value could expose the endpoint.
     if not TELEGRAM_WEBHOOK_SECRET:
         logger.error("TELEGRAM_WEBHOOK_SECRET is not configured; rejecting webhook.")
-        raise HTTPException(status_code=503, detail="Webhook not configured")
+        raise HTTPException(status_code=503, detail="Webhook is not configured")
     if not secrets.compare_digest(secret, TELEGRAM_WEBHOOK_SECRET):
         logger.warning("Invalid secret received in webhook request.")
         raise HTTPException(status_code=403, detail="Invalid secret")
-    
+
+    bot_app = None
+    initialized = False
     try:
         # Get the update data from Telegram
         data = await request.json()
-        logger.info(f"Received webhook data: {json.dumps(data, indent=2)}")
+        logger.info("Received Telegram webhook update_id=%s", data.get("update_id"))
         
         # Create a fresh bot application for this request (serverless pattern)
         bot_app = get_bot_application()
@@ -104,6 +105,7 @@ async def webhook(request: Request, secret: str):
         
         # Initialize the bot for this request
         await bot_app.initialize()
+        initialized = True
         
         # Parse the update
         update = Update.de_json(data, bot_app.bot)
@@ -113,33 +115,52 @@ async def webhook(request: Request, secret: str):
         
         logger.info("Successfully processed webhook update.")
         
-        # Clean up
-        await bot_app.shutdown()
-        
         return Response(status_code=200)
         
     except Exception as e:
         logger.error(f"Error processing webhook update: {e}", exc_info=True)
         return Response(status_code=500)
+    finally:
+        if bot_app and initialized:
+            try:
+                await bot_app.shutdown()
+            except Exception as e:
+                logger.warning(f"Error shutting down Telegram bot application: {e}", exc_info=True)
 
 
 async def _ensure_webhook():
     """Helper function to ensure the Telegram webhook is set correctly."""
-    bot_app = get_bot_application()
-    await bot_app.initialize()
-    webhook_url = f"{os.environ.get('APP_URL')}/webhook/{os.environ.get('TELEGRAM_WEBHOOK_SECRET')}"
-    info = await bot_app.bot.get_webhook_info()
+    app_url = os.environ.get("APP_URL")
+    if not app_url or not TELEGRAM_WEBHOOK_SECRET:
+        raise HTTPException(status_code=503, detail="Webhook is not configured")
 
-    if info.url != webhook_url:
-        await bot_app.bot.set_webhook(url=webhook_url, drop_pending_updates=False)
-        return {"status": "webhook (re)set", "url": webhook_url}
-    else:
-        return {"status": "already correct", "url": info.url}
+    bot_app = get_bot_application()
+    if not bot_app:
+        raise HTTPException(status_code=503, detail="Telegram bot is not configured")
+
+    initialized = False
+    try:
+        await bot_app.initialize()
+        initialized = True
+        webhook_url = f"{app_url.rstrip('/')}/webhook/{TELEGRAM_WEBHOOK_SECRET}"
+        info = await bot_app.bot.get_webhook_info()
+
+        if info.url != webhook_url:
+            await bot_app.bot.set_webhook(url=webhook_url, drop_pending_updates=False)
+            return {"status": "webhook (re)set", "url": webhook_url}
+        else:
+            return {"status": "already correct", "url": info.url}
+    finally:
+        if bot_app and initialized:
+            try:
+                await bot_app.shutdown()
+            except Exception as e:
+                logger.warning(f"Error shutting down Telegram bot application: {e}", exc_info=True)
 
 
 @app.get("/api/ensure-webhook")
 async def ensure_webhook(secret: str):
-    if secret != os.environ.get("SCHEDULER_SECRET"):
+    if not SCHEDULER_SECRET or not secrets.compare_digest(secret, SCHEDULER_SECRET):
         raise HTTPException(status_code=403, detail="Invalid secret")
     return await _ensure_webhook()
 
@@ -828,7 +849,7 @@ async def view_courses_by_tag(request: Request, tag_name: str, conn: psycopg2.ex
 # --- Scheduler ---
 @app.get("/api/trigger-scheduler")
 async def trigger_scheduler(secret: str):
-    if secret != SCHEDULER_SECRET:
+    if not SCHEDULER_SECRET or not secrets.compare_digest(secret, SCHEDULER_SECRET):
         raise HTTPException(status_code=403, detail="Invalid secret")
     
     webhook_status = await _ensure_webhook()
