@@ -208,6 +208,15 @@ def get_db(request: Request):
     """
     return request.state.db
 
+def should_use_secure_cookies(request: Request) -> bool:
+    """Return True when cookies should be marked Secure."""
+    forwarded_proto = request.headers.get("x-forwarded-proto", "")
+    return (
+        os.environ.get("ENVIRONMENT") == "production"
+        or request.url.scheme == "https"
+        or forwarded_proto.split(",")[0].strip().lower() == "https"
+    )
+
 # --- Authentication ---
 async def get_current_user(request: Request, conn: psycopg2.extensions.connection) -> Optional[User]:
     token = request.cookies.get("access_token")
@@ -410,8 +419,9 @@ async def handle_auth(
             "success": True,
             "redirect_url": redirect_url
         })
-        response.set_cookie(key="access_token", value=access_token, httponly=True, max_age=3600 * 24 * 7, samesite="lax")
-        response.set_cookie(key="flash", value=f"success:{flash_message}", max_age=5, samesite="lax")
+        secure_cookie = should_use_secure_cookies(request)
+        response.set_cookie(key="access_token", value=access_token, httponly=True, max_age=3600 * 24 * 7, samesite="lax", secure=secure_cookie)
+        response.set_cookie(key="flash", value=f"success:{flash_message}", max_age=5, samesite="lax", secure=secure_cookie)
         return response
 
     try:
@@ -489,14 +499,16 @@ async def auth_callback(
 
         # Set the session cookie to log the user in
         response = JSONResponse(content={"success": True, "redirect_url": redirect_url})
+        secure_cookie = should_use_secure_cookies(request)
         response.set_cookie(
             key="access_token",
             value=data.access_token,
             httponly=True,
             max_age=3600 * 24 * 7,  # 1 week
-            samesite="lax"
+            samesite="lax",
+            secure=secure_cookie
         )
-        response.set_cookie(key="flash", value="success:Logged in successfully!", max_age=5, samesite="lax") # Flash message
+        response.set_cookie(key="flash", value="success:Logged in successfully!", max_age=5, samesite="lax", secure=secure_cookie) # Flash message
         return response
 
     except Exception as e:

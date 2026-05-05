@@ -1,10 +1,12 @@
+import os
+import secrets
+from urllib.parse import parse_qs
+
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request as StarletteRequest
 from starlette.types import ASGIApp, Receive, Scope, Send, Message
-import secrets
-from urllib.parse import parse_qs
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -45,6 +47,19 @@ class CSRFMiddleware:
     def __init__(self, app: ASGIApp):
         self.app = app
         self.exempt_paths = ["/webhook/", "/docs", "/openapi.json", "/health", "/auth/callback"]
+
+    def _should_use_secure_cookies(self, scope: Scope) -> bool:
+        forwarded_proto = ""
+        for header_name, header_value in scope.get("headers", []):
+            if header_name == b"x-forwarded-proto":
+                forwarded_proto = header_value.decode()
+                break
+
+        return (
+            os.environ.get("ENVIRONMENT") == "production"
+            or scope.get("scheme", "http") == "https"
+            or forwarded_proto.split(",")[0].strip().lower() == "https"
+        )
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -87,9 +102,8 @@ class CSRFMiddleware:
                 async def send_with_csrf_cookie(message: Message) -> None:
                     if message["type"] == "http.response.start":
                         headers = list(message.get("headers", []))
-                        is_https = scope.get("scheme", "http") == "https"
                         cookie_value = f"csrf_token={csrf_token}; SameSite=Lax; Max-Age=3600; Path=/"
-                        if is_https:
+                        if self._should_use_secure_cookies(scope):
                             cookie_value += "; Secure"
                         headers.append((b"set-cookie", cookie_value.encode()))
                         message = {**message, "headers": headers}
