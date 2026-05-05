@@ -422,6 +422,19 @@ def test_get_review_page_with_due_card(mock_get_user, client, db_conn):
     assert "Review Q" in response.text
 
 @patch("main.supabase.auth.get_user")
+def test_review_page_preserves_rating_status_before_disabling_buttons(mock_get_user, client, db_conn):
+    auth_client, user_id, _ = authenticate_client(mock_get_user, client, db_conn, email="reviewstatus@example.com")
+
+    create_test_card(db_conn, user_id, "Review Q", "Review A")
+
+    response = auth_client.get("/review")
+    assert response.status_code == 200
+    assert "function preserveRatingStatus" in response.text
+    assert "data-preserved-rating-status" in response.text
+    assert "preserveRatingStatus(e.submitter || pendingRatingButton)" in response.text
+    assert "ratingButtons.forEach(btn => { btn.disabled = true; });" in response.text
+
+@patch("main.supabase.auth.get_user")
 def test_get_review_page_no_due_cards(mock_get_user, client, db_conn):
     auth_client, _, _ = authenticate_client(mock_get_user, client, db_conn, email="reviewuser2@example.com")
     response = auth_client.get("/review")
