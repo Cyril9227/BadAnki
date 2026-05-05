@@ -6,20 +6,42 @@
 <div class="container mt-4">
     <h2>Manage API Keys</h2>
     <p>Provide your API keys for third-party services like Google Gemini and Anthropic to enable AI-powered features.</p>
+    <p class="text-muted small">For your security, saved keys are never shown back. Leave a field blank to keep the existing value; enter a new value to replace it.</p>
 
     <div class="card">
         <div class="card-body">
-            <form id="api-keys-form">
+            <form id="api-keys-form" autocomplete="off">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
                 <div class="mb-3">
-                    <label for="gemini_api_key" class="form-label">Google Gemini API Key</label>
-                    <input type="password" id="gemini_api_key" name="gemini_api_key" class="form-control" placeholder="Enter your Gemini API key" value="{{ user.gemini_api_key if user else '' }}">
+                    <label for="gemini_api_key" class="form-label d-flex align-items-center gap-2">
+                        Google Gemini API Key
+                        {% if gemini_key_set %}
+                            <span class="badge bg-success">Configured</span>
+                        {% else %}
+                            <span class="badge bg-secondary">Not set</span>
+                        {% endif %}
+                    </label>
+                    <input type="password" id="gemini_api_key" name="gemini_api_key"
+                           class="form-control" autocomplete="new-password"
+                           placeholder="{{ 'Enter a new key to replace, or leave blank to keep' if gemini_key_set else 'Enter your Gemini API key' }}">
                 </div>
+
                 <div class="mb-3">
-                    <label for="anthropic_api_key" class="form-label">Anthropic API Key</label>
-                    <input type="password" id="anthropic_api_key" name="anthropic_api_key" class="form-control" placeholder="Enter your Anthropic API key" value="{{ user.anthropic_api_key if user else '' }}">
+                    <label for="anthropic_api_key" class="form-label d-flex align-items-center gap-2">
+                        Anthropic API Key
+                        {% if anthropic_key_set %}
+                            <span class="badge bg-success">Configured</span>
+                        {% else %}
+                            <span class="badge bg-secondary">Not set</span>
+                        {% endif %}
+                    </label>
+                    <input type="password" id="anthropic_api_key" name="anthropic_api_key"
+                           class="form-control" autocomplete="new-password"
+                           placeholder="{{ 'Enter a new key to replace, or leave blank to keep' if anthropic_key_set else 'Enter your Anthropic API key' }}">
                 </div>
-                <button type="submit" class="btn btn-primary">Save API Keys</button>
+
+                <button id="save-keys-btn" type="submit" class="btn btn-primary">Save API Keys</button>
             </form>
         </div>
     </div>
@@ -29,9 +51,32 @@
 document.getElementById('api-keys-form').addEventListener('submit', function(event) {
     event.preventDefault();
 
+    const saveBtn = document.getElementById('save-keys-btn');
     const geminiApiKey = document.getElementById('gemini_api_key').value;
     const anthropicApiKey = document.getElementById('anthropic_api_key').value;
     const csrfToken = document.querySelector('input[name="csrf_token"]').value;
+
+    // Only send fields the user actually filled in — an empty field means "keep
+    // whatever is stored", not "clear the key".
+    const payload = {};
+    if (geminiApiKey.trim()) payload.gemini_api_key = geminiApiKey;
+    if (anthropicApiKey.trim()) payload.anthropic_api_key = anthropicApiKey;
+
+    if (Object.keys(payload).length === 0) {
+        Swal.fire({
+            toast: true,
+            position: 'top-end',
+            icon: 'info',
+            title: 'Nothing to save — both fields are blank.',
+            showConfirmButton: false,
+            timer: 2500
+        });
+        return;
+    }
+
+    saveBtn.disabled = true;
+    const originalLabel = saveBtn.textContent;
+    saveBtn.textContent = 'Saving...';
 
     fetch('/api/save-api-keys', {
         method: 'POST',
@@ -39,12 +84,14 @@ document.getElementById('api-keys-form').addEventListener('submit', function(eve
             'Content-Type': 'application/json',
             'X-CSRF-Token': csrfToken
         },
-        body: JSON.stringify({
-            gemini_api_key: geminiApiKey,
-            anthropic_api_key: anthropicApiKey
-        })
+        body: JSON.stringify(payload)
     })
-    .then(response => response.json())
+    .then(response => {
+        if (!response.ok) {
+            return response.text().then(text => { throw new Error(`HTTP ${response.status}: ${text || response.statusText}`); });
+        }
+        return response.json();
+    })
     .then(data => {
         if (data.success) {
             Swal.fire({
@@ -53,21 +100,18 @@ document.getElementById('api-keys-form').addEventListener('submit', function(eve
                 text: 'API keys saved successfully.',
                 timer: 2000,
                 showConfirmButton: false
-            });
+            }).then(() => window.location.reload());
         } else {
-            Swal.fire({
-                icon: 'error',
-                title: 'Oops...',
-                text: 'Something went wrong!',
-            });
+            Swal.fire({ icon: 'error', title: 'Oops...', text: 'Something went wrong!' });
         }
     })
     .catch(error => {
-        Swal.fire({
-            icon: 'error',
-            title: 'Oops...',
-            text: 'An unexpected error occurred.',
-        });
+        console.error('Failed to save API keys:', error);
+        Swal.fire({ icon: 'error', title: 'Oops...', text: error.message || 'An unexpected error occurred.' });
+    })
+    .finally(() => {
+        saveBtn.disabled = false;
+        saveBtn.textContent = originalLabel;
     });
 });
 </script>

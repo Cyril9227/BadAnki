@@ -90,9 +90,9 @@ def get_courses_tree_for_user(conn, auth_user_id: str):
             if not path:
                 continue
         
-        path_parts = path.split(os.sep)
+        path_parts = [part for part in path.split('/') if part]
         for i in range(len(path_parts)):
-            current_path = os.path.join(*path_parts[:i+1])
+            current_path = "/".join(path_parts[:i+1])
             if current_path not in nodes:
                 part = path_parts[i]
                 is_dir = (i < len(path_parts) - 1) or (is_placeholder)
@@ -187,7 +187,11 @@ def delete_course_item_for_user(conn, path: str, item_type: str, auth_user_id: s
             cursor.execute("DELETE FROM courses WHERE path = %s AND user_id = %s", (path, auth_user_id))
         elif item_type in ['directory', 'folder']:
             placeholder_path = os.path.join(path, ".placeholder")
-            cursor.execute("DELETE FROM courses WHERE (path = %s OR path LIKE %s) AND user_id = %s", (placeholder_path, f"{path}/%", auth_user_id))
+            escaped_path = path.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            cursor.execute(
+                "DELETE FROM courses WHERE (path = %s OR path LIKE %s ESCAPE '\\') AND user_id = %s",
+                (placeholder_path, f"{escaped_path}/%", auth_user_id)
+            )
         conn.commit()
     except Exception as e:
         conn.rollback()
