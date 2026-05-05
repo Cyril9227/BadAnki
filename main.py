@@ -23,6 +23,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 from supabase import create_client, Client
 from jose import JWTError, jwt
 from pydantic import BaseModel
@@ -644,7 +645,13 @@ async def api_generate_cards(request: Request, data: CourseContentForGeneration,
     if request.state.api_keys:
         api_key = request.state.api_keys.gemini_api_key
 
-    generated_cards = generate_cards(data.content, mode="gemini", api_key=api_key, card_type=data.card_type)
+    generated_cards = await run_in_threadpool(
+        generate_cards,
+        data.content,
+        mode="gemini",
+        api_key=api_key,
+        card_type=data.card_type,
+    )
     if not generated_cards:
         raise HTTPException(status_code=500, detail="Failed to generate cards.")
     return {"cards": generated_cards}
@@ -653,7 +660,12 @@ async def api_generate_cards(request: Request, data: CourseContentForGeneration,
 async def api_generate_cards_ollama(data: CourseContentForGeneration, user: User = Depends(get_current_active_user)):
     if not data.content.strip():
         raise HTTPException(status_code=400, detail="Content cannot be empty.")
-    generated_cards = generate_cards(data.content, mode="ollama", card_type=data.card_type)
+    generated_cards = await run_in_threadpool(
+        generate_cards,
+        data.content,
+        mode="ollama",
+        card_type=data.card_type,
+    )
     if not generated_cards:
         raise HTTPException(status_code=500, detail="Failed to generate cards.")
     return {"cards": generated_cards}
@@ -668,7 +680,13 @@ async def api_generate_cards_anthropic(request: Request, data: CourseContentForG
     if request.state.api_keys:
         api_key = request.state.api_keys.anthropic_api_key
 
-    generated_cards = generate_cards(data.content, mode="anthropic", api_key=api_key, card_type=data.card_type)
+    generated_cards = await run_in_threadpool(
+        generate_cards,
+        data.content,
+        mode="anthropic",
+        api_key=api_key,
+        card_type=data.card_type,
+    )
     if not generated_cards:
         raise HTTPException(status_code=500, detail="Failed to generate cards.")
     return {"cards": generated_cards}
