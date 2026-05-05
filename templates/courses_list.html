@@ -27,13 +27,19 @@ document.addEventListener('DOMContentLoaded', function () {
     const courseList = document.getElementById('course-list');
     const tagsList = document.getElementById('tags-list');
 
+    function escapeHtml(value) {
+        const div = document.createElement('div');
+        div.textContent = value == null ? '' : String(value);
+        return div.innerHTML;
+    }
+
     // Fetch and display all tags
     fetch('/api/tags')
         .then(response => response.json())
         .then(tags => {
             if (tags.length > 0) {
                 const tagsHtml = tags.map(tag =>
-                    `<a href="/tags/${encodeURIComponent(tag)}" class="btn btn-sm btn-outline-primary">${tag}</a>`
+                    `<a href="/tags/${encodeURIComponent(tag)}" class="btn btn-sm btn-outline-primary">${escapeHtml(tag)}</a>`
                 ).join('');
                 tagsList.innerHTML = tagsHtml;
             } else {
@@ -72,10 +78,10 @@ document.addEventListener('DOMContentLoaded', function () {
             } else {
                 files.forEach(item => {
                     const displayName = item.title || item.name.replace('.md', '');
-                    html += `<a href="/courses/${item.path}" class="list-group-item list-group-item-action">
-                                <strong>${displayName}</strong>
+                    html += `<a href="/courses/${encodeURIComponent(item.path)}" class="list-group-item list-group-item-action">
+                                <strong>${escapeHtml(displayName)}</strong>
                                 <br>
-                                <small class="text-muted">${item.path}</small>
+                                <small class="text-muted">${escapeHtml(item.path)}</small>
                              </a>`;
                 });
             }

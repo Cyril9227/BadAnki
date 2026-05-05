@@ -109,7 +109,7 @@
             input = window.formatClozeForDisplay(input);
         }
 
-        preview.innerHTML = marked.parse(input);
+        preview.innerHTML = window.safeMarkdown(input);
         MathJax.typesetPromise([preview]);
     }
 
