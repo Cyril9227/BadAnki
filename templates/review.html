@@ -54,13 +54,13 @@
         </div>
     </div>
     <div class="card-footer text-muted">
-        <button class="btn btn-primary" id="show-answer-btn" onclick="showAnswer()">Show Answer</button>
+        <button class="btn btn-primary" id="show-answer-btn" type="button">Show Answer</button>
 
         <form id="review-form" action="/review/{{ card.id }}" method="post" class="mt-3" style="display: none;">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="d-grid gap-2 d-sm-flex justify-content-sm-center">
-                <button type="submit" name="status" value="remembered" class="btn btn-success">Remembered</button>
-                <button type="submit" name="status" value="forgot" class="btn btn-danger">Forgot</button>
+                <button type="submit" name="status" value="remembered" class="btn btn-success rating-btn">Remembered</button>
+                <button type="submit" name="status" value="forgot" class="btn btn-danger rating-btn">Forgot</button>
             </div>
         </form>
     </div>
@@ -140,16 +140,40 @@
         if (window.MathJax) {
             MathJax.typesetPromise();
         }
+
+        const showAnswerBtn = document.getElementById('show-answer-btn');
+        const answerSection = document.getElementById('answer-section');
+        const reviewForm = document.getElementById('review-form');
+        let answerShown = false;
+
+        showAnswerBtn.addEventListener('click', function () {
+            if (answerShown) return;  // Defend against a rapid double-click.
+            answerShown = true;
+            showAnswerBtn.disabled = true;
+            answerSection.style.display = 'block';
+            reviewForm.style.display = 'block';
+            showAnswerBtn.style.display = 'none';
+            if (window.MathJax) MathJax.typesetPromise();
+        });
+
+        // Support keyboard: Space/Enter reveals the answer when the button is
+        // focused; this is the default anyway but we also handle global Space
+        // to match common SRS keyboard expectations.
+        document.addEventListener('keydown', function(e) {
+            if (!answerShown && (e.key === ' ' || e.key === 'Enter')
+                && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
+                e.preventDefault();
+                showAnswerBtn.click();
+            }
+        });
+
+        // Prevent double-submit if the user bashes a rating button twice.
+        let submitting = false;
+        reviewForm.addEventListener('submit', function(e) {
+            if (submitting) { e.preventDefault(); return; }
+            submitting = true;
+            reviewForm.querySelectorAll('.rating-btn').forEach(btn => { btn.disabled = true; });
+        });
     });
-
-    function showAnswer() {
-        document.getElementById('answer-section').style.display = 'block';
-        document.getElementById('review-form').style.display = 'block';
-        document.getElementById('show-answer-btn').style.display = 'none';
-
-        if (window.MathJax) {
-            MathJax.typesetPromise();
-        }
-    }
 </script>
 {% endblock %}
