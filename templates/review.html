@@ -169,10 +169,36 @@
 
         // Prevent double-submit if the user bashes a rating button twice.
         let submitting = false;
+        let pendingRatingButton = null;
+        const ratingButtons = reviewForm.querySelectorAll('.rating-btn');
+
+        ratingButtons.forEach(btn => {
+            btn.addEventListener('click', function() {
+                pendingRatingButton = btn;
+            });
+        });
+
+        function preserveRatingStatus(submitter) {
+            if (!submitter || submitter.name !== 'status') return;
+
+            let statusInput = reviewForm.querySelector('input[data-preserved-rating-status]');
+            if (!statusInput) {
+                statusInput = document.createElement('input');
+                statusInput.type = 'hidden';
+                statusInput.name = 'status';
+                statusInput.dataset.preservedRatingStatus = 'true';
+                reviewForm.appendChild(statusInput);
+            }
+            statusInput.value = submitter.value;
+        }
+
         reviewForm.addEventListener('submit', function(e) {
             if (submitting) { e.preventDefault(); return; }
+            // Disabled submit buttons are not included in form data, so copy
+            // the clicked rating before disabling the visible buttons.
+            preserveRatingStatus(e.submitter || pendingRatingButton);
             submitting = true;
-            reviewForm.querySelectorAll('.rating-btn').forEach(btn => { btn.disabled = true; });
+            ratingButtons.forEach(btn => { btn.disabled = true; });
         });
     });
 </script>
