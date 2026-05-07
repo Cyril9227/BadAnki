@@ -3,6 +3,7 @@
 # It helps separate the database interaction logic from the API routing logic.
 
 import os
+import posixpath
 import random
 import frontmatter
 import psycopg2
@@ -84,9 +85,9 @@ def get_courses_tree_for_user(conn, auth_user_id: str):
 
     for course in courses:
         path = course['path']
-        is_placeholder = os.path.basename(path) == '.placeholder'
+        is_placeholder = posixpath.basename(path) == '.placeholder'
         if is_placeholder:
-            path = os.path.dirname(path)
+            path = posixpath.dirname(path)
             if not path:
                 continue
         
@@ -114,12 +115,12 @@ def get_courses_tree_for_user(conn, auth_user_id: str):
 
                 nodes[current_path] = node
                 
-                parent_path = os.path.dirname(current_path)
+                parent_path = posixpath.dirname(current_path)
                 if parent_path in nodes:
                     nodes[parent_path]['children'].append(node)
 
     # This is a simplified way to get the root nodes
-    root_nodes = [node for path, node in nodes.items() if os.path.dirname(path) == '']
+    root_nodes = [node for path, node in nodes.items() if posixpath.dirname(path) == '']
     
     # Sort children recursively
     def sort_children(node):
@@ -168,7 +169,7 @@ def create_course_item_for_user(conn, path: str, item_type: str, auth_user_id: s
                 (path, "---\ntitle: New Course\ntags: \n---\n\n", auth_user_id)
             )
         elif item_type in ['directory', 'folder']:
-            placeholder_path = os.path.join(path, ".placeholder")
+            placeholder_path = f"{path.rstrip('/')}/.placeholder"
             cursor.execute(
                 "INSERT INTO courses (path, content, user_id) VALUES (%s, %s, %s) ON CONFLICT (path, user_id) DO NOTHING",
                 (placeholder_path, "This is a placeholder file.", auth_user_id)
@@ -186,7 +187,7 @@ def delete_course_item_for_user(conn, path: str, item_type: str, auth_user_id: s
         if item_type == 'file':
             cursor.execute("DELETE FROM courses WHERE path = %s AND user_id = %s", (path, auth_user_id))
         elif item_type in ['directory', 'folder']:
-            placeholder_path = os.path.join(path, ".placeholder")
+            placeholder_path = f"{path.rstrip('/')}/.placeholder"
             escaped_path = path.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             cursor.execute(
                 "DELETE FROM courses WHERE (path = %s OR path LIKE %s ESCAPE '\\') AND user_id = %s",
@@ -232,7 +233,7 @@ def get_courses_by_tag_for_user(conn, tag: str, auth_user_id: str):
             if tag.lower() in tag_list:
                 course_info = {
                     'path': course['path'],
-                    'title': post.metadata.get('title', os.path.basename(course['path']).replace('.md', ''))
+                    'title': post.metadata.get('title', posixpath.basename(course['path']).replace('.md', ''))
                 }
                 tagged_courses.append(course_info)
         except Exception:

@@ -27,6 +27,13 @@ logger = logging.getLogger(__name__)
 APP_URL = os.environ.get("APP_URL", "http://127.0.0.1:8000")
 
 
+def _redact_identifier(value) -> str:
+    text = str(value)
+    if len(text) <= 4:
+        return "***"
+    return f"***{text[-4:]}"
+
+
 # --- Command Handlers ---
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -53,15 +60,16 @@ async def review(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def random_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Sends a random card to a registered user."""
-    logger.info(f"Received /random command from chat_id: {update.message.chat_id}")
+    logger.info("Received /random command from chat_id: %s", _redact_identifier(update.message.chat_id))
     conn = None
     try:
         conn = get_db_connection()
         chat_id = update.message.chat_id
+        redacted_chat_id = _redact_identifier(chat_id)
         user = get_user_by_telegram_chat_id(conn, chat_id)
 
         if user:
-            logger.info(f"User found for chat_id {chat_id}: user_id {user['auth_user_id']}")
+            logger.info("User found for chat_id %s.", redacted_chat_id)
             card = get_random_card_for_user(conn, user['auth_user_id'])
             if card:
                 # Prepare the message with MarkdownV2
@@ -80,16 +88,16 @@ async def random_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode=ParseMode.MARKDOWN_V2,
                     reply_markup=keyboard
                 )
-                logger.info(f"Sent random card {card['id']} to user {user['auth_user_id']}.")
+                logger.info("Sent random card %s to chat_id %s.", card['id'], redacted_chat_id)
             else:
                 await update.message.reply_text("You have no cards in your deck.")
-                logger.info(f"No cards found for user {user['auth_user_id']}.")
+                logger.info("No cards found for chat_id %s.", redacted_chat_id)
         else:
             await update.message.reply_text(
                 "Your Telegram account is not linked. "
                 "Please log in to the web application and link your account in the settings."
             )
-            logger.warning(f"User not found for chat_id {chat_id}.")
+            logger.warning("User not found for chat_id %s.", redacted_chat_id)
     except Exception as e:
         logger.error(f"Error in /random command: {e}", exc_info=True)
         await update.message.reply_text("Sorry, something went wrong while fetching a card.")

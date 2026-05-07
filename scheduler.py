@@ -26,6 +26,13 @@ APP_URL = os.environ.get("APP_URL", "http://127.0.0.1:8000")
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 
+def _redact_identifier(value) -> str:
+    text = str(value)
+    if len(text) <= 4:
+        return "***"
+    return f"***{text[-4:]}"
+
+
 def _database_connect_kwargs():
     kwargs = {"dsn": DATABASE_URL}
     if os.environ.get("ENVIRONMENT") == "production" and DATABASE_URL and "sslmode=" not in DATABASE_URL.lower():
@@ -102,9 +109,10 @@ async def run_scheduler():
     failed_notifications = 0
 
     for chat_id, due_count in users_to_notify:
+        redacted_chat_id = _redact_identifier(chat_id)
         if due_count > 0:
             logger.info(
-                f"Found {due_count} card(s) due for user with chat_id {chat_id}. Sending notification..."
+                f"Found {due_count} card(s) due for chat_id {redacted_chat_id}. Sending notification..."
             )
             review_link = f"{APP_URL}/review"
             message = (
@@ -113,7 +121,7 @@ async def run_scheduler():
             )
         else:
             logger.info(
-                f"No cards due for user with chat_id {chat_id}. Sending encouragement message..."
+                f"No cards due for chat_id {redacted_chat_id}. Sending encouragement message..."
             )
             message = (
                 "🎉 No cards for review today, good job!\n\n\n"
@@ -124,7 +132,7 @@ async def run_scheduler():
             await bot.send_message(chat_id=chat_id, text=message)
             successful_notifications += 1
         except Exception as e:
-            logger.error(f"Failed to send Telegram message to chat_id {chat_id}: {e}")
+            logger.error(f"Failed to send Telegram message to chat_id {redacted_chat_id}: {e}")
             failed_notifications += 1
 
     result = (

@@ -14,6 +14,7 @@ from threading import Lock
 from typing import Optional
 import uuid
 from urllib.parse import unquote, quote
+import posixpath
 
 # Third-party
 import frontmatter
@@ -108,6 +109,27 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 
+def should_resolve_user_for_request(request: Request) -> bool:
+    if not request.cookies.get("access_token"):
+        return False
+
+    path = request.url.path
+    if (
+        path == "/health"
+        or path == "/logout"
+        or path == "/auth/callback"
+        or path == "/api/cron"
+        or path == "/api/trigger-scheduler"
+        or path == "/api/ensure-webhook"
+        or path.startswith("/static/")
+        or path.startswith("/_vercel/")
+        or path.startswith("/webhook/")
+    ):
+        return False
+
+    return True
+
+
 # --- Webhook Endpoint ---
 @app.post("/webhook/{secret}")
 async def webhook(request: Request, secret: str):
@@ -179,13 +201,17 @@ async def _ensure_webhook():
         await bot_app.initialize()
         initialized = True
         webhook_url = f"{app_url.rstrip('/')}/webhook/{TELEGRAM_WEBHOOK_SECRET}"
+        redacted_webhook_url = webhook_url.replace(TELEGRAM_WEBHOOK_SECRET, "[redacted]")
         info = await bot_app.bot.get_webhook_info()
 
         if info.url != webhook_url:
             await bot_app.bot.set_webhook(url=webhook_url, drop_pending_updates=False)
-            return {"status": "webhook (re)set", "url": webhook_url}
+            return {"status": "webhook (re)set", "url": redacted_webhook_url}
         else:
-            return {"status": "already correct", "url": info.url}
+            return {
+                "status": "already correct",
+                "url": info.url.replace(TELEGRAM_WEBHOOK_SECRET, "[redacted]"),
+            }
     finally:
         if bot_app and initialized:
             try:
@@ -195,8 +221,8 @@ async def _ensure_webhook():
 
 
 @app.get("/api/ensure-webhook")
-async def ensure_webhook(request: Request, secret: str | None = None):
-    submitted_secret = request.headers.get("x-scheduler-secret") or secret
+async def ensure_webhook(request: Request):
+    submitted_secret = request.headers.get("x-scheduler-secret")
     if not scheduler_secret_is_valid(submitted_secret):
         raise HTTPException(status_code=403, detail="Invalid secret")
     return await _ensure_webhook()
@@ -207,22 +233,39 @@ async def ensure_webhook(request: Request, secret: str | None = None):
 @app.middleware("http")
 async def db_session_middleware(request: Request, call_next):
     """
-    Manages the database connection lifecycle for each request and
-    attaches the user object to the request state.
+    Manages the database connection lifecycle for each request.
+
+    Public unauthenticated traffic should not burn a DB connection just to
+    serve the home/auth pages, health checks, or static assets. A connection is
+    opened lazily when an authenticated cookie needs profile resolution or when
+    an endpoint explicitly depends on get_db().
     """
-    conn = None
+    request.state.db = None
+    request.state.user = None
+    request.state.api_keys = None
+    request.state.auth_resolution_failed = False
     try:
-        conn = get_db_connection()
-        request.state.db = conn
-        user = await get_current_user(request, conn)
-        request.state.user = user
-        # API keys are now part of the user model
-        request.state.api_keys = user
-        response = await call_next(request)
+        if should_resolve_user_for_request(request):
+            try:
+                conn = get_request_db(request)
+                user = await get_current_user(request, conn)
+                request.state.user = user
+                request.state.api_keys = user
+            except Exception as e:
+                request.state.auth_resolution_failed = True
+                logger.warning("Unable to resolve authenticated user for this request: %s", e, exc_info=True)
+        return await call_next(request)
     finally:
+        conn = request.state.db
         if conn:
             release_db_connection(conn)
-    return response
+
+def get_request_db(request: Request) -> psycopg2.extensions.connection:
+    conn = getattr(request.state, "db", None)
+    if conn is None:
+        conn = get_db_connection()
+        request.state.db = conn
+    return conn
 
 # --- Pydantic Models ---
 class User(BaseModel):
@@ -271,7 +314,7 @@ def get_db(request: Request):
     FastAPI dependency that retrieves the database connection
     from the request state, managed by the middleware.
     """
-    return request.state.db
+    return get_request_db(request)
 
 def should_use_secure_cookies(request: Request) -> bool:
     """Return True when cookies should be marked Secure."""
@@ -317,8 +360,8 @@ async def get_current_user(request: Request, conn: psycopg2.extensions.connectio
     except AuthApiError as e:
         # Expired/invalid tokens are normal — debug level avoids log spam.
         logger.debug("Supabase auth rejected token: %s", e)
-    except Exception as e:
-        logger.warning("Unexpected error resolving current user: %s", e, exc_info=True)
+    except Exception:
+        raise
     return None
 
 @app.get("/logout")
@@ -338,6 +381,8 @@ async def logout(request: Request, response: Response):
 
 async def get_current_active_user(request: Request):
     if not request.state.user:
+        if getattr(request.state, "auth_resolution_failed", False):
+            raise HTTPException(status_code=503, detail="Authentication service is temporarily unavailable.")
         # Redirect to the unified auth page if user is not authenticated
         raise HTTPException(status_code=303, headers={"Location": "/auth"})
     return request.state.user
@@ -361,11 +406,11 @@ def _validate_course_path(path: str) -> str:
     normalized = path.replace("\\", "/")
     if normalized.startswith("/"):
         raise HTTPException(status_code=400, detail="Invalid course path.")
-    if any(part == ".." for part in normalized.split("/")):
+    if any(part in {"", ".", ".."} for part in normalized.split("/")):
         raise HTTPException(status_code=400, detail="Invalid course path.")
     if any(ord(char) < 32 for char in normalized):
         raise HTTPException(status_code=400, detail="Invalid course path.")
-    return path
+    return normalized
 
 
 def _validate_card_input(question: str, answer: str, card_type: str = "basic") -> tuple[str, str, str]:
@@ -803,13 +848,14 @@ async def download_course(course_path: str, conn: psycopg2.extensions.connection
         raise HTTPException(status_code=404, detail="File not found")
   
     # Create a safe filename for the Content-Disposition header
-    filename = os.path.basename(course_path)
+    filename = posixpath.basename(course_path)
     if not filename.endswith('.md'):
         filename += '.md'
         
     # For cross-browser compatibility with special characters, we create a complex header.
     # 1. A simple ASCII version of the filename for older browsers.
     ascii_filename = filename.encode('ascii', 'ignore').decode()
+    ascii_filename = ascii_filename.replace("\\", "_").replace('"', "_") or "course.md"
     # 2. The properly URL-encoded UTF-8 version for modern browsers.
     utf8_filename = quote(filename)
     
@@ -938,8 +984,8 @@ async def view_courses_by_tag(request: Request, tag_name: str, conn: psycopg2.ex
 
 # --- Scheduler ---
 @app.get("/api/trigger-scheduler")
-async def trigger_scheduler(request: Request, secret: str | None = None):
-    submitted_secret = request.headers.get("x-scheduler-secret") or secret
+async def trigger_scheduler(request: Request):
+    submitted_secret = request.headers.get("x-scheduler-secret")
     if not scheduler_secret_is_valid(submitted_secret):
         raise HTTPException(status_code=403, detail="Invalid secret")
     
