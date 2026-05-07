@@ -88,8 +88,8 @@ So it's like Anki but badly vibe-coded. Main interesting thing is that you get d
     `SUPABASE_KEY` must be the public anon key, never the service-role key.
     For production on Vercel, also set `CRON_SECRET` so scheduled jobs cannot
     be triggered by arbitrary internet traffic.
-    Apply the RLS block in `database.sql` to existing Supabase databases before
-    treating the public anon key as safe to expose.
+    Apply `utils/migrate_enable_rls.sql` in the Supabase SQL Editor for existing
+    databases before treating the public anon key as safe to expose.
 
 4.  **Run the web server:**
     ```bash

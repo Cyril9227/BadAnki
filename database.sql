@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS courses (
 -- The browser only needs Supabase Auth, not direct table access. Enabling RLS
 -- keeps the public anon key from exposing tables through PostgREST. The backend
 -- still uses its direct DATABASE_URL connection for application data access.
+-- profiles intentionally has no Data API policies because it stores API keys.
 -- The role/function guards keep local test Postgres compatible; Supabase
 -- already provides these roles and auth.uid().
 DO $$
@@ -58,33 +59,9 @@ ALTER TABLE courses ENABLE ROW LEVEL SECURITY;
 
 DO $$
 BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_policies
-        WHERE schemaname = 'public' AND tablename = 'profiles' AND policyname = 'profiles_select_own'
-    ) THEN
-        CREATE POLICY profiles_select_own ON profiles
-            FOR SELECT TO authenticated
-            USING (auth.uid() = auth_user_id);
-    END IF;
-
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_policies
-        WHERE schemaname = 'public' AND tablename = 'profiles' AND policyname = 'profiles_update_own'
-    ) THEN
-        CREATE POLICY profiles_update_own ON profiles
-            FOR UPDATE TO authenticated
-            USING (auth.uid() = auth_user_id)
-            WITH CHECK (auth.uid() = auth_user_id);
-    END IF;
-
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_policies
-        WHERE schemaname = 'public' AND tablename = 'profiles' AND policyname = 'profiles_insert_own'
-    ) THEN
-        CREATE POLICY profiles_insert_own ON profiles
-            FOR INSERT TO authenticated
-            WITH CHECK (auth.uid() = auth_user_id);
-    END IF;
+    DROP POLICY IF EXISTS profiles_select_own ON profiles;
+    DROP POLICY IF EXISTS profiles_update_own ON profiles;
+    DROP POLICY IF EXISTS profiles_insert_own ON profiles;
 
     IF NOT EXISTS (
         SELECT 1 FROM pg_policies
@@ -92,7 +69,7 @@ BEGIN
     ) THEN
         CREATE POLICY cards_select_own ON cards
             FOR SELECT TO authenticated
-            USING (auth.uid() = user_id);
+            USING ((select auth.uid()) = user_id);
     END IF;
 
     IF NOT EXISTS (
@@ -101,7 +78,7 @@ BEGIN
     ) THEN
         CREATE POLICY cards_insert_own ON cards
             FOR INSERT TO authenticated
-            WITH CHECK (auth.uid() = user_id);
+            WITH CHECK ((select auth.uid()) = user_id);
     END IF;
 
     IF NOT EXISTS (
@@ -110,8 +87,8 @@ BEGIN
     ) THEN
         CREATE POLICY cards_update_own ON cards
             FOR UPDATE TO authenticated
-            USING (auth.uid() = user_id)
-            WITH CHECK (auth.uid() = user_id);
+            USING ((select auth.uid()) = user_id)
+            WITH CHECK ((select auth.uid()) = user_id);
     END IF;
 
     IF NOT EXISTS (
@@ -120,7 +97,7 @@ BEGIN
     ) THEN
         CREATE POLICY cards_delete_own ON cards
             FOR DELETE TO authenticated
-            USING (auth.uid() = user_id);
+            USING ((select auth.uid()) = user_id);
     END IF;
 
     IF NOT EXISTS (
@@ -129,7 +106,7 @@ BEGIN
     ) THEN
         CREATE POLICY courses_select_own ON courses
             FOR SELECT TO authenticated
-            USING (auth.uid() = user_id);
+            USING ((select auth.uid()) = user_id);
     END IF;
 
     IF NOT EXISTS (
@@ -138,7 +115,7 @@ BEGIN
     ) THEN
         CREATE POLICY courses_insert_own ON courses
             FOR INSERT TO authenticated
-            WITH CHECK (auth.uid() = user_id);
+            WITH CHECK ((select auth.uid()) = user_id);
     END IF;
 
     IF NOT EXISTS (
@@ -147,8 +124,8 @@ BEGIN
     ) THEN
         CREATE POLICY courses_update_own ON courses
             FOR UPDATE TO authenticated
-            USING (auth.uid() = user_id)
-            WITH CHECK (auth.uid() = user_id);
+            USING ((select auth.uid()) = user_id)
+            WITH CHECK ((select auth.uid()) = user_id);
     END IF;
 
     IF NOT EXISTS (
@@ -157,6 +134,6 @@ BEGIN
     ) THEN
         CREATE POLICY courses_delete_own ON courses
             FOR DELETE TO authenticated
-            USING (auth.uid() = user_id);
+            USING ((select auth.uid()) = user_id);
     END IF;
 END $$;
