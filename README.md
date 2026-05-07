@@ -76,7 +76,7 @@ So it's like Anki but badly vibe-coded. Main interesting thing is that you get d
     SECRET_KEY=your-secret-key
     DATABASE_URL=your-supabase-postgres-connection-string
     SUPABASE_URL=https://your-project.supabase.co
-    SUPABASE_KEY=your-supabase-anon-key
+    SUPABASE_ANON_KEY=your-supabase-anon-or-publishable-key
     SCHEDULER_SECRET=your-scheduler-secret
     CRON_SECRET=your-vercel-cron-secret
     TELEGRAM_BOT_TOKEN=your-telegram-bot-token
@@ -85,7 +85,9 @@ So it's like Anki but badly vibe-coded. Main interesting thing is that you get d
     APP_URL=http://localhost:8000
     ```
 
-    `SUPABASE_KEY` must be the public anon key, never the service-role key.
+    `SUPABASE_ANON_KEY` must be the public anon/publishable key, never the
+    service-role or `sb_secret_...` key. `SUPABASE_KEY` is still accepted as a
+    legacy fallback, but new deploys should use `SUPABASE_ANON_KEY`.
     For production on Vercel, also set `CRON_SECRET` so scheduled jobs cannot
     be triggered by arbitrary internet traffic.
     Apply `utils/migrate_enable_rls.sql` in the Supabase SQL Editor for existing
@@ -118,7 +120,7 @@ Set the following environment variables in your Vercel project settings:
 | `SECRET_KEY` | Secret key for session management |
 | `DATABASE_URL` | Supabase PostgreSQL connection string |
 | `SUPABASE_URL` | Your Supabase project URL |
-| `SUPABASE_KEY` | Supabase anon/public key |
+| `SUPABASE_ANON_KEY` | Supabase anon/public or publishable key |
 | `SCHEDULER_SECRET` | Secret for triggering the scheduler |
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token from BotFather |
 | `TELEGRAM_WEBHOOK_SECRET` | Secret for webhook validation |

@@ -43,13 +43,23 @@ from middleware import CSRFMiddleware, SecurityHeadersMiddleware
 
 
 # --- Supabase & JWT Configuration ---
-SECRET_KEY = os.environ.get("SECRET_KEY")
-SCHEDULER_SECRET = os.environ.get("SCHEDULER_SECRET")
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-TELEGRAM_WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET")
-TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME")
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+def _clean_env_value(name: str) -> str | None:
+    value = os.environ.get(name)
+    if value is None:
+        return None
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        value = value[1:-1].strip()
+    return value or None
+
+SECRET_KEY = _clean_env_value("SECRET_KEY")
+SCHEDULER_SECRET = _clean_env_value("SCHEDULER_SECRET")
+TELEGRAM_BOT_TOKEN = _clean_env_value("TELEGRAM_BOT_TOKEN")
+TELEGRAM_WEBHOOK_SECRET = _clean_env_value("TELEGRAM_WEBHOOK_SECRET")
+TELEGRAM_BOT_USERNAME = _clean_env_value("TELEGRAM_BOT_USERNAME")
+SUPABASE_URL = _clean_env_value("SUPABASE_URL")
+SUPABASE_KEY_SOURCE = "SUPABASE_ANON_KEY" if _clean_env_value("SUPABASE_ANON_KEY") else "SUPABASE_KEY"
+SUPABASE_KEY = _clean_env_value("SUPABASE_ANON_KEY") or _clean_env_value("SUPABASE_KEY")
 IS_PRODUCTION = os.environ.get("ENVIRONMENT") == "production"
 
 if not all([SECRET_KEY, SCHEDULER_SECRET, SUPABASE_URL, SUPABASE_KEY]):
@@ -63,8 +73,11 @@ def _get_unverified_supabase_role(key: str | None) -> str | None:
     except Exception:
         return None
 
+if SUPABASE_KEY and SUPABASE_KEY.startswith("sb_secret_"):
+    raise ValueError(f"{SUPABASE_KEY_SOURCE} must be the public anon/publishable key, not a Supabase secret key.")
+
 if _get_unverified_supabase_role(SUPABASE_KEY) == "service_role":
-    raise ValueError("SUPABASE_KEY must be the public anon key, not the service-role key.")
+    raise ValueError(f"{SUPABASE_KEY_SOURCE} must be the public anon key, not the service-role key.")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
