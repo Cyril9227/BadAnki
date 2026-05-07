@@ -33,6 +33,12 @@
     .answer .card-text {
         overflow-x: auto;
     }
+
+    .review-card-content pre,
+    .review-card-content code {
+        font-size: 0.95rem;
+        text-align: left;
+    }
 </style>
 {% endblock %}
 
@@ -45,12 +51,12 @@
     <div class="card-body">
         <div class="question">
             <h5 class="card-title" id="question-title">Question</h5>
-            <div class="card-text fs-4" id="question-content"></div>
+            <div class="card-text fs-4 markdown-content review-card-content" id="question-content"></div>
         </div>
         <hr>
         <div class="answer" id="answer-section" style="display: none;">
             <h5 class="card-title">Answer</h5>
-            <div class="card-text fs-4" id="answer-content"></div>
+            <div class="card-text fs-4 markdown-content review-card-content" id="answer-content"></div>
         </div>
     </div>
     <div class="card-footer text-muted">

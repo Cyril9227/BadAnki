@@ -422,6 +422,21 @@ def test_get_review_page_with_due_card(mock_get_user, client, db_conn):
     assert "Review Q" in response.text
 
 @patch("main.supabase.auth.get_user")
+def test_review_page_uses_markdown_code_block_styling(mock_get_user, client, db_conn):
+    auth_client, user_id, _ = authenticate_client(mock_get_user, client, db_conn, email="reviewmarkdown@example.com")
+
+    answer = "Example:\n```python\nprint('hello')\n```"
+    create_test_card(db_conn, user_id, "Review Q", answer)
+
+    response = auth_client.get("/review")
+    assert response.status_code == 200
+    assert 'id="question-content"' in response.text
+    assert 'id="answer-content"' in response.text
+    assert response.text.count("markdown-content review-card-content") == 2
+    assert ".review-card-content pre" in response.text
+    assert ".review-card-content code" in response.text
+
+@patch("main.supabase.auth.get_user")
 def test_review_page_preserves_rating_status_before_disabling_buttons(mock_get_user, client, db_conn):
     auth_client, user_id, _ = authenticate_client(mock_get_user, client, db_conn, email="reviewstatus@example.com")
 
