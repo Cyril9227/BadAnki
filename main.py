@@ -29,7 +29,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from supabase import create_client, Client
 from jose import JWTError, jwt
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from telegram import Update
 from supabase_auth.errors import AuthApiError
 
@@ -50,14 +50,32 @@ TELEGRAM_WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET")
 TELEGRAM_BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+IS_PRODUCTION = os.environ.get("ENVIRONMENT") == "production"
 
 if not all([SECRET_KEY, SCHEDULER_SECRET, SUPABASE_URL, SUPABASE_KEY]):
     raise ValueError("One or more critical environment variables are not set.")
+
+def _get_unverified_supabase_role(key: str | None) -> str | None:
+    if not key:
+        return None
+    try:
+        return jwt.get_unverified_claims(key).get("role")
+    except Exception:
+        return None
+
+if _get_unverified_supabase_role(SUPABASE_KEY) == "service_role":
+    raise ValueError("SUPABASE_KEY must be the public anon key, not the service-role key.")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
+MAX_COURSE_PATH_LEN = 512
+MAX_COURSE_CONTENT_LEN = 1_000_000
+MAX_CARD_QUESTION_LEN = 10_000
+MAX_CARD_ANSWER_LEN = 50_000
+MAX_GENERATED_CARDS_PER_REQUEST = 100
+MAX_SECRET_INPUT_LEN = 512
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
@@ -66,7 +84,11 @@ logging.basicConfig(level=logging.INFO)
 
 
 # --- FastAPI App ---
-app = FastAPI()
+app = FastAPI(
+    docs_url=None if IS_PRODUCTION else "/docs",
+    redoc_url=None if IS_PRODUCTION else "/redoc",
+    openapi_url=None if IS_PRODUCTION else "/openapi.json",
+)
 app.add_middleware(CSRFMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -160,8 +182,9 @@ async def _ensure_webhook():
 
 
 @app.get("/api/ensure-webhook")
-async def ensure_webhook(secret: str):
-    if not SCHEDULER_SECRET or not secrets.compare_digest(secret, SCHEDULER_SECRET):
+async def ensure_webhook(request: Request, secret: str | None = None):
+    submitted_secret = request.headers.get("x-scheduler-secret") or secret
+    if not scheduler_secret_is_valid(submitted_secret):
         raise HTTPException(status_code=403, detail="Invalid secret")
     return await _ensure_webhook()
 
@@ -197,37 +220,37 @@ class User(BaseModel):
     anthropic_api_key: Optional[str] = None
 
 class CourseContent(BaseModel):
-    path: str
-    content: str
+    path: str = Field(..., min_length=1, max_length=MAX_COURSE_PATH_LEN)
+    content: str = Field(..., max_length=MAX_COURSE_CONTENT_LEN)
 
 class CourseItem(BaseModel):
-    path: str
-    type: str
+    path: str = Field(..., min_length=1, max_length=MAX_COURSE_PATH_LEN)
+    type: str = Field(..., pattern="^(file|folder|directory)$")
 
 class GeneratedCard(BaseModel):
-    question: str
-    answer: str
-    card_type: str = "basic"  # "basic" or "cloze"
+    question: str = Field(..., min_length=1, max_length=MAX_CARD_QUESTION_LEN)
+    answer: str = Field(..., min_length=1, max_length=MAX_CARD_ANSWER_LEN)
+    card_type: str = Field(default="basic", pattern="^(basic|cloze)$")
 
 class CourseContentForGeneration(BaseModel):
-    content: str
-    card_type: str = "basic"  # "basic" or "cloze"
+    content: str = Field(..., max_length=MAX_COURSE_CONTENT_LEN)
+    card_type: str = Field(default="basic", pattern="^(basic|cloze)$")
 
 class GeneratedCards(BaseModel):
-    cards: list[GeneratedCard]
+    cards: list[GeneratedCard] = Field(..., min_length=1, max_length=MAX_GENERATED_CARDS_PER_REQUEST)
 
 class ApiKeys(BaseModel):
-    gemini_api_key: str | None = None
-    anthropic_api_key: str | None = None
+    gemini_api_key: str | None = Field(default=None, max_length=MAX_SECRET_INPUT_LEN)
+    anthropic_api_key: str | None = Field(default=None, max_length=MAX_SECRET_INPUT_LEN)
 
 class Secrets(BaseModel):
-    telegram_token: str | None = None
-    telegram_chat_id: str | None = None
-    scheduler_secret: str | None = None
+    telegram_token: str | None = Field(default=None, max_length=MAX_SECRET_INPUT_LEN)
+    telegram_chat_id: str | None = Field(default=None, max_length=MAX_SECRET_INPUT_LEN)
+    scheduler_secret: str | None = Field(default=None, max_length=MAX_SECRET_INPUT_LEN)
 
 class AuthCallback(BaseModel):
-    access_token: str
-    refresh_token: str | None = None
+    access_token: str = Field(..., min_length=1, max_length=8192)
+    refresh_token: str | None = Field(default=None, max_length=8192)
 
 # --- Database Dependency ---
 def get_db(request: Request):
@@ -241,9 +264,25 @@ def should_use_secure_cookies(request: Request) -> bool:
     """Return True when cookies should be marked Secure."""
     forwarded_proto = request.headers.get("x-forwarded-proto", "")
     return (
-        os.environ.get("ENVIRONMENT") == "production"
+        IS_PRODUCTION
         or request.url.scheme == "https"
         or forwarded_proto.split(",")[0].strip().lower() == "https"
+    )
+
+def set_flash_cookie(response: Response, request: Request, value: str) -> None:
+    response.set_cookie(
+        key="flash",
+        value=value,
+        max_age=5,
+        samesite="lax",
+        secure=should_use_secure_cookies(request),
+    )
+
+def scheduler_secret_is_valid(candidate: str | None) -> bool:
+    return bool(
+        SCHEDULER_SECRET
+        and candidate
+        and secrets.compare_digest(candidate, SCHEDULER_SECRET)
     )
 
 # --- Authentication ---
@@ -279,7 +318,9 @@ async def logout(request: Request, response: Response):
             logger.error(f"Supabase sign out failed: {e}")
     
     response = RedirectResponse(url="/", status_code=303)
-    response.delete_cookie("access_token")
+    secure_cookie = should_use_secure_cookies(request)
+    response.delete_cookie("access_token", path="/", secure=secure_cookie, httponly=True, samesite="lax")
+    response.delete_cookie("csrf_token", path="/", secure=secure_cookie, samesite="lax")
     return response
 
 async def get_current_active_user(request: Request):
@@ -300,6 +341,8 @@ def _validate_course_path(path: str) -> str:
     """
     if not path:
         raise HTTPException(status_code=400, detail="Course path cannot be empty.")
+    if len(path) > MAX_COURSE_PATH_LEN:
+        raise HTTPException(status_code=400, detail="Course path is too long.")
     if "\x00" in path:
         raise HTTPException(status_code=400, detail="Invalid course path.")
     normalized = path.replace("\\", "/")
@@ -307,7 +350,21 @@ def _validate_course_path(path: str) -> str:
         raise HTTPException(status_code=400, detail="Invalid course path.")
     if any(part == ".." for part in normalized.split("/")):
         raise HTTPException(status_code=400, detail="Invalid course path.")
+    if any(ord(char) < 32 for char in normalized):
+        raise HTTPException(status_code=400, detail="Invalid course path.")
     return path
+
+
+def _validate_card_input(question: str, answer: str, card_type: str = "basic") -> tuple[str, str, str]:
+    question = question.strip()
+    answer = answer.strip()
+    if not question or not answer:
+        raise HTTPException(status_code=400, detail="Question and answer are required.")
+    if len(question) > MAX_CARD_QUESTION_LEN or len(answer) > MAX_CARD_ANSWER_LEN:
+        raise HTTPException(status_code=400, detail="Card content is too large.")
+    if card_type not in ("basic", "cloze"):
+        raise HTTPException(status_code=400, detail="Invalid card type.")
+    return question, answer, card_type
 
 
 # --- Rate Limiting ---
@@ -341,10 +398,6 @@ def _check_llm_rate_limit(user_id: str) -> None:
 
 # --- LLM Output Validation ---
 
-_MAX_CARD_QUESTION_LEN = 10_000
-_MAX_CARD_ANSWER_LEN = 50_000
-
-
 def _validate_generated_cards(cards) -> list[dict]:
     """Coerce whatever the LLM returned into a safe list of card dicts.
 
@@ -367,7 +420,7 @@ def _validate_generated_cards(cards) -> list[dict]:
         answer = answer.strip()
         if not question or not answer:
             continue
-        if len(question) > _MAX_CARD_QUESTION_LEN or len(answer) > _MAX_CARD_ANSWER_LEN:
+        if len(question) > MAX_CARD_QUESTION_LEN or len(answer) > MAX_CARD_ANSWER_LEN:
             continue
         card_type = card.get("card_type", "basic")
         if card_type not in ("basic", "cloze"):
@@ -490,8 +543,14 @@ async def secrets_form(request: Request, user: User = Depends(get_current_active
 @app.post("/secrets")
 async def save_secrets(request: Request, user: User = Depends(get_current_active_user), telegram_chat_id: str = Form(None)):
     # If the chat ID is an empty string, treat it as None
+    if telegram_chat_id is not None:
+        telegram_chat_id = telegram_chat_id.strip()
     if telegram_chat_id == "":
         telegram_chat_id = None
+    if telegram_chat_id is not None:
+        numeric = telegram_chat_id[1:] if telegram_chat_id.startswith("-") else telegram_chat_id
+        if len(telegram_chat_id) > 32 or not numeric.isdigit():
+            raise HTTPException(status_code=400, detail="Invalid Telegram chat ID.")
         
     crud.save_secrets_for_user(request.state.db, user.auth_user_id, telegram_chat_id)
     return JSONResponse(content={"success": True})
@@ -544,7 +603,7 @@ async def handle_auth(
         })
         secure_cookie = should_use_secure_cookies(request)
         response.set_cookie(key="access_token", value=access_token, httponly=True, max_age=3600 * 24 * 7, samesite="lax", secure=secure_cookie)
-        response.set_cookie(key="flash", value=f"success:{flash_message}", max_age=5, samesite="lax", secure=secure_cookie)
+        set_flash_cookie(response, request, f"success:{flash_message}")
         return response
 
     try:
@@ -631,7 +690,7 @@ async def auth_callback(
             samesite="lax",
             secure=secure_cookie
         )
-        response.set_cookie(key="flash", value="success:Logged in successfully!", max_age=5, samesite="lax", secure=secure_cookie) # Flash message
+        set_flash_cookie(response, request, "success:Logged in successfully!")
         return response
 
     except Exception as e:
@@ -866,8 +925,9 @@ async def view_courses_by_tag(request: Request, tag_name: str, conn: psycopg2.ex
 
 # --- Scheduler ---
 @app.get("/api/trigger-scheduler")
-async def trigger_scheduler(secret: str):
-    if not SCHEDULER_SECRET or not secrets.compare_digest(secret, SCHEDULER_SECRET):
+async def trigger_scheduler(request: Request, secret: str | None = None):
+    submitted_secret = request.headers.get("x-scheduler-secret") or secret
+    if not scheduler_secret_is_valid(submitted_secret):
         raise HTTPException(status_code=403, detail="Invalid secret")
     
     webhook_status = await _ensure_webhook()
@@ -918,10 +978,11 @@ async def new_card_form(request: Request, user: User = Depends(get_current_activ
     return templates.TemplateResponse(request, "new_card.html", {"csrf_token": csrf_token})
 
 @app.post("/new")
-async def create_new_card(question: str = Form(...), answer: str = Form(...), card_type: str = Form("basic"), conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
+async def create_new_card(request: Request, question: str = Form(...), answer: str = Form(...), card_type: str = Form("basic"), conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
+    question, answer, card_type = _validate_card_input(question, answer, card_type)
     crud.create_card_for_user(conn, question, answer, user.auth_user_id, card_type=card_type)
     response = RedirectResponse(url="/", status_code=303)
-    response.set_cookie(key="flash", value="success:Card created successfully!", max_age=5, samesite="lax")
+    set_flash_cookie(response, request, "success:Card created successfully!")
     return response
 
 @app.get("/edit-card/{card_id}", response_class=HTMLResponse)
@@ -934,12 +995,13 @@ async def edit_card_form(request: Request, card_id: int, conn: psycopg2.extensio
 
 @app.post("/edit-card/{card_id}")
 async def update_existing_card(card_id: int, question: str = Form(...), answer: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
+    question, answer, _ = _validate_card_input(question, answer)
     crud.update_card_content_for_user(conn, card_id, user.auth_user_id, question, answer)
     return RedirectResponse(url="/manage", status_code=303)
 
 @app.post("/delete/{card_id}")
-async def delete_card(card_id: int, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
+async def delete_card(request: Request, card_id: int, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     crud.delete_card_for_user(conn, card_id, user.auth_user_id)
     response = RedirectResponse(url="/manage", status_code=303)
-    response.set_cookie(key="flash", value="success:Card deleted successfully!", max_age=5, samesite="lax")
+    set_flash_cookie(response, request, "success:Card deleted successfully!")
     return response

@@ -26,6 +26,13 @@ APP_URL = os.environ.get("APP_URL", "http://127.0.0.1:8000")
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 
+def _database_connect_kwargs():
+    kwargs = {"dsn": DATABASE_URL}
+    if os.environ.get("ENVIRONMENT") == "production" and DATABASE_URL and "sslmode=" not in DATABASE_URL.lower():
+        kwargs["sslmode"] = "require"
+    return kwargs
+
+
 def get_users_with_due_cards():
     """
     Queries the database to find users who have cards due for review.
@@ -39,7 +46,7 @@ def get_users_with_due_cards():
     conn = None
     users_with_due_cards = []
     try:
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = psycopg2.connect(**_database_connect_kwargs())
         cursor = conn.cursor(cursor_factory=extras.DictCursor)
 
         # SQL query: return all users with telegram_chat_id, count due cards (can be zero)

@@ -10,12 +10,21 @@ load_dotenv()
 
 db_pool = None
 
+def _database_connect_kwargs(db_url: str | None) -> dict:
+    if not db_url:
+        raise RuntimeError("DATABASE_URL environment variable is not set.")
+
+    kwargs = {"dsn": db_url}
+    if os.environ.get("ENVIRONMENT") == "production" and "sslmode=" not in db_url.lower():
+        kwargs["sslmode"] = "require"
+    return kwargs
+
 def init_db_pool():
     """Initializes the database connection pool and registers the UUID adapter."""
     global db_pool
     if db_pool is None:
         db_url = os.environ.get("DATABASE_URL")
-        db_pool = psycopg2.pool.SimpleConnectionPool(1, 20, dsn=db_url)
+        db_pool = psycopg2.pool.SimpleConnectionPool(1, 20, **_database_connect_kwargs(db_url))
         # Register the UUID adapter globally for all connections
         register_uuid()
 

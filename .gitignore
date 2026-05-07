@@ -7,6 +7,8 @@ __pycache__/
 
 # Ignore environment file with secrets
 .env
+.env.*
+!.env.example
 
 # Ignore Reference code
 reference_code/
@@ -19,3 +21,9 @@ node_modules/
 # Course content
 /courses/
 *.csv
+
+# Database backups/dumps
+/backup/
+backup_*.sql
+*.dump
+*.backup

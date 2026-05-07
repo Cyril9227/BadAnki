@@ -9,6 +9,9 @@ from starlette.requests import Request as StarletteRequest
 from starlette.types import ASGIApp, Receive, Scope, Send, Message
 
 
+MAX_REQUEST_BODY_BYTES = int(os.environ.get("MAX_REQUEST_BODY_BYTES", str(5 * 1024 * 1024)))
+
+
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Adds security headers to all responses."""
 
@@ -33,6 +36,30 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "magnetometer=(), microphone=(), payment=(), usb=()"
         )
 
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; "
+            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; "
+            "img-src 'self' data: https:; "
+            "font-src 'self' data: https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; "
+            "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://vitals.vercel-insights.com; "
+            "object-src 'none'; "
+            "base-uri 'self'; "
+            "frame-ancestors 'none'; "
+            "form-action 'self'"
+        )
+
+        if (
+            os.environ.get("ENVIRONMENT") == "production"
+            or request.url.scheme == "https"
+            or request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower() == "https"
+        ):
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+
+        if request.url.path in {"/auth", "/login", "/logout", "/api-keys", "/secrets"}:
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Pragma"] = "no-cache"
+
         return response
 
 
@@ -46,7 +73,7 @@ class CSRFMiddleware:
 
     def __init__(self, app: ASGIApp):
         self.app = app
-        self.exempt_paths = ["/webhook/", "/docs", "/openapi.json", "/health", "/auth/callback"]
+        self.exempt_paths = ["/webhook/", "/docs", "/openapi.json", "/health"]
 
     def _should_use_secure_cookies(self, scope: Scope) -> bool:
         forwarded_proto = ""
@@ -136,6 +163,13 @@ class CSRFMiddleware:
             while True:
                 message = await receive()
                 body_bytes += message.get("body", b"")
+                if len(body_bytes) > MAX_REQUEST_BODY_BYTES:
+                    response = JSONResponse(
+                        status_code=413,
+                        content={"detail": "Request body too large"},
+                    )
+                    await response(scope, receive, send)
+                    return
                 if not message.get("more_body", False):
                     break
 

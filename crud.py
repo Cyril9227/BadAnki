@@ -287,7 +287,10 @@ def update_card_for_user(conn, card_id: int, auth_user_id: str, remembered: bool
         ease_factor = max(MIN_EASE_FACTOR, ease_factor - EASE_FACTOR_PENALTY)
     
     next_due_date = datetime.now() + timedelta(days=interval)
-    cursor.execute("UPDATE cards SET due_date = %s, ease_factor = %s, interval = %s WHERE id = %s", (next_due_date, ease_factor, interval, card_id))
+    cursor.execute(
+        "UPDATE cards SET due_date = %s, ease_factor = %s, interval = %s WHERE id = %s AND user_id = %s",
+        (next_due_date, ease_factor, interval, card_id, auth_user_id)
+    )
     conn.commit()
     cursor.close()
 

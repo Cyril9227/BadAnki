@@ -854,9 +854,13 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
 
                 if (session) {
+                    const csrfToken = window.getCsrfToken();
                     const response = await fetch('/auth/callback', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: Object.assign(
+                            { 'Content-Type': 'application/json' },
+                            csrfToken ? { 'X-CSRF-Token': csrfToken } : {}
+                        ),
                         body: JSON.stringify({
                             access_token: session.access_token,
                             refresh_token: session.refresh_token,

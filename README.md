@@ -78,11 +78,18 @@ So it's like Anki but badly vibe-coded. Main interesting thing is that you get d
     SUPABASE_URL=https://your-project.supabase.co
     SUPABASE_KEY=your-supabase-anon-key
     SCHEDULER_SECRET=your-scheduler-secret
+    CRON_SECRET=your-vercel-cron-secret
     TELEGRAM_BOT_TOKEN=your-telegram-bot-token
     TELEGRAM_WEBHOOK_SECRET=your-webhook-secret
     TELEGRAM_BOT_USERNAME=your-bot-username
     APP_URL=http://localhost:8000
     ```
+
+    `SUPABASE_KEY` must be the public anon key, never the service-role key.
+    For production on Vercel, also set `CRON_SECRET` so scheduled jobs cannot
+    be triggered by arbitrary internet traffic.
+    Apply the RLS block in `database.sql` to existing Supabase databases before
+    treating the public anon key as safe to expose.
 
 4.  **Run the web server:**
     ```bash
