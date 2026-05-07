@@ -119,38 +119,40 @@
 
 {% block scripts %}
 <script>
-    document.addEventListener('DOMContentLoaded', (event) => {
-        const cardData = JSON.parse(document.getElementById('card-data').textContent);
-        const isCloze = cardData.card_type === 'cloze' || window.isClozeText(cardData.question);
-
-        if (isCloze) {
-            document.getElementById('card-type-badge').style.display = 'inline';
-            document.getElementById('question-title').textContent = 'Fill in the blank';
-            document.getElementById('question-content').innerHTML = window.safeMarkdown(
-                window.formatClozeForDisplay(cardData.question)
-            );
-            document.getElementById('answer-content').innerHTML = window.safeMarkdown(cardData.answer);
-        } else {
-            document.getElementById('question-content').innerHTML = window.safeMarkdown(cardData.question);
-            document.getElementById('answer-content').innerHTML = window.safeMarkdown(cardData.answer);
-        }
-
-        // Render markdown for learning cards list
-        document.querySelectorAll('.markdown-content').forEach(function(el) {
-            const rawContent = el.dataset.content;
-            if (rawContent) {
-                el.innerHTML = window.safeMarkdown(rawContent);
-            }
-        });
-
-        if (window.MathJax) {
-            MathJax.typesetPromise();
-        }
-
+    document.addEventListener('DOMContentLoaded', () => {
         const showAnswerBtn = document.getElementById('show-answer-btn');
         const answerSection = document.getElementById('answer-section');
         const reviewForm = document.getElementById('review-form');
+        const questionContent = document.getElementById('question-content');
+        const answerContent = document.getElementById('answer-content');
         let answerShown = false;
+
+        function typesetMath(elements) {
+            if (!window.MathJax || typeof window.MathJax.typesetPromise !== 'function') return;
+
+            try {
+                const typeset = elements
+                    ? window.MathJax.typesetPromise(elements)
+                    : window.MathJax.typesetPromise();
+
+                if (typeset && typeof typeset.catch === 'function') {
+                    typeset.catch(function(error) {
+                        console.warn('MathJax typesetting failed:', error);
+                    });
+                }
+            } catch (error) {
+                console.warn('MathJax typesetting failed:', error);
+            }
+        }
+
+        function renderMarkdown(el, markdown) {
+            try {
+                el.innerHTML = window.safeMarkdown(markdown);
+            } catch (error) {
+                console.warn('Markdown rendering failed:', error);
+                el.textContent = markdown || '';
+            }
+        }
 
         showAnswerBtn.addEventListener('click', function () {
             if (answerShown) return;  // Defend against a rapid double-click.
@@ -159,7 +161,7 @@
             answerSection.style.display = 'block';
             reviewForm.style.display = 'block';
             showAnswerBtn.style.display = 'none';
-            if (window.MathJax) MathJax.typesetPromise();
+            typesetMath([answerSection]);
         });
 
         // Support keyboard: Space/Enter reveals the answer when the button is
@@ -172,6 +174,30 @@
                 showAnswerBtn.click();
             }
         });
+
+        try {
+            const cardData = JSON.parse(document.getElementById('card-data').textContent);
+            const isCloze = cardData.card_type === 'cloze' || window.isClozeText(cardData.question);
+
+            if (isCloze) {
+                document.getElementById('card-type-badge').style.display = 'inline';
+                document.getElementById('question-title').textContent = 'Fill in the blank';
+                renderMarkdown(questionContent, window.formatClozeForDisplay(cardData.question));
+                renderMarkdown(answerContent, cardData.answer);
+            } else {
+                renderMarkdown(questionContent, cardData.question);
+                renderMarkdown(answerContent, cardData.answer);
+            }
+
+            // Render markdown for learning cards list.
+            document.querySelectorAll('.markdown-content[data-content]').forEach(function(el) {
+                renderMarkdown(el, el.dataset.content);
+            });
+
+            typesetMath([questionContent]);
+        } catch (error) {
+            console.error('Review card rendering failed:', error);
+        }
 
         // Prevent double-submit if the user bashes a rating button twice.
         let submitting = false;
