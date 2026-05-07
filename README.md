@@ -1,6 +1,6 @@
 # [(Bad) Anki](https://bad-anki.vercel.app/)
 
-(Bad) Anki is a web-based adaptation of the popular Anki flashcard application, designed to help you study and remember information efficiently. It leverages a spaced repetition system (SRS) inspired by the SM-2 algorithm to optimize your learning process. The application is built with a modern Python backend, a simple and effective frontend, and includes powerful features like AI-powered card generation and Telegram integration for daily review reminders.
+So it's like Anki but badly vibe-coded. Main interesting thing is that you get daily updates / reminders on telegram, and the cards support $LaTeX$ / code blocks. There is also an experimental feature where you can upload a markdown file (let's say notes from a maths course) and have an AI automatically generate the relevant Anki cards. 
 
 ## 🔄 The Learning Loop
 
