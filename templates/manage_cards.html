@@ -166,6 +166,21 @@
 {% block content %}
 <h1 class="mb-4">Manage Cards</h1>
 
+{% if cards %}
+<div class="row g-2 mb-3">
+    <div class="col">
+        <input type="search" id="card-search" class="form-control" placeholder="Search questions and answers…" aria-label="Search cards">
+    </div>
+    <div class="col-auto">
+        <select id="card-type-filter" class="form-select" aria-label="Filter by card type">
+            <option value="all">All types</option>
+            <option value="basic">Q&amp;A</option>
+            <option value="cloze">Cloze</option>
+        </select>
+    </div>
+</div>
+{% endif %}
+
 <div class="card">
     <div class="table-responsive">
         <table class="table table-striped mb-0">
@@ -205,6 +220,8 @@
     </div>
 </div>
 
+<div id="no-results" class="alert alert-secondary mt-3" style="display: none;">No cards match your search.</div>
+
 <!-- Add a message if no cards -->
 {% if not cards %}
 <div class="alert alert-info mt-3">
@@ -243,6 +260,33 @@ document.addEventListener('DOMContentLoaded', function () {
             console.error('MathJax rendering error:', e);
         });
     }
+
+    // --- Client-side search + type filter (no backend round-trips) ---
+    const searchInput = document.getElementById('card-search');
+    const typeFilter = document.getElementById('card-type-filter');
+    const noResults = document.getElementById('no-results');
+    const filterRows = Array.from(document.querySelectorAll('tr[data-question]'));
+
+    function applyCardFilter() {
+        const q = (searchInput ? searchInput.value : '').trim().toLowerCase();
+        const type = typeFilter ? typeFilter.value : 'all';
+        let visible = 0;
+        filterRows.forEach(function (row) {
+            const question = row.dataset.question || '';
+            const answerCell = row.querySelector('.answer-col');
+            const answer = answerCell ? (answerCell.dataset.content || '') : '';
+            const rowType = window.isClozeText(question) ? 'cloze' : 'basic';
+            const matchesText = !q || question.toLowerCase().includes(q) || answer.toLowerCase().includes(q);
+            const matchesType = type === 'all' || rowType === type;
+            const show = matchesText && matchesType;
+            row.style.display = show ? '' : 'none';
+            if (show) visible++;
+        });
+        if (noResults) noResults.style.display = (filterRows.length > 0 && visible === 0) ? '' : 'none';
+    }
+
+    if (searchInput) searchInput.addEventListener('input', applyCardFilter);
+    if (typeFilter) typeFilter.addEventListener('change', applyCardFilter);
 
     // SweetAlert2 for delete confirmation using event delegation
     document.body.addEventListener('submit', function(e) {
