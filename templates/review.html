@@ -1,7 +1,7 @@
 
 {% extends "layout.html" %}
 
-{% block title %}Review Card - Anki Clone{% endblock %}
+{% block title %}Review - Bad Anki{% endblock %}
 
 {% block head %}
 {{ super() }}
@@ -68,6 +68,7 @@
                 <button type="submit" name="status" value="remembered" class="btn btn-success rating-btn">Remembered</button>
                 <button type="submit" name="status" value="forgot" class="btn btn-danger rating-btn">Forgot</button>
             </div>
+            <div class="form-text mt-2">Shortcuts: <kbd>1</kbd> Remembered · <kbd>2</kbd> Forgot</div>
         </form>
     </div>
 </div>
@@ -100,20 +101,6 @@
         </li>
     </ul>
 </div>
-
-{% if learning_cards %}
-<div class="card mt-4 mx-auto" style="max-width: 40rem;">
-    <div class="card-header">
-        Cards in Learning
-    </div>
-    <ul class="list-group list-group-flush">
-        {% for lcard in learning_cards %}
-        <li class="list-group-item markdown-content" data-content="{{ lcard.question }}">
-        </li>
-        {% endfor %}
-    </ul>
-</div>
-{% endif %}
 
 {% endblock %}
 
@@ -168,10 +155,23 @@
         // focused; this is the default anyway but we also handle global Space
         // to match common SRS keyboard expectations.
         document.addEventListener('keydown', function(e) {
-            if (!answerShown && (e.key === ' ' || e.key === 'Enter')
-                && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
+            if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
+            if (!answerShown) {
+                if (e.key === ' ' || e.key === 'Enter') {
+                    e.preventDefault();
+                    showAnswerBtn.click();
+                }
+                return;
+            }
+            // Answer is visible — let the keyboard rate the card (1/R = remembered, 2/F = forgot).
+            if (e.key === '1' || e.key.toLowerCase() === 'r') {
                 e.preventDefault();
-                showAnswerBtn.click();
+                const btn = reviewForm.querySelector('button[value="remembered"]');
+                if (btn) btn.click();
+            } else if (e.key === '2' || e.key.toLowerCase() === 'f') {
+                e.preventDefault();
+                const btn = reviewForm.querySelector('button[value="forgot"]');
+                if (btn) btn.click();
             }
         });
 
