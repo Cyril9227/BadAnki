@@ -89,15 +89,15 @@
     <ul class="list-group list-group-flush">
         <li class="list-group-item d-flex justify-content-between align-items-center">
             Total Cards
-            <span class="badge bg-primary rounded-pill">{{ total_cards }}</span>
+            <span id="total-cards-badge" class="badge bg-primary rounded-pill">{{ total_cards }}</span>
         </li>
         <li class="list-group-item d-flex justify-content-between align-items-center">
             Due Today
-            <span class="badge bg-warning text-dark rounded-pill">{{ due_today_count }}</span>
+            <span id="due-today-badge" class="badge bg-warning text-dark rounded-pill">{{ due_today_count }}</span>
         </li>
         <li class="list-group-item d-flex justify-content-between align-items-center">
             New Cards
-            <span class="badge bg-info text-dark rounded-pill">{{ new_cards_count }}</span>
+            <span id="new-cards-badge" class="badge bg-info text-dark rounded-pill">{{ new_cards_count }}</span>
         </li>
     </ul>
 </div>
@@ -112,7 +112,14 @@
         const reviewForm = document.getElementById('review-form');
         const questionContent = document.getElementById('question-content');
         const answerContent = document.getElementById('answer-content');
+        const questionTitle = document.getElementById('question-title');
+        const cardTypeBadge = document.getElementById('card-type-badge');
+        const ratingButtons = Array.from(reviewForm.querySelectorAll('.rating-btn'));
+
         let answerShown = false;
+        let submitting = false;
+        let lastRatingValue = null;
+        let currentCardId = {{ card.id | tojson }};
 
         function typesetMath(elements) {
             if (!window.MathJax || typeof window.MathJax.typesetPromise !== 'function') return;
@@ -141,7 +148,24 @@
             }
         }
 
-        showAnswerBtn.addEventListener('click', function () {
+        // Render a card's question/answer (handles cloze vs basic). Reused for the
+        // first card and for every card fetched without a page reload.
+        function renderCard(cardData) {
+            const isCloze = cardData.card_type === 'cloze' || window.isClozeText(cardData.question);
+            if (isCloze) {
+                cardTypeBadge.style.display = 'inline';
+                questionTitle.textContent = 'Fill in the blank';
+                renderMarkdown(questionContent, window.formatClozeForDisplay(cardData.question));
+            } else {
+                cardTypeBadge.style.display = 'none';
+                questionTitle.textContent = 'Question';
+                renderMarkdown(questionContent, cardData.question);
+            }
+            renderMarkdown(answerContent, cardData.answer);
+            typesetMath([questionContent]);
+        }
+
+        function showAnswer() {
             if (answerShown) return;  // Defend against a rapid double-click.
             answerShown = true;
             showAnswerBtn.disabled = true;
@@ -149,89 +173,101 @@
             reviewForm.style.display = 'block';
             showAnswerBtn.style.display = 'none';
             typesetMath([answerSection]);
-        });
+        }
 
-        // Support keyboard: Space/Enter reveals the answer when the button is
-        // focused; this is the default anyway but we also handle global Space
-        // to match common SRS keyboard expectations.
+        // Return the UI to the "question only" state for the next card.
+        function resetForNextCard() {
+            answerShown = false;
+            submitting = false;
+            lastRatingValue = null;
+            answerSection.style.display = 'none';
+            reviewForm.style.display = 'none';
+            showAnswerBtn.style.display = 'inline-block';
+            showAnswerBtn.disabled = false;
+            ratingButtons.forEach(btn => { btn.disabled = false; });
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function updateStats(stats) {
+            if (!stats) return;
+            const set = (id, value) => {
+                const el = document.getElementById(id);
+                if (el && value !== undefined && value !== null) el.textContent = value;
+            };
+            set('total-cards-badge', stats.total_cards);
+            set('due-today-badge', stats.due_today);
+            set('new-cards-badge', stats.new_cards);
+        }
+
+        // Record a rating without a full page reload, then swap in the next card.
+        // Falls back to a normal navigation on any error so a rating is never lost.
+        function rate(status) {
+            if (submitting || !answerShown) return;
+            submitting = true;
+            ratingButtons.forEach(btn => { btn.disabled = true; });
+
+            window.fetchJson('/api/review/' + currentCardId, {
+                method: 'POST',
+                body: new URLSearchParams({ status: status })
+            }).then(data => {
+                updateStats(data && data.stats);
+                if (data && data.next_card) {
+                    currentCardId = data.next_card.id;
+                    reviewForm.action = '/review/' + currentCardId;
+                    renderCard(data.next_card);
+                    resetForNextCard();
+                } else {
+                    // No cards left to review — let the server render "All Done".
+                    window.location.href = '/review';
+                }
+            }).catch(error => {
+                console.error('Review submit failed; reloading to recover:', error);
+                window.location.href = '/review';
+            });
+        }
+
+        showAnswerBtn.addEventListener('click', showAnswer);
+
+        // Keyboard: Space/Enter reveals the answer; once shown, 1/R = remembered,
+        // 2/F = forgot. Ignored while typing in a field.
         document.addEventListener('keydown', function(e) {
             if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
             if (!answerShown) {
                 if (e.key === ' ' || e.key === 'Enter') {
                     e.preventDefault();
-                    showAnswerBtn.click();
+                    showAnswer();
                 }
                 return;
             }
-            // Answer is visible — let the keyboard rate the card (1/R = remembered, 2/F = forgot).
             if (e.key === '1' || e.key.toLowerCase() === 'r') {
                 e.preventDefault();
-                const btn = reviewForm.querySelector('button[value="remembered"]');
-                if (btn) btn.click();
+                rate('remembered');
             } else if (e.key === '2' || e.key.toLowerCase() === 'f') {
                 e.preventDefault();
-                const btn = reviewForm.querySelector('button[value="forgot"]');
-                if (btn) btn.click();
+                rate('forgot');
             }
         });
 
+        // Remember which rating button was used so we submit the right value even
+        // if the browser doesn't populate event.submitter.
+        ratingButtons.forEach(btn => {
+            btn.addEventListener('click', () => { lastRatingValue = btn.value; });
+        });
+
+        // Buttons rate through the same AJAX path. The form keeps its action/method
+        // so a rating still records if JavaScript is unavailable.
+        reviewForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            const submitter = (e.submitter && e.submitter.name === 'status') ? e.submitter.value : null;
+            rate(submitter || lastRatingValue || 'remembered');
+        });
+
+        // Initial card render from the server-embedded data.
         try {
-            const cardData = JSON.parse(document.getElementById('card-data').textContent);
-            const isCloze = cardData.card_type === 'cloze' || window.isClozeText(cardData.question);
-
-            if (isCloze) {
-                document.getElementById('card-type-badge').style.display = 'inline';
-                document.getElementById('question-title').textContent = 'Fill in the blank';
-                renderMarkdown(questionContent, window.formatClozeForDisplay(cardData.question));
-                renderMarkdown(answerContent, cardData.answer);
-            } else {
-                renderMarkdown(questionContent, cardData.question);
-                renderMarkdown(answerContent, cardData.answer);
-            }
-
-            // Render markdown for learning cards list.
-            document.querySelectorAll('.markdown-content[data-content]').forEach(function(el) {
-                renderMarkdown(el, el.dataset.content);
-            });
-
-            typesetMath([questionContent]);
+            renderCard(JSON.parse(document.getElementById('card-data').textContent));
         } catch (error) {
             console.error('Review card rendering failed:', error);
         }
-
-        // Prevent double-submit if the user bashes a rating button twice.
-        let submitting = false;
-        let pendingRatingButton = null;
-        const ratingButtons = reviewForm.querySelectorAll('.rating-btn');
-
-        ratingButtons.forEach(btn => {
-            btn.addEventListener('click', function() {
-                pendingRatingButton = btn;
-            });
-        });
-
-        function preserveRatingStatus(submitter) {
-            if (!submitter || submitter.name !== 'status') return;
-
-            let statusInput = reviewForm.querySelector('input[data-preserved-rating-status]');
-            if (!statusInput) {
-                statusInput = document.createElement('input');
-                statusInput.type = 'hidden';
-                statusInput.name = 'status';
-                statusInput.dataset.preservedRatingStatus = 'true';
-                reviewForm.appendChild(statusInput);
-            }
-            statusInput.value = submitter.value;
-        }
-
-        reviewForm.addEventListener('submit', function(e) {
-            if (submitting) { e.preventDefault(); return; }
-            // Disabled submit buttons are not included in form data, so copy
-            // the clicked rating before disabling the visible buttons.
-            preserveRatingStatus(e.submitter || pendingRatingButton);
-            submitting = true;
-            ratingButtons.forEach(btn => { btn.disabled = true; });
-        });
     });
 </script>
 {% endblock %}

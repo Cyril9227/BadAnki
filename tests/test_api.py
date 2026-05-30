@@ -437,17 +437,20 @@ def test_review_page_uses_markdown_code_block_styling(mock_get_user, client, db_
     assert ".review-card-content code" in response.text
 
 @patch("main.supabase.auth.get_user")
-def test_review_page_preserves_rating_status_before_disabling_buttons(mock_get_user, client, db_conn):
+def test_review_page_submits_rating_via_ajax(mock_get_user, client, db_conn):
     auth_client, user_id, _ = authenticate_client(mock_get_user, client, db_conn, email="reviewstatus@example.com")
 
     create_test_card(db_conn, user_id, "Review Q", "Review A")
 
     response = auth_client.get("/review")
     assert response.status_code == 200
-    assert "function preserveRatingStatus" in response.text
-    assert "data-preserved-rating-status" in response.text
-    assert "preserveRatingStatus(e.submitter || pendingRatingButton)" in response.text
-    assert "ratingButtons.forEach(btn => { btn.disabled = true; });" in response.text
+    # The review loop posts the rating to the JSON endpoint and swaps the next
+    # card in without a full page reload...
+    assert "/api/review/" in response.text
+    assert "function rate(status)" in response.text
+    assert "function renderCard(" in response.text
+    # ...while the form keeps its action so it still works without JavaScript.
+    assert 'action="/review/' in response.text
 
 @patch("main.supabase.auth.get_user")
 def test_get_review_page_no_due_cards(mock_get_user, client, db_conn):

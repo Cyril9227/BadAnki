@@ -1029,6 +1029,45 @@ async def update_review(card_id: int, status: str = Form(...), conn: psycopg2.ex
     crud.update_card_for_user(conn, card_id, user.auth_user_id, status == "remembered")
     return RedirectResponse(url="/review", status_code=303)
 
+
+@app.post("/api/review/{card_id}", response_class=JSONResponse)
+async def update_review_ajax(
+    card_id: int,
+    status: str = Form(...),
+    conn: psycopg2.extensions.connection = Depends(get_db),
+    user: User = Depends(get_current_active_user),
+):
+    """Record a rating and return the next due card + deck stats as JSON.
+
+    Powers the no-reload review loop. The form-based /review/{card_id} endpoint
+    above is kept as a no-JS fallback.
+    """
+    if status not in ("remembered", "forgot"):
+        raise HTTPException(status_code=400, detail="Invalid review status.")
+
+    crud.update_card_for_user(conn, card_id, user.auth_user_id, status == "remembered")
+
+    next_card = crud.get_review_cards_for_user(conn, user.auth_user_id)
+    stats = crud.get_review_stats_for_user(conn, user.auth_user_id)
+
+    payload = {
+        "next_card": None,
+        "stats": {
+            "due_today": stats["due_today"],
+            "new_cards": stats["new_cards"],
+            "total_cards": stats["total_cards"],
+        },
+    }
+    if next_card is not None:
+        card = dict(next_card)
+        payload["next_card"] = {
+            "id": card["id"],
+            "question": card["question"],
+            "answer": card["answer"],
+            "card_type": card.get("card_type") or "basic",
+        }
+    return JSONResponse(content=payload)
+
 @app.get("/manage", response_class=HTMLResponse)
 async def manage_cards(request: Request, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     cards = crud.get_all_cards_for_user(conn, user.auth_user_id)
