@@ -350,11 +350,15 @@ async def get_current_user(request: Request, conn: psycopg2.extensions.connectio
         user_response = supabase.auth.get_user(token)
         auth_user = user_response.user
         if auth_user:
-            # This is the key change: ensure a profile exists for any valid Supabase user.
-            # It's idempotent, so it's safe to call on every authenticated request.
-            crud.create_profile(conn, username=auth_user.email, auth_user_id=auth_user.id)
-
+            # Look up the profile first and only create one when it's missing.
+            # This keeps the common (already-registered) request path read-only
+            # instead of issuing an INSERT ... ON CONFLICT on every authenticated
+            # request. create_profile stays idempotent, so first-seen users still
+            # get a profile created here.
             profile = crud.get_profile_by_auth_id(conn, auth_user.id)
+            if profile is None:
+                crud.create_profile(conn, username=auth_user.email, auth_user_id=auth_user.id)
+                profile = crud.get_profile_by_auth_id(conn, auth_user.id)
             if profile:
                 return User(**profile)
     except AuthApiError as e:

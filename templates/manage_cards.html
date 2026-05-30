@@ -237,9 +237,9 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     });
 
-    // Re-render MathJax for the card content
+    // Re-render MathJax for the card content (scoped to the cards, not the whole page).
     if (window.MathJax) {
-        MathJax.typesetPromise().catch(function (e) {
+        MathJax.typesetPromise(Array.from(document.querySelectorAll('.markdown-content'))).catch(function (e) {
             console.error('MathJax rendering error:', e);
         });
     }

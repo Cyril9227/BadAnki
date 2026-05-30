@@ -60,9 +60,9 @@ document.addEventListener('DOMContentLoaded', function() {
             el.innerHTML = window.safeMarkdown(rawContent);
         }
     });
-    // Render MathJax after markdown
+    // Render MathJax after markdown (scoped to the card content).
     if (window.MathJax) {
-        MathJax.typesetPromise();
+        MathJax.typesetPromise(Array.from(document.querySelectorAll('.markdown-content')));
     }
 });
 </script>
