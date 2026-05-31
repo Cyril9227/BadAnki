@@ -160,6 +160,35 @@
             padding: 0.3rem 0.6rem;
         }
     }
+
+    /* --- Sortable column headers. The thead is hidden on mobile (card layout),
+       so this affordance is naturally desktop-only. --- */
+    .table thead th.sortable { white-space: nowrap; }
+    .sort-btn {
+        background: none;
+        border: 0;
+        padding: 0;
+        margin: 0;
+        font: inherit;
+        color: inherit;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+    }
+    .sort-btn:hover { color: rgb(var(--primary-rgb)); }
+    .sort-btn:focus-visible {
+        outline: 2px solid rgb(var(--primary-rgb));
+        outline-offset: 2px;
+    }
+    .sort-indicator {
+        font-size: 0.7rem;
+        opacity: 0.35; /* faint hint that the column is sortable */
+    }
+    .table thead th[aria-sort="ascending"] .sort-indicator,
+    .table thead th[aria-sort="descending"] .sort-indicator {
+        opacity: 1; /* active column gets a full-strength arrow */
+    }
 </style>
 {% endblock %}
 
@@ -186,12 +215,12 @@
         <table class="table table-striped mb-0">
             <thead>
                 <tr>
-                    <th class="ps-4">Type</th>
+                    <th class="ps-4" data-sort-type="text">Type</th>
                     <th class="question-col">Question</th>
                     <th class="answer-col">Answer</th>
-                    <th>Due Date</th>
-                    <th>Ease Factor</th>
-                    <th>Interval (days)</th>
+                    <th data-sort-type="date">Due Date</th>
+                    <th data-sort-type="number">Ease Factor</th>
+                    <th data-sort-type="number">Interval (days)</th>
                     <th class="pe-4 actions-col">Actions</th>
                 </tr>
             </thead>
@@ -201,9 +230,9 @@
                     <td data-label="Type" class="card-type-cell"></td>
                     <td data-label="Question" class="question-col markdown-content" data-content="{{ card.question }}"></td>
                     <td data-label="Answer" class="answer-col markdown-content" data-content="{{ card.answer }}"></td>
-                    <td data-label="Due Date">{{ card.due_date.strftime('%Y-%m-%d') if card.due_date else 'N/A' }}</td>
-                    <td data-label="Ease Factor">{{ "%.2f"|format(card.ease_factor) }}</td>
-                    <td data-label="Interval">{{ card.interval }} days</td>
+                    <td data-label="Due Date" data-sort="{{ card.due_date.isoformat() if card.due_date else '' }}">{{ card.due_date.strftime('%Y-%m-%d') if card.due_date else 'N/A' }}</td>
+                    <td data-label="Ease Factor" data-sort="{{ card.ease_factor }}">{{ "%.2f"|format(card.ease_factor) }}</td>
+                    <td data-label="Interval" data-sort="{{ card.interval }}">{{ card.interval }} days</td>
                     <td data-label="Actions" class="action-buttons actions-col">
                         <form action="/edit-card/{{ card.id }}" method="get" class="d-inline">
                             <button type="submit" class="btn btn-sm btn-outline-primary">Edit</button>
@@ -241,6 +270,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         if (typeCell) {
             typeCell.innerHTML = window.cardTypeBadge(isCloze);
+            typeCell.dataset.sort = isCloze ? 'cloze' : 'basic';
         }
 
         row.querySelectorAll('.markdown-content').forEach(function(el) {
@@ -291,6 +321,96 @@ document.addEventListener('DOMContentLoaded', function () {
 
     if (searchInput) searchInput.addEventListener('input', applyCardFilter);
     if (typeFilter) typeFilter.addEventListener('change', applyCardFilter);
+
+    // --- Client-side column sort: click cycles descending -> ascending -> original ---
+    // Headers opt in via data-sort-type in the template; we enhance them here so a
+    // no-JS page never shows a clickable affordance that wouldn't work. Sorting
+    // reorders the <tr> nodes while the filter above only toggles display, so the
+    // two features compose independently.
+    const tbody = document.querySelector('table tbody');
+    const sortHeaders = Array.from(document.querySelectorAll('thead th[data-sort-type]'));
+    const headerCells = sortHeaders.length ? Array.from(sortHeaders[0].parentElement.children) : [];
+    const originalOrder = filterRows.slice(); // load order = due-date ascending (crud.get_all_cards)
+    let sortState = { col: null, dir: null }; // dir: 'desc' | 'asc' | null
+
+    // Comparable value for a row in a column. Returns null for missing/blank values
+    // so they can be forced to the bottom regardless of sort direction.
+    function cellSortValue(row, colIndex, type) {
+        const cell = row.children[colIndex];
+        const raw = cell ? (cell.dataset.sort || '') : '';
+        if (raw === '') return null;
+        if (type === 'number') {
+            const n = parseFloat(raw);
+            return Number.isNaN(n) ? null : n;
+        }
+        return type === 'text' ? raw.toLowerCase() : raw; // 'date' compares ISO strings
+    }
+
+    function applySort() {
+        if (!tbody) return;
+        let order = originalOrder; // null/null state restores the original load order
+        if (sortState.col !== null && sortState.dir !== null) {
+            const type = headerCells[sortState.col].dataset.sortType;
+            const sign = sortState.dir === 'asc' ? 1 : -1;
+            order = originalOrder.slice().sort(function (a, b) {
+                const va = cellSortValue(a, sortState.col, type);
+                const vb = cellSortValue(b, sortState.col, type);
+                if (va === null && vb === null) return 0;
+                if (va === null) return 1;  // missing values always sort last
+                if (vb === null) return -1;
+                if (va < vb) return -sign;
+                if (va > vb) return sign;
+                return 0;
+            });
+        }
+        // Re-append in order; appendChild moves existing nodes, preserving their
+        // rendered markdown/MathJax and any display:none set by the filter.
+        order.forEach(function (row) { tbody.appendChild(row); });
+    }
+
+    function updateSortIndicators() {
+        headerCells.forEach(function (th, idx) {
+            if (!th.dataset.sortType) return;
+            const active = idx === sortState.col && sortState.dir;
+            th.setAttribute('aria-sort', active ? (sortState.dir === 'asc' ? 'ascending' : 'descending') : 'none');
+            const indicator = th.querySelector('.sort-indicator');
+            if (indicator) indicator.textContent = active ? (sortState.dir === 'asc' ? '▲' : '▼') : '↕';
+        });
+    }
+
+    function handleSort(th) {
+        const col = headerCells.indexOf(th);
+        if (col === -1) return;
+        if (sortState.col === col) {
+            // Same column: advance the cycle desc -> asc -> off (original order).
+            sortState.dir = sortState.dir === 'desc' ? 'asc' : (sortState.dir === 'asc' ? null : 'desc');
+            if (sortState.dir === null) sortState.col = null;
+        } else {
+            sortState.col = col;
+            sortState.dir = 'desc';
+        }
+        updateSortIndicators();
+        applySort();
+    }
+
+    sortHeaders.forEach(function (th) {
+        th.classList.add('sortable');
+        th.setAttribute('aria-sort', 'none');
+        // Move the header label into a real <button> so it is keyboard-operable and
+        // announced as a control, while the <th> keeps its columnheader semantics.
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'sort-btn';
+        btn.textContent = th.textContent.trim();
+        const indicator = document.createElement('span');
+        indicator.className = 'sort-indicator';
+        indicator.setAttribute('aria-hidden', 'true');
+        indicator.textContent = '↕';
+        btn.appendChild(indicator);
+        th.textContent = '';
+        th.appendChild(btn);
+        btn.addEventListener('click', function () { handleSort(th); });
+    });
 
     // SweetAlert2 for delete confirmation using event delegation
     document.body.addEventListener('submit', function(e) {
