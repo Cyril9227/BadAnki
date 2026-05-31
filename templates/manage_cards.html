@@ -255,7 +255,11 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     // Re-render MathJax for the card content (scoped to the cards, not the whole page).
-    if (window.MathJax) {
+    // window.MathJax is a truthy config object before the async bundle loads, so we must
+    // also check typesetPromise exists — otherwise this throws a TypeError during
+    // DOMContentLoaded and aborts the handler before the search/filter listeners below
+    // ever attach. (When MathJax isn't ready yet, its own startup typesets the page.)
+    if (window.MathJax && typeof window.MathJax.typesetPromise === 'function') {
         MathJax.typesetPromise(Array.from(document.querySelectorAll('.markdown-content'))).catch(function (e) {
             console.error('MathJax rendering error:', e);
         });
