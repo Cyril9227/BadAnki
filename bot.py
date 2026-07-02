@@ -7,7 +7,6 @@ load_dotenv()
 
 import os
 import logging
-from telegram import Update
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.helpers import escape_markdown
 from telegram.constants import ParseMode

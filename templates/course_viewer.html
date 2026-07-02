@@ -25,18 +25,20 @@
         padding: 4px 14px;
         font-size: 0.9rem;
         border-radius: 16px;
-        background: #e9ecef;
-        color: #495057;
+        /* Theme variables instead of hardcoded light-mode colors, so the
+           pills stay readable in dark mode. */
+        background: rgba(var(--border-rgb), 0.5);
+        color: rgb(var(--foreground-rgb));
         text-decoration: none;
         transition: background-color 0.2s, color 0.2s;
     }
     .card-tag:hover {
-        background: #0d6efd;
+        background: rgb(var(--primary-rgb));
         color: #fff;
     }
     .course-meta {
         font-size: 0.9rem;
-        color: #6c757d;
+        color: rgb(var(--muted-foreground-rgb));
     }
 
     @media (max-width: 768px) {
@@ -88,13 +90,10 @@
     </div>
 </div>
 
-    <!-- Tags as stylized buttons. Render hrefs server-side so the links work
-         even if JS hasn't loaded yet; the JS fallback below is kept as a
-         belt-and-braces override for old pages. -->
     {% if metadata.get('tags') %}
         <div class="card-tags mb-3">
             {% for tag in metadata.get('tags') %}
-                <a href="/tags/{{ tag | urlencode }}" class="card-tag tag-link" data-tag="{{ tag | e }}">{{ tag }}</a>
+                <a href="/tags/{{ tag | urlencode }}" class="card-tag">{{ tag }}</a>
             {% endfor %}
         </div>
     {% endif %}
@@ -127,36 +126,26 @@
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         const courseContentDiv = document.getElementById('course-content');
-        const rawContentDiv = document.getElementById('raw-content');
-        const rawContent = rawContentDiv.textContent;
+        const rawContent = document.getElementById('raw-content').textContent;
 
-        // Use the shared sanitized markdown helper before running MathJax.
-        new Promise((resolve) => {
-            courseContentDiv.innerHTML = window.safeMarkdown(rawContent);
-            resolve();
-        }).then(() => {
-            // Once the content is set, typeset it with MathJax
-            if (window.MathJax && window.MathJax.startup) {
-                return window.MathJax.typesetPromise([courseContentDiv]);
-            }
-        }).catch(error => {
-            console.error("Error rendering course content:", error);
-        });
+        // Sanitized markdown first, then MathJax over the result.
+        courseContentDiv.innerHTML = window.safeMarkdown(rawContent);
+        if (window.MathJax && typeof window.MathJax.typesetPromise === 'function') {
+            window.MathJax.typesetPromise([courseContentDiv]).catch(error => {
+                console.error("Error rendering course content:", error);
+            });
+        }
 
         const downloadBtn = document.getElementById('download-btn');
         if(downloadBtn) {
             downloadBtn.addEventListener('click', function() {
-                const coursePath = "{{ course_path }}";
+                const coursePath = {{ course_path | tojson }};
                 if (coursePath) {
                     const finalUrl = `/api/download-course/${encodeURIComponent(coursePath)}`;
                     window.location.href = finalUrl;
                 }
             });
         }
-
-        document.querySelectorAll('.tag-link').forEach(function(link) {
-            link.href = `/tags/${encodeURIComponent(link.dataset.tag)}`;
-        });
 
         // --- Card Generation Logic ---
         const csrfToken = document.getElementById('csrf-token').value;

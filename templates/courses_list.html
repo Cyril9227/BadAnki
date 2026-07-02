@@ -67,7 +67,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
 
             courseList.innerHTML = files.map(item => {
-                const displayName = esc(item.title || item.name.replace('.md', ''));
+                const displayName = esc(item.title || item.name.replace(/\.md$/i, ''));
                 const safePath = esc(item.path);
                 return `<a href="/courses/${encodeURIComponent(item.path)}" class="list-group-item list-group-item-action">
                             <strong>${displayName}</strong>

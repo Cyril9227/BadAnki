@@ -28,20 +28,14 @@
                         <span class="px-2 text-muted" style="position: relative; top: -23px; background-color: rgb(var(--card-background-rgb));">OR</span>
                     </div>
 
-                    <!-- Email/Password Form -->
+                    <!-- Email/Password Form (errors come back as JSON from POST /auth) -->
                     <div id="error-alert" class="alert alert-danger d-none"></div>
-                    {% if error %}
-                        <div class="alert alert-danger">{{ error }}</div>
-                    {% endif %}
-                    {% if prompt_register %}
-                        <div class="alert alert-info">{{ message }}</div>
-                    {% endif %}
                     <form id="auth-form" method="post" action="/auth">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <input type="hidden" id="action" name="action" value="login">
                         <div class="mb-3">
                             <label for="email" class="form-label">Email</label>
-                            <input type="email" class="form-control" id="email" name="email" value="{{ email or '' }}" required>
+                            <input type="email" class="form-control" id="email" name="email" required>
                         </div>
                         <div class="mb-3">
                             <label for="password" class="form-label">Password</label>
@@ -83,7 +77,6 @@
     const form = document.getElementById('auth-form');
     const actionInput = document.getElementById('action');
     const submitButton = document.getElementById('submit-button');
-    const toggleLink = document.getElementById('auth-toggle-link');
     const toggleText = document.getElementById('auth-toggle-text');
     let isLogin = true;
 
@@ -162,32 +155,20 @@
     });
 
     function setUI(mode) {
-        if (mode === 'login') {
-            isLogin = true;
-            actionInput.value = 'login';
-            submitButton.textContent = 'Login';
-            toggleText.innerHTML = 'Don\'t have an account? <a href="#" id="auth-toggle-link">Register here</a>.';
-        } else {
-            isLogin = false;
-            actionInput.value = 'register';
-            submitButton.textContent = 'Register';
-            toggleText.innerHTML = 'Already have an account? <a href="#" id="auth-toggle-link">Login here</a>.';
+        isLogin = mode === 'login';
+        actionInput.value = mode;
+        submitButton.textContent = isLogin ? 'Login' : 'Register';
+        toggleText.innerHTML = isLogin
+            ? 'Don\'t have an account? <a href="#" id="auth-toggle-link">Register here</a>.'
+            : 'Already have an account? <a href="#" id="auth-toggle-link">Login here</a>.';
+    }
+
+    // Delegate so the listener survives setUI replacing the link element.
+    toggleText.addEventListener('click', (e) => {
+        if (e.target.id === 'auth-toggle-link') {
+            e.preventDefault();
+            setUI(isLogin ? 'register' : 'login');
         }
-        // Re-attach event listener since innerHTML is replaced
-        document.getElementById('auth-toggle-link').addEventListener('click', handleToggle);
-    }
-
-    function handleToggle(e) {
-        if (e) e.preventDefault();
-        setUI(isLogin ? 'register' : 'login');
-    }
-
-    // Initial attachment
-    toggleLink.addEventListener('click', handleToggle);
-
-    // Handle the case where the server prompts for registration
-    {% if prompt_register %}
-        setUI('register');
-    {% endif %}
+    });
 </script>
 {% endblock %}

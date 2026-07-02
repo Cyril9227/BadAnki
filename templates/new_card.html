@@ -105,8 +105,12 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function renderPreview(preview, text) {
         preview.innerHTML = window.safeMarkdown(text);
-        if (window.MathJax) {
-            MathJax.typesetPromise([preview]);
+        // window.MathJax is a plain config object until the async bundle loads,
+        // so also check typesetPromise before calling it.
+        if (window.MathJax && typeof window.MathJax.typesetPromise === 'function') {
+            MathJax.typesetPromise([preview]).catch(function (e) {
+                console.warn('MathJax typesetting failed:', e);
+            });
         }
     }
 
@@ -142,8 +146,19 @@ document.addEventListener('DOMContentLoaded', function () {
         updateQuestionPreview();
     }
 
-    questionInput.addEventListener('input', updateQuestionPreview);
-    answerInput.addEventListener('input', updateAnswerPreview);
+    // Debounce preview rendering — re-running markdown + MathJax on every
+    // keystroke gets noticeably heavy on formula-rich cards.
+    const PREVIEW_DEBOUNCE_MS = 150;
+    let questionPreviewTimeout = null;
+    let answerPreviewTimeout = null;
+    questionInput.addEventListener('input', function () {
+        clearTimeout(questionPreviewTimeout);
+        questionPreviewTimeout = setTimeout(updateQuestionPreview, PREVIEW_DEBOUNCE_MS);
+    });
+    answerInput.addEventListener('input', function () {
+        clearTimeout(answerPreviewTimeout);
+        answerPreviewTimeout = setTimeout(updateAnswerPreview, PREVIEW_DEBOUNCE_MS);
+    });
     cardTypeSelect.addEventListener('change', toggleCardType);
 
     form.addEventListener('submit', function(e) {

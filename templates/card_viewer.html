@@ -60,9 +60,13 @@ document.addEventListener('DOMContentLoaded', function() {
             el.innerHTML = window.safeMarkdown(rawContent);
         }
     });
-    // Render MathJax after markdown (scoped to the card content).
-    if (window.MathJax) {
-        MathJax.typesetPromise(Array.from(document.querySelectorAll('.markdown-content')));
+    // Render MathJax after markdown (scoped to the card content). window.MathJax
+    // is a plain config object until the async bundle loads — guard on
+    // typesetPromise; MathJax's own startup pass typesets the page if it loads later.
+    if (window.MathJax && typeof window.MathJax.typesetPromise === 'function') {
+        MathJax.typesetPromise(Array.from(document.querySelectorAll('.markdown-content'))).catch(function (e) {
+            console.warn('MathJax typesetting failed:', e);
+        });
     }
 });
 </script>
