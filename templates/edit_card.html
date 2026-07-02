@@ -13,16 +13,40 @@
 
     <form action="/edit-card/{{ card.id }}" method="post">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <div class="mb-3">
-            <label for="question" class="form-label" id="question-label">Question</label>
-            <textarea class="form-control" id="question" name="question" rows="3" required>{{ card.question }}</textarea>
+        <div class="row g-4">
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header"><h5 class="mb-0" id="question-label">Question</h5></div>
+                    <div class="card-body">
+                        <textarea class="form-control" id="question" name="question" rows="6" required>{{ card.question }}</textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header"><h5 class="mb-0">Question Preview</h5></div>
+                    <div class="card-body markdown-content" id="question-preview"></div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header"><h5 class="mb-0">Answer</h5></div>
+                    <div class="card-body">
+                        <textarea class="form-control" id="answer" name="answer" rows="6" required>{{ card.answer }}</textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header"><h5 class="mb-0">Answer Preview</h5></div>
+                    <div class="card-body markdown-content" id="answer-preview"></div>
+                </div>
+            </div>
         </div>
-        <div class="mb-3">
-            <label for="answer" class="form-label">Answer</label>
-            <textarea class="form-control" id="answer" name="answer" rows="3" required>{{ card.answer }}</textarea>
+        <div class="mt-4">
+            <button type="submit" class="btn btn-primary">Update Card</button>
+            <a href="/manage" class="btn btn-secondary">Cancel</a>
         </div>
-        <button type="submit" class="btn btn-primary">Update Card</button>
-        <a href="/manage" class="btn btn-secondary">Cancel</a>
     </form>
 </div>
 {% endblock %}
@@ -30,14 +54,53 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const question = document.getElementById('question').value;
-    const isCloze = window.isClozeText(question);
+    const questionInput = document.getElementById('question');
+    const answerInput = document.getElementById('answer');
+    const questionPreview = document.getElementById('question-preview');
+    const answerPreview = document.getElementById('answer-preview');
 
+    const isCloze = window.isClozeText(questionInput.value);
     document.getElementById('card-type-badge').innerHTML = window.cardTypeBadge(isCloze);
     if (isCloze) {
         document.getElementById('cloze-hint').style.display = 'block';
         document.getElementById('question-label').textContent = 'Text (with cloze syntax)';
     }
+
+    function renderPreview(preview, text) {
+        preview.innerHTML = window.safeMarkdown(text);
+        if (window.MathJax && typeof window.MathJax.typesetPromise === 'function') {
+            window.MathJax.typesetPromise([preview]).catch(function (e) {
+                console.warn('MathJax typesetting failed:', e);
+            });
+        }
+    }
+
+    function updateQuestionPreview() {
+        let text = questionInput.value;
+        if (window.isClozeText(text)) text = window.formatClozeForDisplay(text);
+        renderPreview(questionPreview, text);
+    }
+
+    function updateAnswerPreview() {
+        renderPreview(answerPreview, answerInput.value);
+    }
+
+    // Debounced like the course editor — markdown + MathJax on every keystroke
+    // gets heavy on formula-rich cards.
+    const PREVIEW_DEBOUNCE_MS = 150;
+    let questionPreviewTimeout = null;
+    let answerPreviewTimeout = null;
+    questionInput.addEventListener('input', function () {
+        clearTimeout(questionPreviewTimeout);
+        questionPreviewTimeout = setTimeout(updateQuestionPreview, PREVIEW_DEBOUNCE_MS);
+    });
+    answerInput.addEventListener('input', function () {
+        clearTimeout(answerPreviewTimeout);
+        answerPreviewTimeout = setTimeout(updateAnswerPreview, PREVIEW_DEBOUNCE_MS);
+    });
+
+    updateQuestionPreview();
+    updateAnswerPreview();
 });
 </script>
 {% endblock %}

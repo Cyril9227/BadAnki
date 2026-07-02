@@ -2,15 +2,27 @@
 
 {% block title %}No Cards Due - Bad Anki{% endblock %}
 
+{# No markdown/LaTeX on this page; skip the heavy MathJax bundle. #}
+{% block mathjax %}{% endblock %}
+
 {% block content %}
-<div class="text-center">
-    <h1 class="display-4">All Done!</h1>
-    <p class="lead">There are no cards due for review right now.</p>
-    <p>Come back later or keep building your deck.</p>
+<div class="text-center py-5">
+    {% if total_cards %}
+    <div class="display-3 mb-3" aria-hidden="true">🎉</div>
+    <h1 class="display-5 fw-bold">All Done!</h1>
+    <p class="lead">Nothing due right now — all {{ total_cards }} card{{ 's' if total_cards != 1 else '' }} in your deck are scheduled for later.</p>
+    <p class="text-muted">Come back later or keep building your deck.</p>
+    {% else %}
+    <div class="display-3 mb-3" aria-hidden="true">📚</div>
+    <h1 class="display-5 fw-bold">Your deck is empty</h1>
+    <p class="lead">Create your first card, or generate a whole deck from your course notes.</p>
+    {% endif %}
     <div class="d-grid gap-2 d-sm-flex justify-content-sm-center mt-4">
         <a href="/new" class="btn btn-primary">Create a New Card</a>
         <a href="/courses" class="btn btn-outline-primary">Browse Courses</a>
+        {% if total_cards %}
         <a href="/manage" class="btn btn-outline-secondary">Manage Cards</a>
+        {% endif %}
     </div>
 </div>
 {% endblock %}
