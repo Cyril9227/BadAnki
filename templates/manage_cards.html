@@ -196,7 +196,7 @@
 <h1 class="mb-4">Manage Cards</h1>
 
 {% if cards %}
-<div class="row g-2 mb-3">
+<div class="row g-2 mb-1">
     <div class="col">
         <input type="search" id="card-search" class="form-control" placeholder="Search questions and answers…" aria-label="Search cards">
     </div>
@@ -208,6 +208,7 @@
         </select>
     </div>
 </div>
+<p id="card-count" class="text-muted small mb-2" aria-live="polite"></p>
 {% endif %}
 
 <div class="card">
@@ -299,7 +300,15 @@ document.addEventListener('DOMContentLoaded', function () {
     const searchInput = document.getElementById('card-search');
     const typeFilter = document.getElementById('card-type-filter');
     const noResults = document.getElementById('no-results');
+    const cardCount = document.getElementById('card-count');
     const filterRows = Array.from(document.querySelectorAll('tr[data-question]'));
+
+    function updateCardCount(visible) {
+        if (!cardCount) return;
+        cardCount.textContent = visible === filterRows.length
+            ? `${filterRows.length} card${filterRows.length === 1 ? '' : 's'}`
+            : `Showing ${visible} of ${filterRows.length} cards`;
+    }
 
     function applyCardFilter() {
         const q = (searchInput ? searchInput.value : '').trim().toLowerCase();
@@ -317,10 +326,12 @@ document.addEventListener('DOMContentLoaded', function () {
             if (show) visible++;
         });
         if (noResults) noResults.style.display = (filterRows.length > 0 && visible === 0) ? '' : 'none';
+        updateCardCount(visible);
     }
 
     if (searchInput) searchInput.addEventListener('input', applyCardFilter);
     if (typeFilter) typeFilter.addEventListener('change', applyCardFilter);
+    updateCardCount(filterRows.length);
 
     // --- Client-side column sort: click cycles descending -> ascending -> original ---
     // Headers opt in via data-sort-type in the template; we enhance them here so a

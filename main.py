@@ -8,12 +8,10 @@ import os
 import secrets
 import time
 from collections import deque
-from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
 from threading import Lock
 from typing import Optional
 import uuid
-from urllib.parse import unquote, quote
+from urllib.parse import quote
 import posixpath
 
 # Third-party
@@ -24,12 +22,11 @@ import psycopg2
 import anthropic
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from supabase import create_client, Client
-from jose import JWTError, jwt
+from jose import jwt
 from pydantic import BaseModel, Field
 from telegram import Update
 from supabase_auth.errors import AuthApiError
@@ -82,16 +79,12 @@ if _get_unverified_supabase_role(SUPABASE_KEY) == "service_role":
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
 MAX_COURSE_PATH_LEN = 512
 MAX_COURSE_CONTENT_LEN = 1_000_000
 MAX_CARD_QUESTION_LEN = 10_000
 MAX_CARD_ANSWER_LEN = 50_000
 MAX_GENERATED_CARDS_PER_REQUEST = 100
 MAX_SECRET_INPUT_LEN = 512
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -242,15 +235,12 @@ async def db_session_middleware(request: Request, call_next):
     """
     request.state.db = None
     request.state.user = None
-    request.state.api_keys = None
     request.state.auth_resolution_failed = False
     try:
         if should_resolve_user_for_request(request):
             try:
                 conn = get_request_db(request)
-                user = await get_current_user(request, conn)
-                request.state.user = user
-                request.state.api_keys = user
+                request.state.user = await get_current_user(request, conn)
             except Exception as e:
                 request.state.auth_resolution_failed = True
                 logger.warning("Unable to resolve authenticated user for this request: %s", e, exc_info=True)
@@ -342,41 +332,93 @@ def scheduler_secret_is_valid(candidate: str | None) -> bool:
     )
 
 # --- Authentication ---
+# Validating the access token with Supabase is an HTTPS round trip on every
+# authenticated request. Cache token -> (auth_user_id, email) for a short TTL
+# so warm instances skip that call; profile data is still read from the DB on
+# every request so API-key/chat-id changes take effect immediately. A revoked
+# token can outlive sign-out by at most the TTL, which is acceptable here
+# because logout also clears the cookie. Disabled under tests, where the same
+# fake token is reused for different mocked users.
+_AUTH_CACHE_TTL_SECS = 0 if os.environ.get("ENVIRONMENT") == "test" else 300
+_AUTH_CACHE_MAX_ENTRIES = 1000
+_auth_token_cache: dict[str, tuple[float, str, str]] = {}
+_auth_token_cache_lock = Lock()
+
+
+def _auth_cache_get(token: str) -> Optional[tuple[str, str]]:
+    if not _AUTH_CACHE_TTL_SECS:
+        return None
+    now = time.monotonic()
+    with _auth_token_cache_lock:
+        entry = _auth_token_cache.get(token)
+        if entry is None:
+            return None
+        expires_at, auth_user_id, email = entry
+        if expires_at <= now:
+            del _auth_token_cache[token]
+            return None
+        return auth_user_id, email
+
+
+def _auth_cache_put(token: str, auth_user_id: str, email: str) -> None:
+    if not _AUTH_CACHE_TTL_SECS:
+        return
+    now = time.monotonic()
+    with _auth_token_cache_lock:
+        if len(_auth_token_cache) >= _AUTH_CACHE_MAX_ENTRIES:
+            expired = [key for key, (exp, _, _) in _auth_token_cache.items() if exp <= now]
+            for key in expired:
+                del _auth_token_cache[key]
+            if len(_auth_token_cache) >= _AUTH_CACHE_MAX_ENTRIES:
+                _auth_token_cache.clear()
+        _auth_token_cache[token] = (now + _AUTH_CACHE_TTL_SECS, auth_user_id, email)
+
+
 async def get_current_user(request: Request, conn: psycopg2.extensions.connection) -> Optional[User]:
     token = request.cookies.get("access_token")
     if not token:
         return None
     try:
-        user_response = supabase.auth.get_user(token)
-        auth_user = user_response.user
-        if auth_user:
-            # Look up the profile first and only create one when it's missing.
-            # This keeps the common (already-registered) request path read-only
-            # instead of issuing an INSERT ... ON CONFLICT on every authenticated
-            # request. create_profile stays idempotent, so first-seen users still
-            # get a profile created here.
-            profile = crud.get_profile_by_auth_id(conn, auth_user.id)
-            if profile is None:
-                crud.create_profile(conn, username=auth_user.email, auth_user_id=auth_user.id)
-                profile = crud.get_profile_by_auth_id(conn, auth_user.id)
-            if profile:
-                return User(**profile)
+        cached = _auth_cache_get(token)
+        if cached is not None:
+            auth_user_id, auth_email = cached
+        else:
+            # The Supabase client is synchronous; keep the network call off the
+            # event loop.
+            user_response = await run_in_threadpool(supabase.auth.get_user, token)
+            auth_user = user_response.user
+            if not auth_user:
+                return None
+            auth_user_id, auth_email = str(auth_user.id), auth_user.email
+            _auth_cache_put(token, auth_user_id, auth_email)
+
+        # Look up the profile first and only create one when it's missing.
+        # This keeps the common (already-registered) request path read-only
+        # instead of issuing an INSERT ... ON CONFLICT on every authenticated
+        # request. create_profile stays idempotent, so first-seen users still
+        # get a profile created here.
+        profile = crud.get_profile_by_auth_id(conn, auth_user_id)
+        if profile is None:
+            crud.create_profile(conn, username=auth_email, auth_user_id=auth_user_id)
+            profile = crud.get_profile_by_auth_id(conn, auth_user_id)
+        if profile:
+            return User(**profile)
     except AuthApiError as e:
         # Expired/invalid tokens are normal — debug level avoids log spam.
         logger.debug("Supabase auth rejected token: %s", e)
-    except Exception:
-        raise
     return None
 
 @app.get("/logout")
-async def logout(request: Request, response: Response):
+async def logout(request: Request):
     token = request.cookies.get("access_token")
     if token:
+        with _auth_token_cache_lock:
+            _auth_token_cache.pop(token, None)
         try:
             supabase.auth.sign_out(token)
         except Exception as e:
             logger.error(f"Supabase sign out failed: {e}")
-    
+
     response = RedirectResponse(url="/", status_code=303)
     secure_cookie = should_use_secure_cookies(request)
     response.delete_cookie("access_token", path="/", secure=secure_cookie, httponly=True, samesite="lax")
@@ -561,9 +603,11 @@ def generate_cards(text: str, mode="gemini", api_key: str = None, card_type: str
             if not api_key:
                 raise ValueError("Anthropic API key is required.")
             client = anthropic.Anthropic(api_key=api_key)
+            # 2048 tokens truncated larger card batches mid-JSON, which made the
+            # whole generation fail to parse. Match the Gemini budget.
             message = client.messages.create(
                 model='claude-sonnet-4-5-20250929',
-                max_tokens=2048,
+                max_tokens=8192,
                 messages=[
                     {
                         "role": "user",
@@ -779,63 +823,45 @@ async def list_courses(request: Request, user: User = Depends(get_current_active
 
 @app.get("/edit-course/{course_path:path}", response_class=HTMLResponse)
 async def edit_course(request: Request, course_path: str, user: User = Depends(get_current_active_user)):
-    course_path = _validate_course_path(unquote(course_path))
-    gemini_api_key_exists = False
-    anthropic_api_key_exists = False
-    
-    try:
-        if request.state.api_keys:
-            # Correctly access attributes on the Pydantic User model
-            if request.state.api_keys.gemini_api_key:
-                gemini_api_key_exists = True
-            if request.state.api_keys.anthropic_api_key:
-                anthropic_api_key_exists = True
-        
-        csrf_token = request.state.csrf_token
-        
-        return templates.TemplateResponse(request, "course_editor.html", {
-            "course_path": course_path,
-            "gemini_api_key_exists": gemini_api_key_exists,
-            "anthropic_api_key_exists": anthropic_api_key_exists,
-            "csrf_token": csrf_token
-        })
-        
-    except Exception as e:
-        logger.error(f"CRITICAL ERROR in edit_course: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="An internal error occurred while loading the course editor.")
+    # Starlette already percent-decodes path params; decoding again would
+    # corrupt names containing literal % sequences (e.g. "a%20b.md").
+    course_path = _validate_course_path(course_path)
+    return templates.TemplateResponse(request, "course_editor.html", {
+        "course_path": course_path,
+        "gemini_api_key_exists": bool(user.gemini_api_key),
+        "anthropic_api_key_exists": bool(user.anthropic_api_key),
+        "csrf_token": request.state.csrf_token
+    })
 
 @app.get("/courses/{course_path:path}", response_class=HTMLResponse)
 async def view_course(request: Request, course_path: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    course_path = _validate_course_path(unquote(course_path))
+    course_path = _validate_course_path(course_path)
     course = crud.get_course_content_for_user(conn, course_path, auth_user_id=user.auth_user_id)
     if not course or not course['content']:
         raise HTTPException(status_code=404, detail="Course not found")
-    
+
     content = course['content']
+    # Legacy rows stored the markdown JSON-encoded; only unwrap when the
+    # decoded value is still a string, otherwise frontmatter.loads would crash
+    # on plain markdown that happens to parse as JSON (e.g. "123").
     try:
-        content = json.loads(content)
+        decoded = json.loads(content)
+        if isinstance(decoded, str):
+            content = decoded
     except (json.JSONDecodeError, TypeError):
         pass
 
     post = frontmatter.loads(content)
 
-    if 'tags' in post.metadata: 
+    if 'tags' in post.metadata:
         post.metadata['tags'] = sanitize_tags(post.metadata['tags'])
-
-    gemini_api_key_exists = False
-    anthropic_api_key_exists = False
-    if request.state.api_keys:
-        if request.state.api_keys.gemini_api_key:
-            gemini_api_key_exists = True
-        if request.state.api_keys.anthropic_api_key:
-            anthropic_api_key_exists = True
 
     return templates.TemplateResponse(request, "course_viewer.html", {
         "metadata": post.metadata,
         "content": post.content,
         "course_path": course_path,
-        "gemini_api_key_exists": gemini_api_key_exists,
-        "anthropic_api_key_exists": anthropic_api_key_exists,
+        "gemini_api_key_exists": bool(user.gemini_api_key),
+        "anthropic_api_key_exists": bool(user.anthropic_api_key),
         "csrf_token": request.state.csrf_token
     })
 
@@ -846,7 +872,7 @@ async def api_get_courses_tree(conn: psycopg2.extensions.connection = Depends(ge
 
 @app.get("/api/download-course/{course_path:path}")
 async def download_course(course_path: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    course_path = _validate_course_path(unquote(course_path))
+    course_path = _validate_course_path(course_path)
     course = crud.get_course_content_for_user(conn, course_path, auth_user_id=user.auth_user_id)
     if not course:
         raise HTTPException(status_code=404, detail="File not found")
@@ -873,7 +899,7 @@ async def download_course(course_path: str, conn: psycopg2.extensions.connection
 
 @app.get("/api/course-content/{course_path:path}", response_class=JSONResponse)
 async def api_get_course_content(course_path: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    course_path = _validate_course_path(unquote(course_path))
+    course_path = _validate_course_path(course_path)
     course = crud.get_course_content_for_user(conn, course_path, auth_user_id=user.auth_user_id)
     if not course:
         raise HTTPException(status_code=404, detail="File not found")
@@ -894,63 +920,32 @@ async def api_manage_course_item(item: CourseItem, request: Request, conn: psyco
         crud.delete_course_item_for_user(conn, path, item.type, auth_user_id=user.auth_user_id)
     return {"success": True}
 
-@app.post("/api/generate-cards")
-async def api_generate_cards(request: Request, data: CourseContentForGeneration, user: User = Depends(get_current_active_user)):
+async def _generate_cards_response(data: CourseContentForGeneration, user: User, mode: str, api_key: Optional[str]):
     if not data.content.strip():
         raise HTTPException(status_code=400, detail="Content cannot be empty.")
     _check_llm_rate_limit(str(user.auth_user_id))
-
-    api_key = None
-    if request.state.api_keys:
-        api_key = request.state.api_keys.gemini_api_key
-
     generated_cards = await run_in_threadpool(
         generate_cards,
         data.content,
-        mode="gemini",
+        mode=mode,
         api_key=api_key,
         card_type=data.card_type,
     )
     if not generated_cards:
         raise HTTPException(status_code=500, detail="Failed to generate cards.")
     return {"cards": generated_cards}
+
+@app.post("/api/generate-cards")
+async def api_generate_cards(data: CourseContentForGeneration, user: User = Depends(get_current_active_user)):
+    return await _generate_cards_response(data, user, mode="gemini", api_key=user.gemini_api_key)
 
 @app.post("/api/generate-cards-ollama")
 async def api_generate_cards_ollama(data: CourseContentForGeneration, user: User = Depends(get_current_active_user)):
-    if not data.content.strip():
-        raise HTTPException(status_code=400, detail="Content cannot be empty.")
-    _check_llm_rate_limit(str(user.auth_user_id))
-    generated_cards = await run_in_threadpool(
-        generate_cards,
-        data.content,
-        mode="ollama",
-        card_type=data.card_type,
-    )
-    if not generated_cards:
-        raise HTTPException(status_code=500, detail="Failed to generate cards.")
-    return {"cards": generated_cards}
-
+    return await _generate_cards_response(data, user, mode="ollama", api_key=None)
 
 @app.post("/api/generate-cards-anthropic")
-async def api_generate_cards_anthropic(request: Request, data: CourseContentForGeneration, user: User = Depends(get_current_active_user)):
-    if not data.content.strip():
-        raise HTTPException(status_code=400, detail="Content cannot be empty.")
-    _check_llm_rate_limit(str(user.auth_user_id))
-
-    api_key = None
-    if request.state.api_keys:
-        api_key = request.state.api_keys.anthropic_api_key
-
-    generated_cards = await run_in_threadpool(
-        generate_cards,
-        data.content,
-        mode="anthropic",
-        api_key=api_key,
-        card_type=data.card_type,
-    )
-    if not generated_cards:
-        raise HTTPException(status_code=500, detail="Failed to generate cards.")
-    return {"cards": generated_cards}
+async def api_generate_cards_anthropic(data: CourseContentForGeneration, user: User = Depends(get_current_active_user)):
+    return await _generate_cards_response(data, user, mode="anthropic", api_key=user.anthropic_api_key)
 
 @app.post("/api/save-cards")
 async def api_save_cards(data: GeneratedCards, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
@@ -982,7 +977,6 @@ async def api_save_api_keys(data: ApiKeys, conn: psycopg2.extensions.connection 
 # --- Tag-based Views ---
 @app.get("/tags/{tag_name}", response_class=HTMLResponse)
 async def view_courses_by_tag(request: Request, tag_name: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    tag_name = unquote(tag_name)
     courses = crud.get_courses_by_tag_for_user(conn, tag_name, auth_user_id=user.auth_user_id)
     return templates.TemplateResponse(request, "tag_courses.html", {"tag": tag_name, "courses": courses})
 

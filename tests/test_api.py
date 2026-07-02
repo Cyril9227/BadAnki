@@ -571,9 +571,14 @@ def test_trigger_scheduler_success(mock_run_scheduler, mock_ensure_webhook, clie
     """Test the scheduler endpoint triggers successfully."""
     mock_ensure_webhook.return_value = {"status": "already correct", "url": "https://example.com"}
     mock_run_scheduler.return_value = {"users_notified": 1}
-    
-    response = client.get(f"/api/trigger-scheduler?secret={os.environ.get('SCHEDULER_SECRET')}")
-    
+
+    # The endpoint reads the secret from the X-Scheduler-Secret header (see
+    # api/cron.py), not from a query parameter.
+    response = client.get(
+        "/api/trigger-scheduler",
+        headers={"X-Scheduler-Secret": os.environ.get("SCHEDULER_SECRET")},
+    )
+
     assert response.status_code == 200
     json_response = response.json()
     assert json_response["status"] == "completed"
@@ -585,5 +590,5 @@ def test_trigger_scheduler_success(mock_run_scheduler, mock_ensure_webhook, clie
 
 def test_trigger_scheduler_invalid_secret(client):
     """Test the scheduler endpoint with an invalid secret."""
-    response = client.get("/api/trigger-scheduler?secret=wrongsecret")
+    response = client.get("/api/trigger-scheduler", headers={"X-Scheduler-Secret": "wrongsecret"})
     assert response.status_code == 403

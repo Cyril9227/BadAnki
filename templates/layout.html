@@ -509,9 +509,16 @@ window.MathJax = {
             });
         }
 
+        // Highlight the nav entry for the current section, including sub-pages
+        // (e.g. /courses/foo highlights Courses, /edit-course/foo highlights
+        // Editor) — exact matching left every deep link without an active state.
         const current = window.location.pathname;
         document.querySelectorAll('.navbar-nav .nav-link').forEach(link => {
-            if (link.getAttribute('href') === current) link.classList.add('active');
+            const href = link.getAttribute('href');
+            const section = href.startsWith('/edit-course') ? '/edit-course' : href;
+            const active = current === href ||
+                (section !== '/' && (current === section || current.startsWith(section + '/')));
+            if (active) link.classList.add('active');
         });
     });
     </script>

@@ -61,6 +61,7 @@
     </div>
     <div class="card-footer text-muted">
         <button class="btn btn-primary" id="show-answer-btn" type="button">Show Answer</button>
+        <div class="form-text mt-2" id="show-answer-hint">Shortcut: <kbd>Space</kbd> Show answer</div>
 
         <form id="review-form" action="/review/{{ card.id }}" method="post" class="mt-3" style="display: none;">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -114,12 +115,14 @@
         const answerContent = document.getElementById('answer-content');
         const questionTitle = document.getElementById('question-title');
         const cardTypeBadge = document.getElementById('card-type-badge');
+        const showAnswerHint = document.getElementById('show-answer-hint');
         const ratingButtons = Array.from(reviewForm.querySelectorAll('.rating-btn'));
 
         let answerShown = false;
         let submitting = false;
         let lastRatingValue = null;
         let currentCardId = {{ card.id | tojson }};
+        let currentCardData = null;
 
         function typesetMath(elements) {
             if (!window.MathJax || typeof window.MathJax.typesetPromise !== 'function') return;
@@ -151,6 +154,7 @@
         // Render a card's question/answer (handles cloze vs basic). Reused for the
         // first card and for every card fetched without a page reload.
         function renderCard(cardData) {
+            currentCardData = cardData;
             const isCloze = cardData.card_type === 'cloze' || window.isClozeText(cardData.question);
             if (isCloze) {
                 cardTypeBadge.style.display = 'inline';
@@ -172,6 +176,14 @@
             answerSection.style.display = 'block';
             reviewForm.style.display = 'block';
             showAnswerBtn.style.display = 'none';
+            if (showAnswerHint) showAnswerHint.style.display = 'none';
+            // For cloze cards, also reveal the hidden words in place so the
+            // answer is read in context instead of only as a bare word below.
+            if (currentCardData &&
+                (currentCardData.card_type === 'cloze' || window.isClozeText(currentCardData.question))) {
+                renderMarkdown(questionContent, window.formatClozeWithAnswer(currentCardData.question));
+                typesetMath([questionContent]);
+            }
             typesetMath([answerSection]);
         }
 
@@ -184,6 +196,7 @@
             reviewForm.style.display = 'none';
             showAnswerBtn.style.display = 'inline-block';
             showAnswerBtn.disabled = false;
+            if (showAnswerHint) showAnswerHint.style.display = '';
             ratingButtons.forEach(btn => { btn.disabled = false; });
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }

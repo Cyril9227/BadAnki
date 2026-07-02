@@ -5,11 +5,29 @@ from urllib.parse import parse_qs
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.requests import Request as StarletteRequest
 from starlette.types import ASGIApp, Receive, Scope, Send, Message
 
 
 MAX_REQUEST_BODY_BYTES = int(os.environ.get("MAX_REQUEST_BODY_BYTES", str(5 * 1024 * 1024)))
+
+
+def _header_value(scope: Scope, name: bytes) -> str | None:
+    for header_name, header_value in scope.get("headers", []):
+        if header_name == name:
+            return header_value.decode()
+    return None
+
+
+def _cookie_value(scope: Scope, name: str) -> str | None:
+    cookies_header = _header_value(scope, b"cookie")
+    if not cookies_header:
+        return None
+    prefix = f"{name}="
+    for cookie in cookies_header.split(";"):
+        cookie = cookie.strip()
+        if cookie.startswith(prefix):
+            return cookie[len(prefix):]
+    return None
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -76,12 +94,7 @@ class CSRFMiddleware:
         self.exempt_paths = ["/webhook/", "/docs", "/openapi.json", "/health"]
 
     def _should_use_secure_cookies(self, scope: Scope) -> bool:
-        forwarded_proto = ""
-        for header_name, header_value in scope.get("headers", []):
-            if header_name == b"x-forwarded-proto":
-                forwarded_proto = header_value.decode()
-                break
-
+        forwarded_proto = _header_value(scope, b"x-forwarded-proto") or ""
         return (
             os.environ.get("ENVIRONMENT") == "production"
             or scope.get("scheme", "http") == "https"
@@ -93,7 +106,6 @@ class CSRFMiddleware:
             await self.app(scope, receive, send)
             return
 
-        request = StarletteRequest(scope, receive)
         path = scope.get("path", "")
         method = scope.get("method", "GET")
 
@@ -104,17 +116,7 @@ class CSRFMiddleware:
 
         # For GET requests, generate and set the token (only if not already present)
         if method == "GET":
-            # Check if a CSRF token already exists in the cookie
-            existing_csrf_token = None
-            for header_name, header_value in scope.get("headers", []):
-                if header_name == b"cookie":
-                    cookies_header = header_value.decode()
-                    for cookie in cookies_header.split(";"):
-                        cookie = cookie.strip()
-                        if cookie.startswith("csrf_token="):
-                            existing_csrf_token = cookie[len("csrf_token="):]
-                            break
-                    break
+            existing_csrf_token = _cookie_value(scope, "csrf_token")
 
             # Use existing token or generate a new one
             csrf_token = existing_csrf_token if existing_csrf_token else secrets.token_hex(16)
@@ -129,7 +131,11 @@ class CSRFMiddleware:
                 async def send_with_csrf_cookie(message: Message) -> None:
                     if message["type"] == "http.response.start":
                         headers = list(message.get("headers", []))
-                        cookie_value = f"csrf_token={csrf_token}; SameSite=Lax; Max-Age=3600; Path=/"
+                        # Match the session cookie lifetime (7 days). A shorter
+                        # CSRF cookie expired mid-session and made every POST
+                        # fail with 403 until the page was reloaded — e.g. after
+                        # an hour-long editing session, Save silently broke.
+                        cookie_value = f"csrf_token={csrf_token}; SameSite=Lax; Max-Age={7 * 24 * 3600}; Path=/"
                         if self._should_use_secure_cookies(scope):
                             cookie_value += "; Secure"
                         headers.append((b"set-cookie", cookie_value.encode()))
@@ -143,20 +149,7 @@ class CSRFMiddleware:
 
         # For state-changing methods, validate the token
         if method in ["POST", "PUT", "DELETE", "PATCH"]:
-            # Get CSRF token from cookie
-            csrf_token_from_cookie = None
-            cookies_header = None
-            for header_name, header_value in scope.get("headers", []):
-                if header_name == b"cookie":
-                    cookies_header = header_value.decode()
-                    break
-
-            if cookies_header:
-                for cookie in cookies_header.split(";"):
-                    cookie = cookie.strip()
-                    if cookie.startswith("csrf_token="):
-                        csrf_token_from_cookie = cookie[len("csrf_token="):]
-                        break
+            csrf_token_from_cookie = _cookie_value(scope, "csrf_token")
 
             # Always read the entire body first so it can be passed to the endpoint
             body_bytes = b""
@@ -173,24 +166,11 @@ class CSRFMiddleware:
                 if not message.get("more_body", False):
                     break
 
-            # Get CSRF token from request (header or form body)
-            csrf_token_from_request = None
-
-            # Check header first
-            for header_name, header_value in scope.get("headers", []):
-                if header_name == b"x-csrf-token":
-                    csrf_token_from_request = header_value.decode()
-                    break
-
-            # If not in header, try to parse from form body
+            # Get CSRF token from request: header first, then form body
+            csrf_token_from_request = _header_value(scope, b"x-csrf-token")
             if csrf_token_from_request is None:
                 try:
-                    content_type = None
-                    for header_name, header_value in scope.get("headers", []):
-                        if header_name == b"content-type":
-                            content_type = header_value.decode()
-                            break
-
+                    content_type = _header_value(scope, b"content-type")
                     if content_type and "application/x-www-form-urlencoded" in content_type:
                         form_data = parse_qs(body_bytes.decode(), keep_blank_values=True)
                         csrf_tokens = form_data.get("csrf_token", [])

@@ -50,7 +50,7 @@
                         <textarea id="markdown-editor" name="content" class="form-control" rows="15"></textarea>
                     </div>
                     <div class="d-flex flex-wrap gap-2 d-grid d-md-flex align-items-center">
-                        <button type="submit" class="btn btn-primary">Save</button>
+                        <button type="submit" class="btn btn-primary" title="Ctrl+S">Save</button>
                         <div class="btn-group btn-group-sm" role="group" aria-label="Card type">
                             <input type="radio" class="btn-check" name="card-type" id="card-type-basic-editor" value="basic" autocomplete="off" checked>
                             <label class="btn btn-outline-secondary" for="card-type-basic-editor">Q&A</label>
@@ -124,11 +124,54 @@ document.addEventListener('DOMContentLoaded', function () {
     let isDirty = false; // Whether the editor has unsaved changes.
 
     function loadFileTree() {
+        const expandedPaths = getExpandedFolders();
         fetch('/api/courses-tree')
             .then(response => response.json())
             .then(data => {
                 fileTreeContainer.innerHTML = buildTreeHTML(data);
+                restoreTreeState(expandedPaths);
             });
+    }
+
+    // Folders the user has opened, so rebuilding the tree (after save/upload/
+    // delete) doesn't collapse everything back down.
+    function getExpandedFolders() {
+        return Array.from(fileTreeContainer.querySelectorAll('.folder-item'))
+            .filter(item => {
+                const header = item.closest('[data-bs-toggle="collapse"]');
+                return header && header.getAttribute('aria-expanded') === 'true';
+            })
+            .map(item => item.dataset.path);
+    }
+
+    function expandFolder(path) {
+        const item = fileTreeContainer.querySelector(`.folder-item[data-path="${CSS.escape(path)}"]`);
+        if (!item) return;
+        const header = item.closest('[data-bs-toggle="collapse"]');
+        const collapse = header && document.querySelector(header.getAttribute('href'));
+        if (collapse) {
+            collapse.classList.add('show');
+            header.setAttribute('aria-expanded', 'true');
+        }
+    }
+
+    // Expand every ancestor folder of `path` and highlight it if it's a file.
+    function revealInTree(path) {
+        if (!path) return;
+        const parts = path.split('/');
+        for (let i = 1; i < parts.length; i++) {
+            expandFolder(parts.slice(0, i).join('/'));
+        }
+        const fileEl = fileTreeContainer.querySelector(`.file-item[data-path="${CSS.escape(path)}"]`);
+        if (fileEl) {
+            document.querySelectorAll('.list-group-item').forEach(item => item.classList.remove('bg-light'));
+            fileEl.closest('.list-group-item').classList.add('bg-light');
+        }
+    }
+
+    function restoreTreeState(expandedPaths) {
+        expandedPaths.forEach(expandFolder);
+        revealInTree(currentFilePathInput.value);
     }
 
     function buildTreeHTML(nodes) {
@@ -150,6 +193,7 @@ document.addEventListener('DOMContentLoaded', function () {
                             </span>
                             <span class="item-actions">
                                 <button class="btn btn-outline-success new-file-btn" data-path="${dataPath}" title="New File" aria-label="New file in folder"><i class="fas fa-plus" aria-hidden="true"></i></button>
+                                <button class="btn btn-outline-success new-folder-btn" data-path="${dataPath}" title="New Subfolder" aria-label="New subfolder"><i class="fas fa-folder-plus" aria-hidden="true"></i></button>
                                 <button class="btn btn-outline-danger delete-item-btn" data-path="${dataPath}" data-type="folder" title="Delete Folder" aria-label="Delete folder"><i class="fas fa-trash-alt" aria-hidden="true"></i></button>
                             </span>
                         </div>
@@ -233,7 +277,13 @@ document.addEventListener('DOMContentLoaded', function () {
         .then(handleResponse)
         .then(() => {
             loadFileTree();
-            if (currentFilePathInput.value === path) {
+            // Clear the editor when the open file itself was deleted, or when it
+            // lived inside a deleted folder — otherwise a later Save would
+            // silently recreate a file the user just removed.
+            const openPath = currentFilePathInput.value;
+            const openFileGone = openPath === path ||
+                (type === 'folder' && openPath.startsWith(path.replace(/\/+$/, '') + '/'));
+            if (openFileGone) {
                 editorContainer.style.display = 'none';
                 noFileSelected.style.display = 'block';
                 currentFilePathInput.value = '';
@@ -259,6 +309,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 isDirty = false; // Freshly loaded content is not a pending edit.
                 updatePreview();
                 localStorage.setItem('lastEditedFilePath', path);
+                revealInTree(path);
 
                 if (window.innerWidth < 992) { // 992px is the breakpoint for lg devices
                     editorContainer.scrollIntoView({ behavior: 'smooth' });
@@ -279,7 +330,9 @@ document.addEventListener('DOMContentLoaded', function () {
             if (btn.classList.contains('new-file-btn')) {
                 createNewItem('file', path);
             } else if (btn.classList.contains('new-folder-btn')) {
-                createNewItem('folder', ''); // Root folder creation
+                // Root buttons carry data-path=""; folder rows pass their own
+                // path so subfolders can be created in place.
+                createNewItem('folder', path || '');
             } else if (btn.classList.contains('delete-item-btn')) {
                 const type = btn.dataset.type;
                 deleteItem(path, type);
@@ -395,10 +448,30 @@ document.addEventListener('DOMContentLoaded', function () {
         if (files.length > 0) {
             handleFileUpload(files, currentDirectory);
         }
+        // Reset so picking the same file again still fires 'change'.
+        e.target.value = '';
     });
 
+    function uploadOneFile(file, uploadDirectory) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
+            reader.onload = function(event) {
+                const path = uploadDirectory ? `${uploadDirectory}/${file.name}` : file.name;
+                fetch(`/api/course-content`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+                    body: JSON.stringify({ path: path, content: event.target.result })
+                })
+                .then(handleResponse)
+                .then(resolve, reject);
+            };
+            reader.readAsText(file);
+        });
+    }
+
     function handleFileUpload(files, uploadDirectory) {
-        const mdFiles = Array.from(files).filter(file => file.name.endsWith('.md'));
+        const mdFiles = Array.from(files).filter(file => /\.md$/i.test(file.name));
         if (mdFiles.length === 0) {
             Swal.fire({
                 toast: true,
@@ -412,38 +485,26 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
-        let uploadedCount = 0;
-        mdFiles.forEach(file => {
-            const reader = new FileReader();
-            reader.onload = function(event) {
-                const content = event.target.result;
-                const path = uploadDirectory ? `${uploadDirectory}/${file.name}` : file.name;
-
-                fetch(`/api/course-content`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
-                    body: JSON.stringify({ path: path, content: content })
-                })
-                .then(handleResponse)
-                .then(() => {
-                    uploadedCount++;
-                    if (uploadedCount === mdFiles.length) {
-                        Swal.fire({
-                            toast: true,
-                            position: 'top-end',
-                            icon: 'success',
-                            title: `Successfully uploaded ${uploadedCount} file(s)!`,
-                            showConfirmButton: false,
-                            timer: 3000,
-                            timerProgressBar: true
-                        });
-                        loadFileTree();
-                    }
-                })
-                .catch(handleError);
-            };
-            reader.readAsText(file);
-        });
+        // Wait for every upload (success or failure) so the summary toast always
+        // fires — the old per-file counter never reported when one file failed.
+        Promise.allSettled(mdFiles.map(file => uploadOneFile(file, uploadDirectory)))
+            .then(results => {
+                const failed = results.filter(r => r.status === 'rejected');
+                const succeeded = results.length - failed.length;
+                if (succeeded > 0) loadFileTree();
+                Swal.fire({
+                    toast: true,
+                    position: 'top-end',
+                    icon: failed.length === 0 ? 'success' : 'warning',
+                    title: failed.length === 0
+                        ? `Successfully uploaded ${succeeded} file(s)!`
+                        : `Uploaded ${succeeded} file(s), ${failed.length} failed.`,
+                    showConfirmButton: false,
+                    timer: 4000,
+                    timerProgressBar: true
+                });
+                failed.forEach(r => console.error('Upload failed:', r.reason));
+            });
     }
 
     setupDropZone(dropZoneMain);
@@ -487,21 +548,12 @@ document.addEventListener('DOMContentLoaded', function () {
         const isNotFound = error.message.includes('Not Found') || error.message.includes('404');
 
         if (isNotFound) {
+            // Stale localStorage path or a freshly deleted file — reset quietly.
             editorContainer.style.display = 'none';
             noFileSelected.style.display = 'block';
             currentFilePathInput.value = '';
             markdownEditor.value = '';
             localStorage.removeItem('lastEditedFilePath');
-            // Optionally, show a less intrusive info toast if desired, but for now, just suppress the error.
-            // Swal.fire({
-            //     toast: true,
-            //     position: 'top-end',
-            //     icon: 'info',
-            //     title: 'No course content found.',
-            //     showConfirmButton: false,
-            //     timer: 3000,
-            //     timerProgressBar: true
-            // });
         } else {
             Swal.fire({
                 toast: true,
@@ -546,8 +598,18 @@ document.addEventListener('DOMContentLoaded', function () {
         if (isDirty) { e.preventDefault(); e.returnValue = ''; }
     });
 
+    // Ctrl+S / Cmd+S saves the open file instead of opening the browser dialog.
+    document.addEventListener('keydown', function (e) {
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+            e.preventDefault();
+            if (currentFilePathInput.value) {
+                editorForm.requestSubmit();
+            }
+        }
+    });
+
     loadFileTree();
-    const initialPath = "{{ course_path|default('') }}";
+    const initialPath = {{ course_path|default('')|tojson }};
     const lastEditedFilePath = localStorage.getItem('lastEditedFilePath');
 
     let path_to_load = '';
