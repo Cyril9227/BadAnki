@@ -756,18 +756,15 @@ async def secrets_form(request: Request, user: User = Depends(get_current_active
     })
 
 @app.post("/secrets")
-async def save_secrets(request: Request, user: User = Depends(get_current_active_user), telegram_chat_id: str = Form(None)):
-    # If the chat ID is an empty string, treat it as None
+async def save_secrets(telegram_chat_id: str = Form(None), conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
+    # A blank chat ID means "unset".
+    telegram_chat_id = (telegram_chat_id or "").strip() or None
     if telegram_chat_id is not None:
-        telegram_chat_id = telegram_chat_id.strip()
-    if telegram_chat_id == "":
-        telegram_chat_id = None
-    if telegram_chat_id is not None:
-        numeric = telegram_chat_id[1:] if telegram_chat_id.startswith("-") else telegram_chat_id
+        numeric = telegram_chat_id.removeprefix("-")
         if len(telegram_chat_id) > 32 or not numeric.isdigit():
             raise HTTPException(status_code=400, detail="Invalid Telegram chat ID.")
-        
-    crud.save_secrets_for_user(request.state.db, user.auth_user_id, telegram_chat_id)
+
+    crud.save_secrets_for_user(conn, user.auth_user_id, telegram_chat_id)
     return JSONResponse(content={"success": True})
 
 
@@ -800,14 +797,13 @@ async def handle_auth(
     - For register: validates password, creates user, auto-logs in
     - Returns JSON with redirect URL for frontend navigation
     """
-    def error_response(error: str, prompt_register: bool = False, message: str = None):
-        """Helper to return consistent error responses."""
+    def error_response(error: str, prompt_register: bool = False):
+        """Helper to return consistent error responses. The frontend
+        (auth.html) reads only these fields."""
         return JSONResponse(content={
             "success": False,
             "error": error,
             "prompt_register": prompt_register,
-            "message": message,
-            "email": email
         })
 
     def success_response(session, flash_message: str):
@@ -857,11 +853,7 @@ async def handle_auth(
                 # Supabase returns "Invalid login credentials" for both wrong password and non-existent user
                 # We prompt to register since we can't distinguish between the two
                 if "invalid" in error_msg.lower() or "credentials" in error_msg.lower():
-                    return error_response(
-                        "Invalid email or password.",
-                        prompt_register=True,
-                        message="If you don't have an account, you can register below."
-                    )
+                    return error_response("Invalid email or password.", prompt_register=True)
                 return error_response(f"Login failed: {error_msg}")
 
     except Exception as e:
