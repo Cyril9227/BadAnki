@@ -443,7 +443,9 @@ window.MathJax = {
 
     <main class="container-fluid">
         <div class="row justify-content-center">
-            <div class="col-md-8">{% block content %}{% endblock %}</div>
+            <!-- Pages with wide content (e.g. the Manage table) can override
+                 the column width without leaving the shared layout. -->
+            <div class="{% block main_column_class %}col-md-8{% endblock %}">{% block content %}{% endblock %}</div>
         </div>
     </main>
 
