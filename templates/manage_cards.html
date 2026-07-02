@@ -2,6 +2,9 @@
 
 {% block title %}Manage Cards{% endblock %}
 
+{# The 7-column table needs more room than the default column offers. #}
+{% block main_column_class %}col-md-11 col-xl-10{% endblock %}
+
 {% block head %}
 {{ super() }}
 <style>
@@ -15,16 +18,22 @@
         .table th, .table td {
             vertical-align: middle;
         }
+        /* The two content columns absorb the available width and wrap, so the
+           rigid columns (type, date, numbers, actions) can never push the
+           table wider than its container. */
         .question-col, .answer-col {
-            max-width: 300px;
+            width: 30%;
             word-wrap: break-word;
             overflow-wrap: break-word;
             hyphens: auto;
-            word-break: break-word; /* Changed from break-all */
+            word-break: break-word;
+        }
+        td[data-label="Due Date"] {
+            white-space: nowrap;
         }
         .actions-col {
-            min-width: 150px;
             text-align: right;
+            white-space: nowrap;
         }
     }
 
@@ -133,11 +142,6 @@
         overflow-wrap: break-word;
     }
     
-    /* Improve button spacing on all screens */
-    .btn-sm {
-        padding: 0.375rem 0.75rem;
-    }
-
     /* Ensure the main container doesn't overflow */
     .card {
         overflow: hidden;
@@ -219,9 +223,9 @@
                     <th class="ps-4" data-sort-type="text">Type</th>
                     <th class="question-col">Question</th>
                     <th class="answer-col">Answer</th>
-                    <th data-sort-type="date">Due Date</th>
-                    <th data-sort-type="number">Ease Factor</th>
-                    <th data-sort-type="number">Interval (days)</th>
+                    <th data-sort-type="date">Due</th>
+                    <th data-sort-type="number">Ease</th>
+                    <th data-sort-type="number">Interval</th>
                     <th class="pe-4 actions-col">Actions</th>
                 </tr>
             </thead>
@@ -235,12 +239,10 @@
                     <td data-label="Ease Factor" data-sort="{{ card.ease_factor }}">{{ "%.2f"|format(card.ease_factor) }}</td>
                     <td data-label="Interval" data-sort="{{ card.interval }}">{{ card.interval }} days</td>
                     <td data-label="Actions" class="action-buttons actions-col">
-                        <form action="/edit-card/{{ card.id }}" method="get" class="d-inline">
-                            <button type="submit" class="btn btn-sm btn-outline-primary">Edit</button>
-                        </form>
+                        <a href="/edit-card/{{ card.id }}" class="btn btn-sm btn-outline-primary" title="Edit" aria-label="Edit card"><i class="fas fa-pen" aria-hidden="true"></i></a>
                         <form action="/delete/{{ card.id }}" method="post" class="d-inline delete-form">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                            <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                            <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete" aria-label="Delete card"><i class="fas fa-trash-alt" aria-hidden="true"></i></button>
                         </form>
                     </td>
                 </tr>
