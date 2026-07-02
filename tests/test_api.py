@@ -454,7 +454,18 @@ def test_review_page_submits_rating_via_ajax(mock_get_user, client, db_conn):
 
 @patch("main.supabase.auth.get_user")
 def test_get_review_page_no_due_cards(mock_get_user, client, db_conn):
+    """A user with no cards at all gets the empty-deck state."""
     auth_client, _, _ = authenticate_client(mock_get_user, client, db_conn, email="reviewuser2@example.com")
+    response = auth_client.get("/review")
+    assert response.status_code == 200
+    assert "Your deck is empty" in response.text
+
+
+@patch("main.supabase.auth.get_user")
+def test_get_review_page_all_done(mock_get_user, client, db_conn):
+    """A user whose cards are all scheduled for later gets the done state."""
+    auth_client, user_id, _ = authenticate_client(mock_get_user, client, db_conn, email="reviewuser4@example.com")
+    create_test_card(db_conn, user_id, "Q", "A", due_date=datetime.now() + timedelta(days=3))
     response = auth_client.get("/review")
     assert response.status_code == 200
     assert "All Done!" in response.text

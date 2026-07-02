@@ -17,6 +17,7 @@ import posixpath
 # Third-party
 import frontmatter
 from google import genai
+import httpx
 import ollama
 import psycopg2
 import anthropic
@@ -103,7 +104,9 @@ templates = Jinja2Templates(directory="templates")
 
 
 def should_resolve_user_for_request(request: Request) -> bool:
-    if not request.cookies.get("access_token"):
+    # A lone refresh-token cookie still identifies a returning user — the
+    # access-token cookie may have expired first (7d vs 30d lifetime).
+    if not (request.cookies.get("access_token") or request.cookies.get("refresh_token")):
         return False
 
     path = request.url.path
@@ -244,7 +247,18 @@ async def db_session_middleware(request: Request, call_next):
             except Exception as e:
                 request.state.auth_resolution_failed = True
                 logger.warning("Unable to resolve authenticated user for this request: %s", e, exc_info=True)
-        return await call_next(request)
+        response = await call_next(request)
+        # A session refreshed during this request produced new tokens; persist
+        # them so the next request skips the refresh round trip.
+        refreshed = getattr(request.state, "refreshed_session", None)
+        if refreshed:
+            _set_session_cookies(response, request, refreshed["access_token"], refreshed["refresh_token"])
+        elif getattr(request.state, "clear_refresh_cookie", False):
+            response.delete_cookie(
+                "refresh_token", path="/",
+                secure=should_use_secure_cookies(request), httponly=True, samesite="lax",
+            )
+        return response
     finally:
         conn = request.state.db
         if conn:
@@ -315,6 +329,33 @@ def should_use_secure_cookies(request: Request) -> bool:
         or forwarded_proto.split(",")[0].strip().lower() == "https"
     )
 
+# The Supabase access token itself expires after ~1 hour; the refresh-token
+# cookie is what keeps users logged in across the whole cookie lifetime.
+ACCESS_COOKIE_MAX_AGE = 3600 * 24 * 7
+REFRESH_COOKIE_MAX_AGE = 3600 * 24 * 30
+
+
+def _set_session_cookies(response: Response, request: Request, access_token: str, refresh_token: Optional[str]) -> None:
+    secure_cookie = should_use_secure_cookies(request)
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        max_age=ACCESS_COOKIE_MAX_AGE,
+        samesite="lax",
+        secure=secure_cookie,
+    )
+    if refresh_token:
+        response.set_cookie(
+            key="refresh_token",
+            value=refresh_token,
+            httponly=True,
+            max_age=REFRESH_COOKIE_MAX_AGE,
+            samesite="lax",
+            secure=secure_cookie,
+        )
+
+
 def set_flash_cookie(response: Response, request: Request, value: str) -> None:
     response.set_cookie(
         key="flash",
@@ -374,38 +415,105 @@ def _auth_cache_put(token: str, auth_user_id: str, email: str) -> None:
         _auth_token_cache[token] = (now + _AUTH_CACHE_TTL_SECS, auth_user_id, email)
 
 
+def _refresh_session_sync(refresh_token: str) -> Optional[dict]:
+    """Exchange a refresh token for a new session via the GoTrue REST API.
+
+    The shared supabase client keeps session state internally, so it isn't
+    safe for refreshing arbitrary users' tokens; the raw endpoint is
+    stateless. Returns the session payload, or None on any failure.
+    """
+    try:
+        response = httpx.post(
+            f"{SUPABASE_URL}/auth/v1/token",
+            params={"grant_type": "refresh_token"},
+            json={"refresh_token": refresh_token},
+            headers={"apikey": SUPABASE_KEY},
+            timeout=10.0,
+        )
+    except httpx.HTTPError as e:
+        logger.warning("Session refresh request failed: %s", e)
+        return None
+    if response.status_code != 200:
+        # Expired/rotated refresh tokens are normal; the user just logs in
+        # again. False = definitive rejection (so the caller can drop the dead
+        # cookie and stop retrying); None = transient failure, keep the cookie.
+        logger.debug("Session refresh rejected with status %s", response.status_code)
+        return False if response.status_code in (400, 401, 403, 404) else None
+    payload = response.json()
+    if not payload.get("access_token") or not (payload.get("user") or {}).get("id"):
+        return None
+    return payload
+
+
+async def _try_refresh_session(request: Request) -> Optional[tuple[str, str]]:
+    """When the access token is missing or expired, mint a new session from
+    the refresh-token cookie. Returns the refreshed identity, or None to fall
+    back to the logged-out behavior. The new tokens are stashed on
+    request.state so the middleware can persist them as cookies.
+    """
+    refresh_token = request.cookies.get("refresh_token")
+    if not refresh_token:
+        return None
+    payload = await run_in_threadpool(_refresh_session_sync, refresh_token)
+    if payload is False:
+        # The token is dead — have the middleware drop the cookie so we don't
+        # burn a failing Supabase round trip on every future request.
+        request.state.clear_refresh_cookie = True
+        return None
+    if not payload:
+        return None
+    access_token = payload["access_token"]
+    auth_user = payload["user"]
+    identity = (str(auth_user["id"]), auth_user.get("email"))
+    _auth_cache_put(access_token, *identity)
+    request.state.refreshed_session = {
+        "access_token": access_token,
+        # Supabase rotates refresh tokens; fall back to the current one just in
+        # case the response omits it.
+        "refresh_token": payload.get("refresh_token") or refresh_token,
+    }
+    return identity
+
+
 async def get_current_user(request: Request, conn: psycopg2.extensions.connection) -> Optional[User]:
     token = request.cookies.get("access_token")
-    if not token:
-        return None
-    try:
-        cached = _auth_cache_get(token)
-        if cached is not None:
-            auth_user_id, auth_email = cached
-        else:
-            # The Supabase client is synchronous; keep the network call off the
-            # event loop.
-            user_response = await run_in_threadpool(supabase.auth.get_user, token)
-            auth_user = user_response.user
-            if not auth_user:
-                return None
-            auth_user_id, auth_email = str(auth_user.id), auth_user.email
-            _auth_cache_put(token, auth_user_id, auth_email)
+    identity = None
+    if token:
+        try:
+            cached = _auth_cache_get(token)
+            if cached is not None:
+                identity = cached
+            else:
+                # The Supabase client is synchronous; keep the network call off
+                # the event loop.
+                user_response = await run_in_threadpool(supabase.auth.get_user, token)
+                auth_user = user_response.user
+                if auth_user:
+                    identity = (str(auth_user.id), auth_user.email)
+                    _auth_cache_put(token, *identity)
+        except AuthApiError as e:
+            # Expired/invalid tokens are normal — debug level avoids log spam.
+            logger.debug("Supabase auth rejected token: %s", e)
 
-        # Look up the profile first and only create one when it's missing.
-        # This keeps the common (already-registered) request path read-only
-        # instead of issuing an INSERT ... ON CONFLICT on every authenticated
-        # request. create_profile stays idempotent, so first-seen users still
-        # get a profile created here.
+    # Access token gone or expired: transparently refresh instead of logging
+    # the user out mid-session.
+    if identity is None:
+        identity = await _try_refresh_session(request)
+    if identity is None:
+        return None
+
+    auth_user_id, auth_email = identity
+    # Look up the profile first and only create one when it's missing.
+    # This keeps the common (already-registered) request path read-only
+    # instead of issuing an INSERT ... ON CONFLICT on every authenticated
+    # request. create_profile stays idempotent, so first-seen users still
+    # get a profile created here.
+    profile = crud.get_profile_by_auth_id(conn, auth_user_id)
+    if profile is None:
+        crud.create_profile(conn, username=auth_email, auth_user_id=auth_user_id)
         profile = crud.get_profile_by_auth_id(conn, auth_user_id)
-        if profile is None:
-            crud.create_profile(conn, username=auth_email, auth_user_id=auth_user_id)
-            profile = crud.get_profile_by_auth_id(conn, auth_user_id)
-        if profile:
-            return User(**profile)
-    except AuthApiError as e:
-        # Expired/invalid tokens are normal — debug level avoids log spam.
-        logger.debug("Supabase auth rejected token: %s", e)
+    if profile:
+        return User(**profile)
     return None
 
 @app.get("/logout")
@@ -422,6 +530,7 @@ async def logout(request: Request):
     response = RedirectResponse(url="/", status_code=303)
     secure_cookie = should_use_secure_cookies(request)
     response.delete_cookie("access_token", path="/", secure=secure_cookie, httponly=True, samesite="lax")
+    response.delete_cookie("refresh_token", path="/", secure=secure_cookie, httponly=True, samesite="lax")
     response.delete_cookie("csrf_token", path="/", secure=secure_cookie, samesite="lax")
     return response
 
@@ -701,14 +810,13 @@ async def handle_auth(
             "email": email
         })
 
-    def success_response(redirect_url: str, access_token: str, flash_message: str):
-        """Helper to return successful auth response with cookies."""
+    def success_response(session, flash_message: str):
+        """Helper to return successful auth response with session cookies."""
         response = JSONResponse(content={
             "success": True,
-            "redirect_url": redirect_url
+            "redirect_url": "/"
         })
-        secure_cookie = should_use_secure_cookies(request)
-        response.set_cookie(key="access_token", value=access_token, httponly=True, max_age=3600 * 24 * 7, samesite="lax", secure=secure_cookie)
+        _set_session_cookies(response, request, session.access_token, getattr(session, "refresh_token", None))
         set_flash_cookie(response, request, f"success:{flash_message}")
         return response
 
@@ -727,9 +835,8 @@ async def handle_auth(
                 # Create local profile and auto-login
                 crud.create_profile(conn, username=email, auth_user_id=auth_response.user.id)
                 auto_login_response = supabase.auth.sign_in_with_password({"email": email, "password": password})
-                access_token = auto_login_response.session.access_token
 
-                return success_response("/", access_token, "Account created successfully!")
+                return success_response(auto_login_response.session, "Account created successfully!")
 
             except AuthApiError as e:
                 error_msg = str(e)
@@ -741,8 +848,7 @@ async def handle_auth(
             try:
                 auth_response = supabase.auth.sign_in_with_password({"email": email, "password": password})
                 if auth_response.session:
-                    access_token = auth_response.session.access_token
-                    return success_response("/", access_token, "Welcome back!")
+                    return success_response(auth_response.session, "Welcome back!")
                 else:
                     return error_response("Login failed. Please try again.")
 
@@ -783,19 +889,10 @@ async def auth_callback(
         # Create a profile if it doesn't exist.
         crud.create_profile(conn, username=auth_user.email, auth_user_id=auth_user.id)
 
-        redirect_url = "/"
-
-        # Set the session cookie to log the user in
-        response = JSONResponse(content={"success": True, "redirect_url": redirect_url})
-        secure_cookie = should_use_secure_cookies(request)
-        response.set_cookie(
-            key="access_token",
-            value=data.access_token,
-            httponly=True,
-            max_age=3600 * 24 * 7,  # 1 week
-            samesite="lax",
-            secure=secure_cookie
-        )
+        # Set the session cookies to log the user in. The refresh token keeps
+        # the session alive after the ~1h access token expires.
+        response = JSONResponse(content={"success": True, "redirect_url": "/"})
+        _set_session_cookies(response, request, data.access_token, data.refresh_token)
         set_flash_cookie(response, request, "success:Logged in successfully!")
         return response
 
@@ -1005,9 +1102,9 @@ async def view_card(request: Request, card_id: int, conn: psycopg2.extensions.co
 async def review(request: Request, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     card = crud.get_review_cards_for_user(conn, user.auth_user_id)
     stats = crud.get_review_stats_for_user(conn, user.auth_user_id)
-    
+
     if card is None:
-        return templates.TemplateResponse(request, "no_cards.html")
+        return templates.TemplateResponse(request, "no_cards.html", {"total_cards": stats['total_cards']})
 
     csrf_token = request.state.csrf_token
     return templates.TemplateResponse(request, "review.html", {
