@@ -291,6 +291,27 @@ def get_card_by_id(conn, card_id: int):
         cursor.execute("SELECT * FROM cards WHERE id = %s", (card_id,))
         return cursor.fetchone()
 
+def get_cached_photo_file_id(conn, content_hash: str):
+    with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
+        cursor.execute(
+            "SELECT telegram_file_id FROM telegram_photo_cache WHERE content_hash = %s",
+            (content_hash,),
+        )
+        row = cursor.fetchone()
+        return row["telegram_file_id"] if row else None
+
+def cache_photo_file_id(conn, content_hash: str, telegram_file_id: str, card_id: int):
+    with conn.cursor() as cursor:
+        cursor.execute(
+            """
+            INSERT INTO telegram_photo_cache (content_hash, telegram_file_id, card_id)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (content_hash) DO UPDATE SET telegram_file_id = EXCLUDED.telegram_file_id
+            """,
+            (content_hash, telegram_file_id, card_id),
+        )
+    conn.commit()
+
 def update_card_content_for_user(conn, card_id: int, auth_user_id: str, question: str, answer: str):
     with conn.cursor() as cursor:
         cursor.execute("UPDATE cards SET question = %s, answer = %s WHERE id = %s AND user_id = %s", (question, answer, card_id, auth_user_id))

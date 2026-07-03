@@ -2,7 +2,13 @@
 
 import telegram_format
 from telegram_format import needs_screenshot, render_markdown_v2, spoiler_safe
-from bot import build_card_message, build_plain_card_message
+from bot import (
+    _answer_cache_key,
+    _get_cached_file_id,
+    _store_cached_file_id,
+    build_card_message,
+    build_plain_card_message,
+)
 
 
 def _card(question="What?", answer="Because.", card_id=7):
@@ -149,3 +155,35 @@ def test_plain_builder_matches_original_format():
     assert text == "*Question:* a\\_b\n\n*Answer:* ||c\\*d||"
     buttons = [b for row in keyboard.inline_keyboard for b in row]
     assert [b.text for b in buttons] == ["View on Web"]
+
+
+# --- Photo cache helpers ---
+
+class _BrokenConn:
+    """Connection stub whose queries always fail (e.g. cache table missing)."""
+
+    def __init__(self):
+        self.rolled_back = False
+
+    def cursor(self, *args, **kwargs):
+        raise RuntimeError("relation \"telegram_photo_cache\" does not exist")
+
+    def rollback(self):
+        self.rolled_back = True
+
+
+def test_answer_cache_key_is_content_addressed():
+    assert _answer_cache_key("same") == _answer_cache_key("same")
+    assert _answer_cache_key("same") != _answer_cache_key("different")
+
+
+def test_cache_lookup_degrades_gracefully_and_rolls_back():
+    conn = _BrokenConn()
+    assert _get_cached_file_id(conn, "some-key") is None
+    assert conn.rolled_back
+
+
+def test_cache_store_degrades_gracefully_and_rolls_back():
+    conn = _BrokenConn()
+    _store_cached_file_id(conn, "some-key", "file-id", 1)  # must not raise
+    assert conn.rolled_back

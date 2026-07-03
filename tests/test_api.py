@@ -603,3 +603,18 @@ def test_trigger_scheduler_invalid_secret(client):
     """Test the scheduler endpoint with an invalid secret."""
     response = client.get("/api/trigger-scheduler", headers={"X-Scheduler-Secret": "wrongsecret"})
     assert response.status_code == 403
+
+# --- Telegram Photo Cache ---
+def test_photo_cache_roundtrip_and_upsert(db_conn):
+    """The cache is standalone: keyed by content hash, no FK into cards."""
+    import crud
+
+    content_hash = f"test-{uuid.uuid4().hex}"
+    assert crud.get_cached_photo_file_id(db_conn, content_hash) is None
+
+    crud.cache_photo_file_id(db_conn, content_hash, "file-1", card_id=123)
+    assert crud.get_cached_photo_file_id(db_conn, content_hash) == "file-1"
+
+    # Re-rendering the same content upserts the newer file_id.
+    crud.cache_photo_file_id(db_conn, content_hash, "file-2", card_id=123)
+    assert crud.get_cached_photo_file_id(db_conn, content_hash) == "file-2"
