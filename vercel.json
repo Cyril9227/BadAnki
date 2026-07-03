@@ -13,7 +13,8 @@
             "src": "api/render-card.js",
             "use": "@vercel/node",
             "config": {
-                "maxLambdaSize": "250mb"
+                "maxLambdaSize": "250mb",
+                "includeFiles": "node_modules/@sparticuz/chromium/bin/**"
             }
         }
     ],
