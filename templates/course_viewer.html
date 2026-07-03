@@ -6,13 +6,112 @@
 {% block head %}
 {{ super() }}
 <style>
-    .course-header {
-        margin-bottom: 0;
+    .course-header-bar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem 1.5rem;
     }
     .course-title {
         font-size: 2.5rem;
         font-weight: bold;
-        margin-bottom: 0.5rem;
+        margin-bottom: 0;
+    }
+
+    /* --- Action toolbar (theme-variable driven, so dark mode follows) --- */
+    .course-actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .course-actions .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        font-size: 0.875rem;
+        font-weight: 500;
+        padding: 0.45rem 0.9rem;
+        border-radius: calc(var(--radius) - 0.125rem);
+        transition: background-color 0.15s ease, color 0.15s ease,
+                    border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .course-actions .btn:focus-visible {
+        outline: 2px solid rgba(var(--primary-rgb), 0.6);
+        outline-offset: 2px;
+        box-shadow: none;
+    }
+    .course-actions .btn i {
+        font-size: 0.8em;
+        opacity: 0.75;
+    }
+
+    /* Quiet secondary actions (Edit, Download) */
+    .action-btn {
+        color: rgb(var(--foreground-rgb));
+        background-color: rgb(var(--card-background-rgb));
+        border: 1px solid rgba(var(--border-rgb), 0.9);
+    }
+    .action-btn:hover {
+        color: rgb(var(--primary-rgb));
+        background-color: rgba(var(--primary-rgb), 0.08);
+        border-color: rgba(var(--primary-rgb), 0.4);
+    }
+
+    /* Segmented Q&A / Cloze control */
+    .card-type-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.2rem;
+        padding: 0.2rem;
+        background-color: rgba(var(--border-rgb), 0.35);
+        border: 1px solid rgba(var(--border-rgb), 0.9);
+        border-radius: calc(var(--radius) - 0.125rem);
+    }
+    .card-type-toggle .seg-btn {
+        border: 0;
+        padding: 0.3rem 0.8rem;
+        font-size: 0.8125rem;
+        font-weight: 500;
+        color: rgb(var(--muted-foreground-rgb));
+        background-color: transparent;
+        border-radius: calc(var(--radius) - 0.25rem);
+    }
+    .card-type-toggle .btn-check:checked + .seg-btn {
+        color: rgb(var(--foreground-rgb));
+        background-color: rgb(var(--card-background-rgb));
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+        font-weight: 600;
+    }
+
+    /* Generate Cards — the primary action */
+    .generate-btn {
+        color: #fff;
+        background-color: rgb(var(--primary-rgb));
+        border: 1px solid rgb(var(--primary-rgb));
+    }
+    .generate-btn:hover:not(:disabled) {
+        color: #fff;
+        background-color: rgb(var(--primary-rgb));
+        box-shadow: 0 4px 14px rgba(var(--primary-rgb), 0.35);
+    }
+    .generate-btn:disabled {
+        color: rgba(var(--foreground-rgb), 0.5);
+        background-color: rgba(var(--border-rgb), 0.5);
+        border-color: transparent;
+        opacity: 1;
+    }
+    .course-actions .dropdown-menu {
+        padding: 0.3rem;
+        border: 1px solid rgba(var(--border-rgb), 0.9);
+        border-radius: calc(var(--radius) - 0.125rem);
+        box-shadow: var(--box-shadow);
+    }
+    .course-actions .dropdown-item {
+        padding: 0.45rem 0.75rem;
+        font-size: 0.875rem;
+        border-radius: calc(var(--radius) - 0.3rem);
     }
     .card-tags {
         display: flex;
@@ -45,33 +144,61 @@
         .course-title {
             font-size: 1.8rem;
         }
-        .edit-course-btn {
-            margin-top: 1rem;
-        }
     }
-    @media (min-width: 768px) {
-        .edit-course-btn {
-            margin-top: 0;
+
+    /* Mobile: full-width, comfortable tap targets */
+    @media (max-width: 576px) {
+        .course-actions {
+            width: 100%;
+        }
+        .course-actions .btn {
+            padding-top: 0.55rem;
+            padding-bottom: 0.55rem;
+        }
+        .action-btn {
+            flex: 1 1 0;
+            justify-content: center;
+        }
+        .card-type-toggle {
+            width: 100%;
+        }
+        .card-type-toggle .seg-btn {
+            flex: 1 1 0;
+            justify-content: center;
+        }
+        .generate-group {
+            width: 100%;
+        }
+        .generate-btn {
+            width: 100%;
+            justify-content: center;
+        }
+        .generate-group .dropdown-menu {
+            width: 100%;
         }
     }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="d-flex flex-column flex-md-row justify-content-md-between align-items-md-center mb-3">
+<div class="course-header-bar mb-3">
     <h1 class="course-title">{{ metadata.get('title', 'Untitled Course') }}</h1>
-    <div class="btn-group-vertical btn-group-sm" role="group" aria-label="Course Actions">
-        <a href="/edit-course/{{ course_path | urlencode }}" class="btn btn-primary edit-course-btn">Edit Course</a>
-        <button type="button" id="download-btn" class="btn btn-info">Download File</button>
-        <div class="btn-group btn-group-sm" role="group" aria-label="Card type">
+    <div class="course-actions" role="toolbar" aria-label="Course actions">
+        <a href="/edit-course/{{ course_path | urlencode }}" class="btn action-btn">
+            <i class="fas fa-pen" aria-hidden="true"></i> Edit
+        </a>
+        <button type="button" id="download-btn" class="btn action-btn">
+            <i class="fas fa-download" aria-hidden="true"></i> Download
+        </button>
+        <div class="card-type-toggle" role="group" aria-label="Card type">
             <input type="radio" class="btn-check" name="card-type" id="card-type-basic-viewer" value="basic" autocomplete="off" checked>
-            <label class="btn btn-outline-secondary" for="card-type-basic-viewer">Q&A</label>
+            <label class="btn seg-btn" for="card-type-basic-viewer">Q&A</label>
             <input type="radio" class="btn-check" name="card-type" id="card-type-cloze-viewer" value="cloze" autocomplete="off">
-            <label class="btn btn-outline-secondary" for="card-type-cloze-viewer">Cloze</label>
+            <label class="btn seg-btn" for="card-type-cloze-viewer">Cloze</label>
         </div>
-        <div class="btn-group" role="group" {% if not gemini_api_key_exists and not anthropic_api_key_exists %}title="Add a Gemini or Anthropic API key in Settings to enable card generation."{% endif %}>
-            <button type="button" id="generate-cards-btn" class="btn {{ 'btn-success' if gemini_api_key_exists or anthropic_api_key_exists else 'btn-secondary' }} dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" {% if not gemini_api_key_exists and not anthropic_api_key_exists %}disabled aria-describedby="generate-cards-help"{% endif %}>
-                Generate Cards
+        <div class="btn-group generate-group" role="group" {% if not gemini_api_key_exists and not anthropic_api_key_exists %}title="Add a Gemini or Anthropic API key in Settings to enable card generation."{% endif %}>
+            <button type="button" id="generate-cards-btn" class="btn generate-btn dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" {% if not gemini_api_key_exists and not anthropic_api_key_exists %}disabled aria-describedby="generate-cards-help"{% endif %}>
+                <i class="fas fa-wand-magic-sparkles" aria-hidden="true"></i> Generate Cards
             </button>
             {% if not gemini_api_key_exists and not anthropic_api_key_exists %}
             <span id="generate-cards-help" class="visually-hidden">Add a Gemini or Anthropic API key in Settings to enable card generation.</span>
