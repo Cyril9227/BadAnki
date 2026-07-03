@@ -13,6 +13,7 @@ python-jose>=3.3.0
 
 # Telegram Bot
 python-telegram-bot>=20.0
+telegramify-markdown>=1.2.0
 
 # AI/LLM Providers
 google-genai>=1.0.0
