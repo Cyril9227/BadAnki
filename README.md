@@ -17,7 +17,7 @@ So it's like Anki but badly vibe-coded. Main interesting thing is that you get d
 ## Key Features
 
 *   **Cards & Courses:** Create, edit and review Markdown/LaTeX flashcards (basic and cloze) through a mobile-friendly web UI.
-*   **AI Card Generation:** Generate cards from your course notes with Gemini, Claude or local Ollama models — review and approve each card before it lands in your deck.
+*   **AI Card Generation:** Generate cards from your course notes with Gemini or Claude — review and approve each card before it lands in your deck.
 *   **Spaced Repetition:** SM-2-inspired scheduling decides when each card comes back.
 *   **Telegram Bot:** Daily review reminders and in-chat reviews, with fully rendered LaTeX/code answers and tap-to-reveal cloze blanks.
 *   **Multi-User:** [Supabase](https://supabase.com/) auth + row-level security keep each user's data isolated.

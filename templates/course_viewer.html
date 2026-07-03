@@ -210,8 +210,6 @@
                 {% if anthropic_api_key_exists %}
                     <li><a class="dropdown-item" href="#" id="generate-cards-anthropic-btn">Using Anthropic</a></li>
                 {% endif %}
-                <li><hr class="dropdown-divider"></li>
-                <li class="d-none d-lg-block"><a class="dropdown-item" href="#" id="generate-cards-ollama-btn">Using Ollama</a></li>
             </ul>
         </div>
     </div>
@@ -290,10 +288,6 @@
             if (e.target.matches('#generate-cards-anthropic-btn')) {
                 e.preventDefault();
                 window.handleGenerateCards('/api/generate-cards-anthropic', contentProvider, csrfToken, cardType);
-            }
-            if (e.target.matches('#generate-cards-ollama-btn')) {
-                e.preventDefault();
-                window.handleGenerateCards('/api/generate-cards-ollama', contentProvider, csrfToken, cardType);
             }
         });
     });
