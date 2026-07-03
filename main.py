@@ -18,7 +18,6 @@ import posixpath
 import frontmatter
 from google import genai
 import httpx
-import ollama
 import psycopg2
 import anthropic
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
@@ -671,9 +670,9 @@ def _validate_generated_cards(cards) -> list[dict]:
 
 # --- LLM & Card Generation ---
 
-# One JSON Schema enforced natively by every provider (Anthropic structured
-# outputs, Gemini constrained decoding, Ollama format). The decoder can only
-# emit schema-valid JSON, so LaTeX backslashes can no longer break parsing —
+# One JSON Schema enforced natively by both providers (Anthropic structured
+# outputs, Gemini constrained decoding). The decoder can only emit
+# schema-valid JSON, so LaTeX backslashes can no longer break parsing —
 # no escaping instructions or regex repair needed.
 CARDS_JSON_SCHEMA = {
     "type": "object",
@@ -749,14 +748,6 @@ def generate_cards(text: str, mode="gemini", api_key: str = None, card_type: str
                 },
             )
             response_text = response.text.strip()
-
-        elif mode == "ollama":
-            response = ollama.chat(
-                model='gpt-oss:20b',
-                messages=[{'role': 'user', 'content': prompt}],
-                format=CARDS_JSON_SCHEMA,
-            )
-            response_text = response['message']['content']
 
         elif mode == "anthropic":
             if not api_key:
@@ -1084,10 +1075,6 @@ async def _generate_cards_response(data: CourseContentForGeneration, user: User,
 @app.post("/api/generate-cards")
 async def api_generate_cards(data: CourseContentForGeneration, user: User = Depends(get_current_active_user)):
     return await _generate_cards_response(data, user, mode="gemini", api_key=user.gemini_api_key)
-
-@app.post("/api/generate-cards-ollama")
-async def api_generate_cards_ollama(data: CourseContentForGeneration, user: User = Depends(get_current_active_user)):
-    return await _generate_cards_response(data, user, mode="ollama", api_key=None)
 
 @app.post("/api/generate-cards-anthropic")
 async def api_generate_cards_anthropic(data: CourseContentForGeneration, user: User = Depends(get_current_active_user)):

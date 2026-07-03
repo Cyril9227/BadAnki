@@ -61,7 +61,7 @@ def _restore_control_chars(parsed: Any) -> Any:
 
 def robust_json_loads(raw: str) -> Any:
     """
-    Robust JSON parsing for Ollama/LLM responses containing LaTeX.
+    Robust JSON parsing for LLM responses containing LaTeX.
     Strategy:
       1) try json.loads(raw)
       2) if that fails or control chars are detected -> pre-escape single backslashes before letters and parse
