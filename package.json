@@ -1,0 +1,9 @@
+{
+  "name": "badanki",
+  "private": true,
+  "description": "Node dependencies for the api/render-card.js screenshot function only; the app itself is Python.",
+  "dependencies": {
+    "@sparticuz/chromium": "^131.0.0",
+    "puppeteer-core": "^23.11.1"
+  }
+}

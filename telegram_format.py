@@ -26,6 +26,18 @@ _BRACKET_MATH = re.compile(r"\\\[(.+?)\\\]", re.DOTALL)
 _CODE_ENTITY = re.compile(r"(?<!\\)`")
 _BLOCKQUOTE_LINE = re.compile(r"^(\*\*)?>", re.MULTILINE)
 
+# Math that needs 2D layout turns to mush as Unicode text; such cards are
+# sent as a rendered screenshot instead. Simple inline math (greek letters,
+# subscripts, \in, f(x), ...) stays on the fast text path. The trailing
+# lookahead keeps \int from matching longer commands like \intercal while
+# still matching \sum_{i=1} (command names are letters only, so `_` ends one).
+_DISPLAY_MATH = re.compile(r"\$\$.+?\$\$|\\\[.+?\\\]", re.DOTALL)
+_HEAVY_LATEX = re.compile(
+    r"\\(?:frac|dfrac|tfrac|cfrac|binom|sum|prod|coprod|int|iint|iiint|oint"
+    r"|sqrt|lim|liminf|limsup|begin|over(?:brace|line|set)|under(?:brace|line|set)|stackrel)"
+    r"(?![a-zA-Z])"
+)
+
 
 def _normalize_math_delimiters(text: str) -> str:
     parts = _CODE_SEGMENT.split(text)
@@ -59,3 +71,13 @@ def spoiler_safe(markdown_v2: str) -> bool:
     render as) or blockquotes inside a spoiler entity.
     """
     return not (_CODE_ENTITY.search(markdown_v2) or _BLOCKQUOTE_LINE.search(markdown_v2))
+
+
+def needs_screenshot(text: str) -> bool:
+    """Whether card content is too math-heavy to stay readable as Unicode
+    text, i.e. it contains display math, a LaTeX environment, or constructs
+    like sums/integrals/fractions. Content inside code blocks doesn't count —
+    it renders fine as a code block."""
+    parts = _CODE_SEGMENT.split(text)
+    outside_code = "".join(parts[i] for i in range(0, len(parts), 2))
+    return bool(_DISPLAY_MATH.search(outside_code) or _HEAVY_LATEX.search(outside_code))

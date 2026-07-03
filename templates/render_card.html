@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Card render</title>
+<style>
+    body { margin: 0; background: #ffffff; }
+    #card {
+        width: 720px;
+        box-sizing: border-box;
+        padding: 28px 32px;
+        font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+        font-size: 19px;
+        line-height: 1.55;
+        color: #1a1a1a;
+        overflow-wrap: break-word;
+    }
+    #card p:first-child { margin-top: 0; }
+    #card p:last-child { margin-bottom: 0; }
+    #card pre {
+        background: #f4f4f5;
+        border-radius: 8px;
+        padding: 12px 14px;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+    #card code {
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 16px;
+        background: #f4f4f5;
+        padding: 1px 5px;
+        border-radius: 4px;
+    }
+    #card pre code { background: none; padding: 0; }
+    #card img { max-width: 100%; }
+    #card mjx-container[display="true"] { margin: 14px 0; }
+</style>
+<script>
+window.MathJax = {
+  tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+  svg: { fontCache: 'global' },
+  startup: { typeset: false }
+};
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+</head>
+<body>
+<div id="card"></div>
+<script>
+window.addEventListener('DOMContentLoaded', function () {
+    const raw = {{ content | tojson }};
+    const card = document.getElementById('card');
+    card.innerHTML = DOMPurify.sanitize(marked.parse(raw), {
+        ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 's', 'code', 'pre', 'blockquote',
+                      'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+                      'a', 'img', 'table', 'thead', 'tbody', 'tr', 'th', 'td',
+                      'span', 'div', 'hr', 'sup', 'sub'],
+        ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'id', 'target', 'rel'],
+        ALLOW_DATA_ATTR: false
+    });
+    // The screenshot function waits for this flag, so it must be set on the
+    // failure paths too — a botched typeset still beats a timeout.
+    MathJax.startup.promise
+        .then(function () { return MathJax.typesetPromise([card]); })
+        .catch(function (error) { console.warn('MathJax typesetting failed:', error); })
+        .then(function () { window.__RENDER_READY__ = true; });
+});
+</script>
+</body>
+</html>
