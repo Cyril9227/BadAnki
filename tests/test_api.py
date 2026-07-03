@@ -242,7 +242,7 @@ def create_test_card(db_conn, user_id, question, answer, due_date=None):
     cur.close()
     return card_id
 
-@patch("main.supabase.auth.sign_out")
+@patch("main._sign_out_sync")
 @patch("main.supabase.auth.get_user")
 def test_logout(mock_get_user, mock_sign_out, client, db_conn):
     # Mock authenticated user

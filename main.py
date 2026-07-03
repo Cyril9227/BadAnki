@@ -26,7 +26,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
-from supabase import create_client, Client
+from supabase import create_client, Client, ClientOptions
 from jose import jwt
 from pydantic import BaseModel, Field
 from telegram import Update
@@ -78,7 +78,13 @@ if SUPABASE_KEY and SUPABASE_KEY.startswith("sb_secret_"):
 if _get_unverified_supabase_role(SUPABASE_KEY) == "service_role":
     raise ValueError(f"{SUPABASE_KEY_SOURCE} must be the public anon key, not the service-role key.")
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+# This client is shared across all requests, so it must never act on its own
+# stored session: sign_in/sign_up would otherwise arm a background refresh
+# timer that rotates the *last logged-in user's* refresh token server-side,
+# invalidating the copy in that user's cookie (Supabase rotates tokens on use).
+supabase: Client = create_client(
+    SUPABASE_URL, SUPABASE_KEY, options=ClientOptions(auto_refresh_token=False)
+)
 
 MAX_COURSE_PATH_LEN = 512
 MAX_COURSE_CONTENT_LEN = 1_000_000
@@ -446,6 +452,29 @@ def _refresh_session_sync(refresh_token: str) -> Optional[dict]:
     return payload
 
 
+def _sign_out_sync(access_token: str) -> None:
+    """Revoke the session behind this access token via the GoTrue REST API.
+
+    The shared supabase client's sign_out() operates on the client's own
+    internal session, not on an arbitrary user's token, so the raw endpoint
+    is used here — same reasoning as _refresh_session_sync. Best-effort: the
+    cookies are cleared regardless, a failure only means the refresh token
+    stays valid until it expires or rotates.
+    """
+    try:
+        response = httpx.post(
+            f"{SUPABASE_URL}/auth/v1/logout",
+            params={"scope": "local"},
+            headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {access_token}"},
+            timeout=10.0,
+        )
+        if response.status_code >= 400:
+            # An expired/invalid token can't revoke anything — that's fine.
+            logger.debug("Supabase sign out rejected with status %s", response.status_code)
+    except httpx.HTTPError as e:
+        logger.warning("Supabase sign out request failed: %s", e)
+
+
 async def _try_refresh_session(request: Request) -> Optional[tuple[str, str]]:
     """When the access token is missing or expired, mint a new session from
     the refresh-token cookie. Returns the refreshed identity, or None to fall
@@ -523,10 +552,7 @@ async def logout(request: Request):
     if token:
         with _auth_token_cache_lock:
             _auth_token_cache.pop(token, None)
-        try:
-            supabase.auth.sign_out(token)
-        except Exception as e:
-            logger.error(f"Supabase sign out failed: {e}")
+        await run_in_threadpool(_sign_out_sync, token)
 
     response = RedirectResponse(url="/", status_code=303)
     secure_cookie = should_use_secure_cookies(request)
