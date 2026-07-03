@@ -60,7 +60,9 @@ module.exports = async (req, res) => {
     res.status(200).send(png);
   } catch (error) {
     console.error("render-card failed:", error);
-    res.status(500).json({ error: "Failed to render card" });
+    // The detail is only reachable with a valid signature; it makes failures
+    // diagnosable without Vercel log access.
+    res.status(500).json({ error: "Failed to render card", detail: String(error).slice(0, 300) });
   } finally {
     if (browser) {
       await browser.close().catch(() => {});
