@@ -16,131 +16,85 @@ So it's like Anki but badly vibe-coded. Main interesting thing is that you get d
 
 ## Key Features
 
-*   **Course & Card Management:** Easily create, edit, delete, and download courses and flashcards through an intuitive and mobile-responsive web interface.
-*   **Markdown & LaTeX Support:** Write your course content and flashcards using Markdown for formatting and LaTeX for mathematical and scientific notation.
-*   **AI-Powered Card Generation:**
-    *   **Multi-Provider Support:** Automatically generate flashcards from your course notes using multiple AI providers, including Google's Gemini, Anthropic's Claude, and local models via Ollama.
-    *   **Approval Workflow:** Review, edit, and approve each AI-generated card before it's added to your deck, ensuring the quality of your study material.
-*   **Spaced Repetition System (SRS):** Utilizes an algorithm inspired by SM-2 to schedule card reviews at optimal intervals, maximizing memory retention.
-*   **Secure, Multi-User Architecture:** Built on [Supabase](https://supabase.com/) for authentication and database, ensuring your data is private and isolated.
-*   **Telegram Integration:** Receive daily review reminders via a dedicated Telegram bot. You can also interact with your cards using commands like `/random` to get a random card.
+*   **Cards & Courses:** Create, edit and review Markdown/LaTeX flashcards (basic and cloze) through a mobile-friendly web UI.
+*   **AI Card Generation:** Generate cards from your course notes with Gemini, Claude or local Ollama models — review and approve each card before it lands in your deck.
+*   **Spaced Repetition:** SM-2-inspired scheduling decides when each card comes back.
+*   **Telegram Bot:** Daily review reminders and in-chat reviews, with fully rendered LaTeX/code answers and tap-to-reveal cloze blanks.
+*   **Multi-User:** [Supabase](https://supabase.com/) auth + row-level security keep each user's data isolated.
 
-## Core Technologies
+## Tech Stack
 
-*   **Backend:** Python 3.12+ with [FastAPI](https://fastapi.tiangolo.com/)
-*   **Frontend:** [Jinja2](https://jinja.palletsprojects.com/) Templates with [Bootstrap 5](https://getbootstrap.com/)
-*   **Database & Auth:** [Supabase](https://supabase.com/) (PostgreSQL + Authentication)
-*   **Deployment:** [Vercel](https://vercel.com/)
-*   **LLM Integration:** `google-generativeai`, `anthropic`, `ollama`
-*   **Telegram Bot:** `python-telegram-bot`
+Python 3.12+ / [FastAPI](https://fastapi.tiangolo.com/) · [Jinja2](https://jinja.palletsprojects.com/) + [Bootstrap 5](https://getbootstrap.com/) · [Supabase](https://supabase.com/) (PostgreSQL + Auth) · `python-telegram-bot` · deployed on [Vercel](https://vercel.com/)
 
 ## Project Structure
 
 ```
 /
-├── main.py             # The main FastAPI application file.
-├── bot.py              # Contains the logic for the Telegram bot.
-├── crud.py             # Database create, read, update, and delete operations.
-├── database.py         # Database connection pool management.
-├── database.sql        # SQL schema for Supabase.
-├── middleware.py       # CSRF protection middleware.
-├── scheduler.py        # Logic for sending daily review notifications.
-├── requirements.txt    # Python dependencies.
-├── vercel.json         # Vercel deployment configuration.
+├── main.py             # FastAPI app and routes
+├── bot.py              # Telegram bot logic
+├── crud.py             # Database operations
+├── database.py         # Connection pool management
+├── database.sql        # Supabase schema (tables + RLS policies)
+├── middleware.py       # CSRF and request-size protection
+├── scheduler.py        # Daily review notifications
+├── telegram_format.py  # Card rendering for Telegram (MarkdownV2, cloze)
+├── render_auth.py      # Signed tokens for the card image renderer
 ├── api/
-│   └── cron.py         # Vercel cron job handler for daily notifications.
-├── static/             # Static assets (favicon, etc.).
-├── templates/          # Jinja2 HTML templates.
-├── tests/              # Test suite.
-└── utils/              # Utility scripts (backup, restore, parsing).
+│   ├── cron.py         # Vercel cron entrypoint
+│   └── render-card.js  # Renders card answers to images (Puppeteer)
+├── templates/          # Jinja2 templates
+├── tests/              # Test suite (see documentation/TESTING.md)
+└── utils/              # Parsing helpers + backup/restore scripts
 ```
 
 ## Local Development
 
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/your-username/BadAnki.git
-    cd BadAnki
-    ```
+```bash
+git clone https://github.com/Cyril9227/BadAnki.git
+cd BadAnki
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn main:app --reload  # app at http://127.0.0.1:8000
+pytest                     # run the tests
+```
 
-2.  **Create a virtual environment and install dependencies:**
-    ```bash
-    python -m venv .venv
-    source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-    pip install -r requirements.txt
-    ```
+Create the database by running `database.sql` in the Supabase SQL Editor (it creates the tables and RLS policies), and add a `.env` file with the variables below.
 
-3.  **Set up environment variables:**
-    Create a `.env` file in the project root with the following variables:
-    ```
-    SECRET_KEY=your-secret-key
-    DATABASE_URL=your-supabase-postgres-connection-string
-    SUPABASE_URL=https://your-project.supabase.co
-    SUPABASE_ANON_KEY=your-supabase-anon-or-publishable-key
-    SCHEDULER_SECRET=your-scheduler-secret
-    CRON_SECRET=your-vercel-cron-secret
-    TELEGRAM_BOT_TOKEN=your-telegram-bot-token
-    TELEGRAM_WEBHOOK_SECRET=your-webhook-secret
-    TELEGRAM_BOT_USERNAME=your-bot-username
-    APP_URL=http://localhost:8000
-    ```
+## Environment Variables
 
-    `SUPABASE_ANON_KEY` must be the public anon/publishable key, never the
-    service-role or `sb_secret_...` key. `SUPABASE_KEY` is still accepted as a
-    legacy fallback, but new deploys should use `SUPABASE_ANON_KEY`.
-    For production on Vercel, also set `CRON_SECRET` so scheduled jobs cannot
-    be triggered by arbitrary internet traffic.
-    Apply `utils/migrate_enable_rls.sql` in the Supabase SQL Editor for existing
-    databases before treating the public anon key as safe to expose.
-
-4.  **Run the web server:**
-    ```bash
-    uvicorn main:app --reload
-    ```
-    The application will be available at `http://127.0.0.1:8000`.
-
-5.  **Run tests:**
-    ```bash
-    pytest
-    ```
-
-## Deployment on Vercel
-
-The application is deployed on Vercel with the following configuration:
-
-*   **Region:** Singapore (`sin1`) - configured in `vercel.json`
-*   **Cron Job:** Daily scheduler runs at 01:00 UTC via Vercel Crons
-
-### Environment Variables
-
-Set the following environment variables in your Vercel project settings:
+The same set is used locally (`.env`) and in the Vercel project settings:
 
 | Variable | Description |
 |----------|-------------|
 | `SECRET_KEY` | Secret key for session management |
 | `DATABASE_URL` | Supabase PostgreSQL connection string |
 | `SUPABASE_URL` | Your Supabase project URL |
-| `SUPABASE_ANON_KEY` | Supabase anon/public or publishable key |
+| `SUPABASE_ANON_KEY` | Supabase anon/publishable key (see note below) |
 | `SCHEDULER_SECRET` | Secret for triggering the scheduler |
+| `CRON_SECRET` | Secret protecting the Vercel cron endpoint |
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token from BotFather |
 | `TELEGRAM_WEBHOOK_SECRET` | Secret for webhook validation |
 | `TELEGRAM_BOT_USERNAME` | Your Telegram bot's username |
-| `APP_URL` | Your deployed app URL (e.g., `https://bad-anki.vercel.app`) |
-| `ENVIRONMENT` | Set to `production` |
+| `APP_URL` | App URL (`http://localhost:8000` locally, deployed URL in prod) |
+| `ENVIRONMENT` | Set to `production` on Vercel |
 
-## Database Management
+`SUPABASE_ANON_KEY` must be the public anon/publishable key, never the
+service-role or `sb_secret_...` key (`SUPABASE_KEY` is still accepted as a
+legacy fallback). Optional: `GEMINI_API_KEY` seeds new user profiles with a
+default Gemini key.
 
-The project includes scripts for backing up and restoring the PostgreSQL database.
+## Deployment
 
-*   **Backup:** To create a full backup of the database:
-    ```bash
-    python utils/full_backup.py
-    ```
+Deployed on Vercel (region `sin1`, configured in `vercel.json`). A Vercel cron
+hits `/api/cron` daily at 01:00 UTC to send review reminders.
 
-*   **Restore:** To restore the database from a backup file:
-    ```bash
-    python utils/full_restore.py <backup-file.sql>
-    ```
+## Backup & Restore
+
+```bash
+python utils/full_backup.py                     # pg_dump the whole database
+python utils/full_restore.py <backup-file.sql>  # restore from a backup
+```
 
 ## Caveats
 
