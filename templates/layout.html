@@ -298,11 +298,35 @@ window.MathJax = {
 <!-- DOMPurify for XSS protection when rendering user content -->
 <script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
 <script>
-    // Safe markdown rendering helper - sanitizes HTML to prevent XSS
+    // Markdown emphasis corrupts LaTeX before MathJax ever sees it — e.g. in
+    // "$(S_n)_{n \geq 1}$ ... $(u_n)_{n \geq 1}$" the underscores after the
+    // parens pair up across the two math spans and become <em> tags, splitting
+    // the math so MathJax can no longer typeset it. Math segments are therefore
+    // swapped for placeholder tokens while marked runs, then restored
+    // (HTML-escaped, so sanitization is not weakened) into the output. Code
+    // segments are left for marked to render — MathJax skips <pre>/<code> on
+    // its own. Keep in sync with render_card.html.
+    const MATH_SEGMENT = /\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|(?<!\\)\$[^$\n]+?\$/g;
+    const CODE_SEGMENT = /(```[\s\S]*?```|`[^`\n]*`)/;
+    function renderMarkdownSafely(text, inline, sanitizeConfig) {
+        const stash = [];
+        const masked = text.split(CODE_SEGMENT).map(function (part, i) {
+            if (i % 2 === 1) return part;  // code segment: marked renders it as-is
+            return part.replace(MATH_SEGMENT, function (math) {
+                stash.push(math);
+                return '\uE000' + (stash.length - 1) + '\uE001';
+            });
+        }).join('');
+        const html = DOMPurify.sanitize(inline ? marked.parseInline(masked) : marked.parse(masked), sanitizeConfig);
+        return html.replace(/\uE000(\d+)\uE001/g, function (_, i) {
+            return window.escapeHtml(stash[Number(i)]);
+        });
+    }
+
+    // Safe markdown rendering helpers - sanitize HTML to prevent XSS
     window.safeMarkdown = function(text) {
         if (!text) return '';
-        const html = marked.parse(text);
-        return DOMPurify.sanitize(html, {
+        return renderMarkdownSafely(text, false, {
             ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 's', 'code', 'pre', 'blockquote',
                           'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
                           'a', 'img', 'table', 'thead', 'tbody', 'tr', 'th', 'td',
@@ -313,8 +337,7 @@ window.MathJax = {
     };
     window.safeMarkdownInline = function(text) {
         if (!text) return '';
-        const html = marked.parseInline(text);
-        return DOMPurify.sanitize(html, {
+        return renderMarkdownSafely(text, true, {
             ALLOWED_TAGS: ['strong', 'em', 'u', 's', 'code', 'a', 'span', 'sup', 'sub'],
             ALLOWED_ATTR: ['href', 'title', 'class', 'target', 'rel'],
             ALLOW_DATA_ATTR: false

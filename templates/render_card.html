@@ -51,14 +51,35 @@ window.MathJax = {
 <script>
 window.addEventListener('DOMContentLoaded', function () {
     const raw = {{ content | tojson }};
+    // Keep in sync with layout.html's renderMarkdownSafely: markdown emphasis
+    // corrupts LaTeX (underscores in math become <em> tags), so math segments
+    // are hidden behind placeholder tokens while marked runs, then restored
+    // (HTML-escaped) for MathJax. Code segments stay with marked; MathJax
+    // skips <pre>/<code> on its own.
+    const MATH_SEGMENT = /\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|(?<!\\)\$[^$\n]+?\$/g;
+    const CODE_SEGMENT = /(```[\s\S]*?```|`[^`\n]*`)/;
+    const escapeHtml = function (s) {
+        return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    };
+    const stash = [];
+    const masked = raw.split(CODE_SEGMENT).map(function (part, i) {
+        if (i % 2 === 1) return part;  // code segment: marked renders it as-is
+        return part.replace(MATH_SEGMENT, function (math) {
+            stash.push(math);
+            return '\uE000' + (stash.length - 1) + '\uE001';
+        });
+    }).join('');
     const card = document.getElementById('card');
-    card.innerHTML = DOMPurify.sanitize(marked.parse(raw), {
+    card.innerHTML = DOMPurify.sanitize(marked.parse(masked), {
         ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 's', 'code', 'pre', 'blockquote',
                       'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
                       'a', 'img', 'table', 'thead', 'tbody', 'tr', 'th', 'td',
                       'span', 'div', 'hr', 'sup', 'sub'],
         ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'id', 'target', 'rel'],
         ALLOW_DATA_ATTR: false
+    }).replace(/\uE000(\d+)\uE001/g, function (_, i) {
+        return escapeHtml(stash[Number(i)]);
     });
     // The screenshot function waits for this flag, so it must be set on the
     // failure paths too — a botched typeset still beats a timeout.
