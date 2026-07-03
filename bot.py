@@ -25,7 +25,14 @@ from crud import (
     get_user_by_telegram_chat_id,
 )
 from render_auth import sign_render_request
-from telegram_format import needs_screenshot, render_markdown_v2, spoiler_safe
+from telegram_format import (
+    cloze_plain_markdown_v2,
+    is_cloze,
+    needs_screenshot,
+    render_cloze_markdown_v2,
+    render_markdown_v2,
+    spoiler_safe,
+)
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -69,9 +76,16 @@ def build_card_message(card, reveal: bool = False):
     inside a ||spoiler||; answers containing them are hidden behind a
     "Show answer" button instead.
     """
+    keyboard = [[_web_button(card['id'])]]
+
+    # Cloze cards are self-contained: each {{cN::...}} blank becomes an
+    # in-place spoiler, so there is no separate answer to attach.
+    if is_cloze(card['question']):
+        text = f"📝 *Cloze*\n{render_cloze_markdown_v2(card['question'], reveal=reveal)}"
+        return text, InlineKeyboardMarkup(keyboard)
+
     question = render_markdown_v2(card['question'])
     answer = render_markdown_v2(card['answer'])
-    keyboard = [[_web_button(card['id'])]]
 
     if reveal:
         text = f"❓ *Question*\n{question}\n\n💡 *Answer*\n{answer}"
@@ -86,6 +100,10 @@ def build_card_message(card, reveal: bool = False):
 
 def build_plain_card_message(card, reveal: bool = False):
     """Escape-everything fallback (the original format) — always parseable."""
+    if is_cloze(card['question']):
+        text = f"*Cloze:* {cloze_plain_markdown_v2(card['question'], reveal=reveal)}"
+        return text, InlineKeyboardMarkup([[_web_button(card['id'])]])
+
     question = escape_markdown(card['question'], version=2)
     answer = escape_markdown(card['answer'], version=2)
     if reveal:
@@ -293,9 +311,13 @@ async def random_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if card:
                 # Math-heavy answers are unreadable as Unicode text, so those
                 # (and only those) go through the screenshot pipeline; any
-                # failure there falls back to the regular text flow.
+                # failure there falls back to the regular text flow. Cloze
+                # cards always stay text — their in-place spoiler blanks ARE
+                # the interaction, and their answer field is just the hidden
+                # word, so an answer screenshot would be meaningless.
                 sent_as_photo = (
-                    needs_screenshot(card['answer'])
+                    not is_cloze(card['question'])
+                    and needs_screenshot(card['answer'])
                     and await _send_answer_photo(update.message, card, conn)
                 )
                 if not sent_as_photo:

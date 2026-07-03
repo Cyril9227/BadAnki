@@ -1,7 +1,14 @@
 # Unit tests for Telegram card formatting (pure functions, no DB required).
 
 import telegram_format
-from telegram_format import needs_screenshot, render_markdown_v2, spoiler_safe
+from telegram_format import (
+    cloze_plain_markdown_v2,
+    is_cloze,
+    needs_screenshot,
+    render_cloze_markdown_v2,
+    render_markdown_v2,
+    spoiler_safe,
+)
 from bot import (
     _answer_cache_key,
     _get_cached_file_id,
@@ -155,6 +162,59 @@ def test_plain_builder_matches_original_format():
     assert text == "*Question:* a\\_b\n\n*Answer:* ||c\\*d||"
     buttons = [b for row in keyboard.inline_keyboard for b in row]
     assert [b.text for b in buttons] == ["View on Web"]
+
+
+# --- Cloze cards ---
+
+CLOZE_Q = "The {{c1::mitochondria}} is the powerhouse of the {{c2::cell}}."
+
+
+def test_is_cloze_detection():
+    assert is_cloze(CLOZE_Q)
+    assert not is_cloze("A regular question about {braces}?")
+
+
+def test_cloze_blanks_become_inline_spoilers():
+    out = render_cloze_markdown_v2(CLOZE_Q)
+    assert "||mitochondria||" in out
+    assert "||cell||" in out
+    assert "{{c1" not in out  # the raw markup must never leak
+
+
+def test_cloze_reveal_shows_answers_plainly():
+    out = render_cloze_markdown_v2(CLOZE_Q, reveal=True)
+    assert "mitochondria" in out
+    assert "||" not in out
+
+
+def test_cloze_plain_fallback_still_hides_answers():
+    out = cloze_plain_markdown_v2("Escape _this_ {{c1::w_ord}}!")
+    assert "||w\\_ord||" in out
+    assert "{{c1" not in out
+
+
+def test_cloze_rich_failure_falls_back_without_leaking(monkeypatch):
+    def boom(*args, **kwargs):
+        raise ValueError("boom")
+
+    monkeypatch.setattr(telegram_format.telegramify_markdown, "markdownify", boom)
+    out = render_cloze_markdown_v2(CLOZE_Q)
+    assert "||mitochondria||" in out
+    assert "{{c1" not in out
+
+
+def test_cloze_card_message_is_self_contained():
+    text, keyboard = build_card_message(_card(question=CLOZE_Q, answer="mitochondria"))
+    assert "||mitochondria||" in text
+    assert "Answer" not in text  # no separate answer section
+    buttons = [b for row in keyboard.inline_keyboard for b in row]
+    assert [b.text for b in buttons] == ["View on Web"]  # no Show answer button
+
+
+def test_cloze_plain_card_message_hides_answers():
+    text, _ = build_plain_card_message(_card(question=CLOZE_Q, answer="mitochondria"))
+    assert "||mitochondria||" in text
+    assert "{{c1" not in text
 
 
 # --- Photo cache helpers ---
