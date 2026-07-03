@@ -7,14 +7,18 @@ load_dotenv()
 
 import os
 import logging
+import time
+
+import httpx
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.helpers import escape_markdown
-from telegram.constants import ParseMode
+from telegram.constants import ChatAction, ParseMode
 from telegram.error import BadRequest
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 from database import get_db_connection, release_db_connection
 from crud import get_card_for_user, get_random_card_for_user, get_user_by_telegram_chat_id
-from telegram_format import render_markdown_v2, spoiler_safe
+from render_auth import sign_render_request
+from telegram_format import needs_screenshot, render_markdown_v2, spoiler_safe
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -39,6 +43,9 @@ def _redact_identifier(value) -> str:
 # --- Card Message Building ---
 
 TELEGRAM_MESSAGE_LIMIT = 4096
+TELEGRAM_CAPTION_LIMIT = 1024
+RENDER_TIMEOUT_SECONDS = 15.0
+RENDER_TOKEN_TTL_SECONDS = 300
 
 
 def _web_button(card_id) -> InlineKeyboardButton:
@@ -76,6 +83,75 @@ def build_plain_card_message(card, reveal: bool = False):
     else:
         text = f"*Question:* {question}\n\n*Answer:* ||{answer}||"
     return text, InlineKeyboardMarkup([[_web_button(card['id'])]])
+
+
+async def _fetch_answer_image(card_id) -> bytes | None:
+    """Asks the api/render-card.js screenshot function for a PNG of the
+    card's answer, authorized by a short-lived HMAC signature. Never raises:
+    a failed render must degrade to the text flow, not break the card."""
+    try:
+        expires_at = int(time.time()) + RENDER_TOKEN_TTL_SECONDS
+        params = {
+            "card_id": card_id,
+            "exp": expires_at,
+            "sig": sign_render_request(card_id, expires_at),
+        }
+        async with httpx.AsyncClient(timeout=RENDER_TIMEOUT_SECONDS) as client:
+            response = await client.get(f"{APP_URL}/api/render-card", params=params)
+        if response.status_code == 200 and response.headers.get("content-type", "").startswith("image/"):
+            return response.content
+        logger.warning("Screenshot service returned status %s for card %s.", response.status_code, card_id)
+    except Exception as e:
+        logger.warning(f"Screenshot service failed for card {card_id}: {e}")
+    return None
+
+
+async def _send_answer_photo(message, card) -> bool:
+    """Sends the card as one message: question caption + spoilered screenshot
+    of the answer. Returns False when the image can't be produced or sent so
+    the caller can fall back to the text flow."""
+    try:
+        await message.chat.send_action(ChatAction.UPLOAD_PHOTO)
+    except Exception:
+        pass  # Cosmetic only; never block the card on it.
+
+    image = await _fetch_answer_image(card['id'])
+    if image is None:
+        return False
+
+    keyboard = InlineKeyboardMarkup([[_web_button(card['id'])]])
+    rich_caption = f"❓ *Question*\n{render_markdown_v2(card['question'])}"
+    plain_caption = f"*Question:* {escape_markdown(card['question'], version=2)}"
+    for caption in (rich_caption, plain_caption):
+        if len(caption) > TELEGRAM_CAPTION_LIMIT:
+            continue
+        try:
+            await message.reply_photo(
+                photo=image,
+                caption=caption,
+                parse_mode=ParseMode.MARKDOWN_V2,
+                has_spoiler=True,
+                reply_markup=keyboard,
+            )
+            return True
+        except BadRequest:
+            logger.warning("Telegram rejected photo caption for card %s; degrading.", card['id'], exc_info=True)
+    # Question too long for a caption (or rejected): send it as its own text
+    # message, then the bare spoilered photo.
+    try:
+        for question in (rich_caption, plain_caption):
+            if len(question) > TELEGRAM_MESSAGE_LIMIT:
+                continue
+            try:
+                await message.reply_text(question, parse_mode=ParseMode.MARKDOWN_V2)
+                break
+            except BadRequest:
+                logger.warning("Telegram rejected question text for card %s; degrading.", card['id'], exc_info=True)
+        await message.reply_photo(photo=image, has_spoiler=True, reply_markup=keyboard)
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to send answer photo for card {card['id']}: {e}")
+        return False
 
 
 async def _reply_card(send, card, reveal: bool):
@@ -137,7 +213,15 @@ async def random_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info("User found for chat_id %s.", redacted_chat_id)
             card = get_random_card_for_user(conn, user['auth_user_id'])
             if card:
-                await _reply_card(update.message.reply_text, card, reveal=False)
+                # Math-heavy answers are unreadable as Unicode text, so those
+                # (and only those) go through the screenshot pipeline; any
+                # failure there falls back to the regular text flow.
+                sent_as_photo = (
+                    needs_screenshot(card['answer'])
+                    and await _send_answer_photo(update.message, card)
+                )
+                if not sent_as_photo:
+                    await _reply_card(update.message.reply_text, card, reveal=False)
                 logger.info("Sent random card %s to chat_id %s.", card['id'], redacted_chat_id)
             else:
                 await update.message.reply_text("You have no cards in your deck.")

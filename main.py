@@ -35,6 +35,7 @@ from supabase_auth.errors import AuthApiError
 # Local application
 import crud
 from bot import get_bot_application
+from render_auth import verify_render_request
 from database import get_db_connection, release_db_connection
 from scheduler import run_scheduler
 from utils.parsing import normalize_cards, robust_json_loads, sanitize_tags
@@ -120,6 +121,7 @@ def should_resolve_user_for_request(request: Request) -> bool:
         or path.startswith("/static/")
         or path.startswith("/_vercel/")
         or path.startswith("/webhook/")
+        or path.startswith("/render/")
     ):
         return False
 
@@ -1083,6 +1085,18 @@ async def trigger_scheduler(request: Request):
     return JSONResponse(content={"status": "completed", "result": result, "webhook_status": webhook_status})
 
 # --- Card Management Routes ---
+@app.get("/render/card/{card_id}", response_class=HTMLResponse)
+async def render_card_for_screenshot(request: Request, card_id: int, exp: int, sig: str, conn: psycopg2.extensions.connection = Depends(get_db)):
+    """Minimal page rendering a card's answer (Markdown + MathJax) for the
+    Telegram screenshot function. Unauthenticated by design: access is
+    granted by a short-lived HMAC signature instead of a session."""
+    if not verify_render_request(card_id, exp, sig):
+        raise HTTPException(status_code=403, detail="Invalid or expired signature")
+    card = crud.get_card_by_id(conn, card_id)
+    if card is None:
+        raise HTTPException(status_code=404, detail="Card not found")
+    return templates.TemplateResponse(request, "render_card.html", {"content": card["answer"]})
+
 @app.get("/card/{card_id}", response_class=HTMLResponse)
 async def view_card(request: Request, card_id: int, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     card = crud.get_card_for_user(conn, card_id, user.auth_user_id)

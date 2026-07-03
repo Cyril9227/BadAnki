@@ -1,7 +1,7 @@
 # Unit tests for Telegram card formatting (pure functions, no DB required).
 
 import telegram_format
-from telegram_format import render_markdown_v2, spoiler_safe
+from telegram_format import needs_screenshot, render_markdown_v2, spoiler_safe
 from bot import build_card_message, build_plain_card_message
 
 
@@ -77,6 +77,41 @@ def test_blockquote_is_not_spoiler_safe():
 
 def test_plain_formatted_text_is_spoiler_safe():
     assert spoiler_safe("just *bold* and _italic_ text")
+
+
+# --- needs_screenshot (the screenshot-pipeline gate) ---
+
+def test_display_math_needs_screenshot():
+    assert needs_screenshot(r"The identity: $$e^{i\pi} + 1 = 0$$")
+    assert needs_screenshot("Result:\n\\[ x = 1 \\]")
+
+
+def test_sums_integrals_fractions_need_screenshot():
+    assert needs_screenshot(r"Compute $\sum_{i=1}^{n} i$ first.")
+    assert needs_screenshot(r"$\int_0^1 x\,dx$")
+    assert needs_screenshot(r"So $\frac{a}{b}$ holds.")
+
+
+def test_latex_environment_needs_screenshot():
+    assert needs_screenshot(r"\begin{pmatrix} a & b \\ c & d \end{pmatrix}")
+
+
+def test_simple_inline_math_stays_text():
+    assert not needs_screenshot(r"Note that $f(x) \in \mathbb{R}$ for all $x_0$.")
+    assert not needs_screenshot(r"Here $\alpha$ is the learning rate.")
+
+
+def test_in_does_not_match_int():
+    assert not needs_screenshot(r"$a \in B$ and $\intercal$ notation")
+
+
+def test_plain_text_and_code_stay_text():
+    assert not needs_screenshot("Just a **regular** card.")
+    assert not needs_screenshot("```python\nprint('hi')\n```")
+
+
+def test_heavy_math_inside_code_block_stays_text():
+    assert not needs_screenshot("```tex\n\\frac{a}{b} and $$x$$\n```")
 
 
 # --- build_card_message ---

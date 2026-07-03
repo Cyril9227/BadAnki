@@ -284,6 +284,13 @@ def get_card_for_user(conn, card_id: int, auth_user_id: str):
         cursor.execute("SELECT * FROM cards WHERE id = %s AND user_id = %s", (card_id, auth_user_id))
         return cursor.fetchone()
 
+def get_card_by_id(conn, card_id: int):
+    """Fetches a card without an ownership check. Only for internal use where
+    access is authorized by other means (e.g. the HMAC-signed render page)."""
+    with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
+        cursor.execute("SELECT * FROM cards WHERE id = %s", (card_id,))
+        return cursor.fetchone()
+
 def update_card_content_for_user(conn, card_id: int, auth_user_id: str, question: str, answer: str):
     with conn.cursor() as cursor:
         cursor.execute("UPDATE cards SET question = %s, answer = %s WHERE id = %s AND user_id = %s", (question, answer, card_id, auth_user_id))
