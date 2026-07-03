@@ -790,23 +790,23 @@ def generate_cards(text: str, mode="gemini", api_key: str = None, card_type: str
         return []
 
 
-@app.get("/api-keys", response_class=HTMLResponse)
-async def api_keys_form(request: Request, user: User = Depends(get_current_active_user)):
-    # Never send stored secrets back to the browser. Surface only a boolean so
+@app.get("/settings", response_class=HTMLResponse)
+async def settings_form(request: Request, user: User = Depends(get_current_active_user)):
+    # Never send stored secrets back to the browser. Surface only booleans so
     # the UI can indicate whether a key is configured.
-    return templates.TemplateResponse(request, "api_keys.html", {
+    return templates.TemplateResponse(request, "settings.html", {
         "csrf_token": request.state.csrf_token,
         "gemini_key_set": bool(user.gemini_api_key),
         "anthropic_key_set": bool(user.anthropic_api_key),
+        "telegram_chat_id": user.telegram_chat_id,
+        "telegram_bot_username": TELEGRAM_BOT_USERNAME,
     })
 
-@app.get("/secrets", response_class=HTMLResponse)
-async def secrets_form(request: Request, user: User = Depends(get_current_active_user)):
-    return templates.TemplateResponse(request, "secrets.html", {
-        "secrets": user, 
-        "csrf_token": request.state.csrf_token,
-        "telegram_bot_username": TELEGRAM_BOT_USERNAME
-    })
+@app.get("/api-keys")
+@app.get("/secrets")
+async def legacy_settings_redirect():
+    # The API-keys and secrets pages were merged into /settings.
+    return RedirectResponse(url="/settings")
 
 @app.post("/secrets")
 async def save_secrets(telegram_chat_id: str = Form(None), conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):

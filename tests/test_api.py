@@ -687,6 +687,21 @@ def test_save_secrets(mock_get_user, client, db_conn):
     cur.close()
     assert user_secrets['telegram_chat_id'] == "12345"
 
+@patch("main.supabase.auth.get_user")
+def test_settings_page_and_legacy_redirects(mock_get_user, client, db_conn):
+    auth_client, user_id, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="settings_user@example.com")
+
+    response = auth_client.get("/settings")
+    assert response.status_code == 200
+    assert "AI Provider Keys" in response.text
+    assert "Telegram Notifications" in response.text
+
+    # The old pages were merged into /settings and now redirect there.
+    for legacy in ("/api-keys", "/secrets"):
+        response = auth_client.get(legacy, follow_redirects=False)
+        assert response.status_code == 307
+        assert response.headers["location"] == "/settings"
+
 # --- Scheduler Tests ---
 @patch("main._ensure_webhook")
 @patch("main.run_scheduler")
