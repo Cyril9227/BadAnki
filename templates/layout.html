@@ -112,7 +112,19 @@
 
     /* The visible icon follows data-bs-theme directly, so it's correct from
        first paint (the pre-paint script sets the attribute before CSS applies). */
-    .theme-toggle-btn { border: 0; background: none; }
+    /* Fixed-size round icon button: the sun and moon glyphs have different
+       widths, so without a fixed box the navbar shifts on toggle. */
+    .theme-toggle-btn {
+        border: 0;
+        background: none;
+        width: 2.25rem;
+        height: 2.25rem;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+    }
     .theme-toggle-btn .theme-icon-moon { display: none; }
     [data-bs-theme="dark"] .theme-toggle-btn .theme-icon-sun { display: none; }
     [data-bs-theme="dark"] .theme-toggle-btn .theme-icon-moon { display: inline; }
@@ -401,10 +413,11 @@ window.MathJax = {
 
             <!-- Theme toggle + user dropdown -->
             <div class="d-flex align-items-center">
-                <button type="button" class="nav-link theme-toggle-btn me-1" aria-label="Toggle dark mode">
+                <button type="button" class="nav-link theme-toggle-btn" aria-label="Toggle dark mode">
                     <i class="fas fa-sun theme-icon-sun" aria-hidden="true"></i>
                     <i class="fas fa-moon theme-icon-moon" aria-hidden="true"></i>
                 </button>
+                <div class="vr mx-2 my-2 opacity-25" aria-hidden="true"></div>
                 {% if request.state.user %}
                 <div class="dropdown">
                     <a class="nav-link dropdown-toggle" href="#" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
