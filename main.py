@@ -293,6 +293,11 @@ class CourseItem(BaseModel):
     path: str = Field(..., min_length=1, max_length=MAX_COURSE_PATH_LEN)
     type: str = Field(..., pattern="^(file|folder|directory)$")
 
+class CourseItemRename(BaseModel):
+    path: str = Field(..., min_length=1, max_length=MAX_COURSE_PATH_LEN)
+    new_path: str = Field(..., min_length=1, max_length=MAX_COURSE_PATH_LEN)
+    type: str = Field(..., pattern="^(file|folder|directory)$")
+
 class GeneratedCard(BaseModel):
     question: str = Field(..., min_length=1, max_length=MAX_CARD_QUESTION_LEN)
     answer: str = Field(..., min_length=1, max_length=MAX_CARD_ANSWER_LEN)
@@ -1055,6 +1060,22 @@ async def api_manage_course_item(item: CourseItem, request: Request, conn: psyco
         crud.create_course_item_for_user(conn, path, item.type, auth_user_id=user.auth_user_id)
     elif request.method == "DELETE":
         crud.delete_course_item_for_user(conn, path, item.type, auth_user_id=user.auth_user_id)
+    return {"success": True}
+
+@app.post("/api/course-item/rename")
+async def api_rename_course_item(item: CourseItemRename, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
+    old_path = _validate_course_path(item.path)
+    new_path = _validate_course_path(item.new_path)
+    if new_path == old_path:
+        return {"success": True}
+    if item.type != "file" and new_path.startswith(f"{old_path}/"):
+        raise HTTPException(status_code=400, detail="Cannot move a folder inside itself.")
+    try:
+        renamed = crud.rename_course_item_for_user(conn, old_path, new_path, item.type, user.auth_user_id)
+    except psycopg2.IntegrityError:
+        raise HTTPException(status_code=409, detail="Something already exists at the destination path.")
+    if not renamed:
+        raise HTTPException(status_code=404, detail="Item not found.")
     return {"success": True}
 
 async def _generate_cards_response(data: CourseContentForGeneration, user: User, mode: str, api_key: Optional[str]):

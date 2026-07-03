@@ -52,6 +52,17 @@ CREATE TABLE IF NOT EXISTS review_activity (
     PRIMARY KEY (user_id, day)
 );
 
+-- Explicitly created course folders. Folders that contain files are implicit
+-- in course paths; this table only records the (possibly empty) ones the user
+-- created on purpose. It replaces the legacy `.placeholder` rows in courses
+-- (see utils/migrate_folders.sql). Standalone and additive: no FKs into
+-- existing tables, best-effort access in the app.
+CREATE TABLE IF NOT EXISTS folders (
+    user_id UUID NOT NULL,
+    path TEXT NOT NULL,
+    PRIMARY KEY (user_id, path)
+);
+
 -- Supabase Data API hardening:
 -- The browser only needs Supabase Auth, not direct table access. Enabling RLS
 -- keeps the public anon key from exposing tables through PostgREST. The backend
@@ -83,8 +94,9 @@ ALTER TABLE courses ENABLE ROW LEVEL SECURITY;
 -- Like profiles, telegram_photo_cache intentionally has no Data API policies:
 -- only the backend's direct connection should ever touch it.
 ALTER TABLE telegram_photo_cache ENABLE ROW LEVEL SECURITY;
--- review_activity likewise: backend-only, no Data API policies.
+-- review_activity and folders likewise: backend-only, no Data API policies.
 ALTER TABLE review_activity ENABLE ROW LEVEL SECURITY;
+ALTER TABLE folders ENABLE ROW LEVEL SECURITY;
 
 DO $$
 BEGIN

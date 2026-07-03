@@ -192,6 +192,7 @@ document.addEventListener('DOMContentLoaded', function () {
                             <span class="item-actions">
                                 <button class="btn btn-outline-success new-file-btn" data-path="${dataPath}" title="New File" aria-label="New file in folder"><i class="fas fa-plus" aria-hidden="true"></i></button>
                                 <button class="btn btn-outline-success new-folder-btn" data-path="${dataPath}" title="New Subfolder" aria-label="New subfolder"><i class="fas fa-folder-plus" aria-hidden="true"></i></button>
+                                <button class="btn btn-outline-secondary rename-item-btn" data-path="${dataPath}" data-type="folder" title="Rename / Move Folder" aria-label="Rename folder"><i class="fas fa-pen" aria-hidden="true"></i></button>
                                 <button class="btn btn-outline-danger delete-item-btn" data-path="${dataPath}" data-type="folder" title="Delete Folder" aria-label="Delete folder"><i class="fas fa-trash-alt" aria-hidden="true"></i></button>
                             </span>
                         </div>
@@ -208,6 +209,7 @@ document.addEventListener('DOMContentLoaded', function () {
                                 <i class="fas fa-file-alt" aria-hidden="true"></i> ${displayName}
                             </span>
                             <span class="item-actions">
+                                <button class="btn btn-outline-secondary rename-item-btn" data-path="${dataPath}" data-type="file" title="Rename / Move File" aria-label="Rename file"><i class="fas fa-pen" aria-hidden="true"></i></button>
                                 <button class="btn btn-outline-danger delete-item-btn" data-path="${dataPath}" data-type="file" title="Delete File" aria-label="Delete file"><i class="fas fa-trash-alt" aria-hidden="true"></i></button>
                             </span>
                         </div>
@@ -248,6 +250,42 @@ document.addEventListener('DOMContentLoaded', function () {
             if (type === 'file') {
                 loadEditorContent(finalPath);
             }
+        })
+        .catch(handleError);
+    }
+
+    async function renameItem(path, type) {
+        const { value } = await Swal.fire({
+            title: `Rename or move this ${type}`,
+            input: 'text',
+            inputValue: path,
+            inputLabel: 'Full path (use / to move between folders)',
+            showCancelButton: true,
+            inputValidator: (v) => !v.trim() && 'Path cannot be empty'
+        });
+        if (!value || value.trim() === path) return;
+        let newPath = value.trim();
+        if (type === 'file' && !newPath.endsWith('.md')) newPath += '.md';
+
+        fetch('/api/course-item/rename', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+            body: JSON.stringify({ path: path, new_path: newPath, type: type })
+        })
+        .then(handleResponse)
+        .then(() => {
+            // Keep the open editor pointing at the moved file.
+            const openPath = currentFilePathInput.value;
+            let movedTo = null;
+            if (type === 'file' && openPath === path) movedTo = newPath;
+            if (type !== 'file' && openPath.startsWith(path + '/')) movedTo = newPath + openPath.slice(path.length);
+            if (movedTo) {
+                currentFilePathInput.value = movedTo;
+                editingFilename.textContent = `Editing: ${movedTo}`;
+                currentDirectory = movedTo.substring(0, movedTo.lastIndexOf('/'));
+                localStorage.setItem('lastEditedFilePath', movedTo);
+            }
+            loadFileTree();
         })
         .catch(handleError);
     }
@@ -331,6 +369,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 // Root buttons carry data-path=""; folder rows pass their own
                 // path so subfolders can be created in place.
                 createNewItem('folder', path || '');
+            } else if (btn.classList.contains('rename-item-btn')) {
+                renameItem(path, btn.dataset.type);
             } else if (btn.classList.contains('delete-item-btn')) {
                 const type = btn.dataset.type;
                 deleteItem(path, type);
