@@ -40,12 +40,12 @@ Python 3.12+ / [FastAPI](https://fastapi.tiangolo.com/) · [Jinja2](https://jinj
 ├── scheduler.py        # Daily review notifications
 ├── telegram_format.py  # Card rendering for Telegram (MarkdownV2, cloze)
 ├── render_auth.py      # Signed tokens for the card image renderer
+├── parsing.py          # LLM-output and LaTeX parsing helpers
 ├── api/
 │   ├── cron.py         # Vercel cron entrypoint
 │   └── render-card.js  # Renders card answers to images (Puppeteer)
 ├── templates/          # Jinja2 templates
-├── tests/              # Test suite (see documentation/TESTING.md)
-└── utils/              # Parsing helpers + backup/restore scripts
+└── tests/              # Test suite (see documentation/TESTING.md)
 ```
 
 ## Local Development
@@ -89,13 +89,6 @@ default Gemini key.
 
 Deployed on Vercel (region `sin1`, configured in `vercel.json`). A Vercel cron
 hits `/api/cron` daily at 01:00 UTC to send review reminders.
-
-## Backup & Restore
-
-```bash
-python utils/full_backup.py                     # pg_dump the whole database
-python utils/full_restore.py <backup-file.sql>  # restore from a backup
-```
 
 ## Caveats
 

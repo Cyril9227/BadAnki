@@ -37,7 +37,7 @@ from bot import get_bot_application
 from render_auth import verify_render_request
 from database import get_db_connection, release_db_connection
 from scheduler import run_scheduler
-from utils.parsing import normalize_cards, robust_json_loads, sanitize_tags
+from parsing import normalize_cards, robust_json_loads, sanitize_tags
 from middleware import CSRFMiddleware, SecurityHeadersMiddleware
 
 

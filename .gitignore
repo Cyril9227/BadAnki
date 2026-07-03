@@ -22,11 +22,8 @@ node_modules/
 /courses/
 *.csv
 
-# Database backups/dumps
+# Local database backups (holds user data — must never be committed)
 /backup/
-backup_*.sql
-*.dump
-*.backup
 
 # Local tooling (IDE, Claude Code, skills)
 .claude/

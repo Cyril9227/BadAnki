@@ -55,8 +55,8 @@ CREATE TABLE IF NOT EXISTS review_activity (
 -- Explicitly created course folders. Folders that contain files are implicit
 -- in course paths; this table only records the (possibly empty) ones the user
 -- created on purpose. It replaces the legacy `.placeholder` rows in courses
--- (see utils/migrate_folders.sql). Standalone and additive: no FKs into
--- existing tables, best-effort access in the app.
+-- (backfilled by a one-off migration run in the Supabase SQL editor).
+-- Standalone and additive: no FKs into existing tables, best-effort access.
 CREATE TABLE IF NOT EXISTS folders (
     user_id UUID NOT NULL,
     path TEXT NOT NULL,

@@ -10,7 +10,7 @@ import frontmatter
 import psycopg2
 from datetime import date, datetime, timedelta
 from psycopg2 import extras
-from utils.parsing import sanitize_tags
+from parsing import sanitize_tags
 
 logger = logging.getLogger(__name__)
 
@@ -71,8 +71,8 @@ def get_user_by_telegram_chat_id(conn, chat_id: int):
 # Explicitly created folders live in the standalone folders table (see
 # database.sql); folders that contain files are implicit in course paths.
 # Access is best-effort so the app keeps working until the folders migration
-# (utils/migrate_folders.sql) has been applied — legacy `.placeholder` rows
-# keep rendering as folders in the meantime.
+# has been applied — legacy `.placeholder` rows keep rendering as folders in
+# the meantime.
 
 def _escape_like(path: str) -> str:
     return path.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
