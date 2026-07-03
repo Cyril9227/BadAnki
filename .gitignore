@@ -27,3 +27,8 @@ node_modules/
 backup_*.sql
 *.dump
 *.backup
+
+# Local tooling (IDE, Claude Code, skills)
+.claude/
+.idea/
+.superpowers/
