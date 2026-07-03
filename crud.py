@@ -7,6 +7,7 @@ import os
 import posixpath
 import random
 import frontmatter
+import psycopg2
 from datetime import date, datetime, timedelta
 from psycopg2 import extras
 from utils.parsing import sanitize_tags
@@ -18,6 +19,10 @@ EASE_FACTOR_MODIFIER = 0.1
 MIN_EASE_FACTOR = 1.3
 EASE_FACTOR_PENALTY = 0.2
 INITIAL_INTERVAL = 1
+
+# How much of a course document to fetch when only the frontmatter matters
+# (titles, tags). Frontmatter blocks are tiny; documents can reach 1 MB.
+FRONTMATTER_HEAD_LEN = 2048
 
 # --- User CRUD Functions ---
 
@@ -61,20 +66,62 @@ def get_user_by_telegram_chat_id(conn, chat_id: int):
         return cursor.fetchone()
 
 
-# --- Course CRUD Functions ---
+# --- Course & Folder CRUD Functions ---
 
-def get_courses_tree_for_user(conn, auth_user_id: str):
-    """
-    Builds a hierarchical tree of courses for a specific user.
-    """
-    with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
-        cursor.execute("SELECT path, content FROM courses WHERE user_id = %s ORDER BY path", (auth_user_id,))
-        courses = cursor.fetchall()
+# Explicitly created folders live in the standalone folders table (see
+# database.sql); folders that contain files are implicit in course paths.
+# Access is best-effort so the app keeps working until the folders migration
+# (utils/migrate_folders.sql) has been applied — legacy `.placeholder` rows
+# keep rendering as folders in the meantime.
 
+def _escape_like(path: str) -> str:
+    return path.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _exec_folders(conn, sql: str, params: tuple) -> int:
+    """Best-effort statement against the folders table. Returns the affected
+    row count, or 0 when the table isn't available yet. Destination conflicts
+    (IntegrityError) do surface to the caller."""
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(sql, params)
+            affected = cursor.rowcount
+        conn.commit()
+        return affected
+    except psycopg2.IntegrityError:
+        _rollback_quietly(conn)
+        raise
+    except Exception as e:
+        logger.info("Folders table unavailable: %s", e)
+        _rollback_quietly(conn)
+        return 0
+
+
+def _get_folder_paths(conn, auth_user_id: str) -> list:
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT path FROM folders WHERE user_id = %s", (auth_user_id,))
+            return [row[0] for row in cursor.fetchall()]
+    except Exception as e:
+        logger.info("Folders table unavailable: %s", e)
+        _rollback_quietly(conn)
+        return []
+
+
+def _course_title(head: str, fallback: str) -> str:
+    try:
+        return frontmatter.loads(head).metadata.get('title', fallback)
+    except Exception:
+        return fallback
+
+
+def _build_course_tree(entries) -> list:
+    """Builds the nested course tree from {path, head} rows. A row whose
+    basename is `.placeholder` marks a directory (explicitly created, possibly
+    empty); other rows are files, titled from their frontmatter head."""
     nodes = {}
-
-    for course in courses:
-        path = course['path']
+    for entry in entries:
+        path = entry['path']
         is_placeholder = posixpath.basename(path) == '.placeholder'
         if is_placeholder:
             path = posixpath.dirname(path)
@@ -83,45 +130,49 @@ def get_courses_tree_for_user(conn, auth_user_id: str):
 
         path_parts = [part for part in path.split('/') if part]
         for i in range(len(path_parts)):
-            current_path = "/".join(path_parts[:i+1])
-            if current_path not in nodes:
-                part = path_parts[i]
-                is_dir = (i < len(path_parts) - 1) or (is_placeholder)
+            current_path = "/".join(path_parts[:i + 1])
+            if current_path in nodes:
+                continue
+            is_dir = (i < len(path_parts) - 1) or is_placeholder
+            node = {
+                "name": path_parts[i],
+                "path": current_path,
+                "type": "directory" if is_dir else "file",
+                "depth": i,
+                "children": [],
+            }
+            if not is_dir:
+                node['title'] = _course_title(entry['head'], path_parts[i])
+            nodes[current_path] = node
 
-                node = {
-                    "name": part,
-                    "path": current_path,
-                    "type": "directory" if is_dir else "file",
-                    "depth": i,
-                    "children": []
-                }
+            parent_path = posixpath.dirname(current_path)
+            if parent_path in nodes:
+                nodes[parent_path]['children'].append(node)
 
-                if not is_dir:
-                    try:
-                        post = frontmatter.loads(course['content'])
-                        node['title'] = post.metadata.get('title', part)
-                    except Exception:
-                        node['title'] = part
-
-                nodes[current_path] = node
-
-                parent_path = posixpath.dirname(current_path)
-                if parent_path in nodes:
-                    nodes[parent_path]['children'].append(node)
-
-    # This is a simplified way to get the root nodes
-    root_nodes = [node for path, node in nodes.items() if posixpath.dirname(path) == '']
-
-    # Sort children recursively
     def sort_children(node):
         node['children'].sort(key=lambda x: x['name'])
         for child in node['children']:
             sort_children(child)
 
+    root_nodes = [node for path, node in nodes.items() if posixpath.dirname(path) == '']
     for root_node in root_nodes:
         sort_children(root_node)
-
     return sorted(root_nodes, key=lambda x: x['name'])
+
+
+def get_courses_tree_for_user(conn, auth_user_id: str):
+    """Hierarchical course tree for a user. Fetches only each document's head
+    (enough for the frontmatter title) instead of streaming whole courses."""
+    with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
+        cursor.execute(
+            "SELECT path, LEFT(content, %s) AS head FROM courses WHERE user_id = %s ORDER BY path",
+            (FRONTMATTER_HEAD_LEN, auth_user_id),
+        )
+        entries = list(cursor.fetchall())
+    # Explicit folders render through the same pathway legacy placeholder rows
+    # used (and still use, until the folders migration runs).
+    entries += [{"path": f"{p}/.placeholder", "head": ""} for p in _get_folder_paths(conn, auth_user_id)]
+    return _build_course_tree(entries)
 
 def get_course_content_for_user(conn, course_path: str, auth_user_id: str):
     with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
@@ -147,19 +198,19 @@ def save_course_content_for_user(conn, path: str, content: str, auth_user_id: st
         raise
 
 def create_course_item_for_user(conn, path: str, item_type: str, auth_user_id: str):
+    if item_type in ('directory', 'folder'):
+        _exec_folders(
+            conn,
+            "INSERT INTO folders (user_id, path) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+            (auth_user_id, path.rstrip('/')),
+        )
+        return
     try:
         with conn.cursor() as cursor:
-            if item_type == 'file':
-                cursor.execute(
-                    "INSERT INTO courses (path, content, user_id) VALUES (%s, %s, %s) ON CONFLICT (path, user_id) DO NOTHING",
-                    (path, "---\ntitle: New Course\ntags: \n---\n\n", auth_user_id)
-                )
-            elif item_type in ['directory', 'folder']:
-                placeholder_path = f"{path.rstrip('/')}/.placeholder"
-                cursor.execute(
-                    "INSERT INTO courses (path, content, user_id) VALUES (%s, %s, %s) ON CONFLICT (path, user_id) DO NOTHING",
-                    (placeholder_path, "This is a placeholder file.", auth_user_id)
-                )
+            cursor.execute(
+                "INSERT INTO courses (path, content, user_id) VALUES (%s, %s, %s) ON CONFLICT (path, user_id) DO NOTHING",
+                (path, "---\ntitle: New Course\ntags: \n---\n\n", auth_user_id)
+            )
         conn.commit()
     except Exception:
         conn.rollback()
@@ -171,21 +222,62 @@ def delete_course_item_for_user(conn, path: str, item_type: str, auth_user_id: s
             if item_type == 'file':
                 cursor.execute("DELETE FROM courses WHERE path = %s AND user_id = %s", (path, auth_user_id))
             elif item_type in ['directory', 'folder']:
-                placeholder_path = f"{path.rstrip('/')}/.placeholder"
-                escaped_path = path.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                # Children, plus any legacy placeholder row for the folder itself.
                 cursor.execute(
                     "DELETE FROM courses WHERE (path = %s OR path LIKE %s ESCAPE '\\') AND user_id = %s",
-                    (placeholder_path, f"{escaped_path}/%", auth_user_id)
+                    (f"{path.rstrip('/')}/.placeholder", f"{_escape_like(path)}/%", auth_user_id)
                 )
         conn.commit()
     except Exception:
         conn.rollback()
         raise
+    if item_type in ('directory', 'folder'):
+        # The folder itself and any explicit subfolders.
+        _exec_folders(
+            conn,
+            "DELETE FROM folders WHERE (path = %s OR path LIKE %s ESCAPE '\\') AND user_id = %s",
+            (path, f"{_escape_like(path)}/%", auth_user_id),
+        )
+
+def rename_course_item_for_user(conn, old_path: str, new_path: str, item_type: str, auth_user_id: str) -> bool:
+    """Renames/moves a file, or a folder with everything under it. Returns
+    True when something was renamed; raises psycopg2.IntegrityError when the
+    destination already exists (UNIQUE (user_id, path))."""
+    try:
+        with conn.cursor() as cursor:
+            if item_type == 'file':
+                cursor.execute(
+                    "UPDATE courses SET path = %s WHERE path = %s AND user_id = %s",
+                    (new_path, old_path, auth_user_id)
+                )
+            else:
+                # substr() is 1-indexed: everything after the old prefix keeps
+                # its relative path under the new one.
+                cursor.execute(
+                    "UPDATE courses SET path = %s || substr(path, %s) WHERE path LIKE %s ESCAPE '\\' AND user_id = %s",
+                    (new_path, len(old_path) + 1, f"{_escape_like(old_path)}/%", auth_user_id)
+                )
+            renamed = cursor.rowcount > 0
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    if item_type != 'file':
+        # The folder row itself (substr past the end yields '') and subfolders.
+        moved = _exec_folders(
+            conn,
+            "UPDATE folders SET path = %s || substr(path, %s) WHERE (path = %s OR path LIKE %s ESCAPE '\\') AND user_id = %s",
+            (new_path, len(old_path) + 1, old_path, f"{_escape_like(old_path)}/%", auth_user_id),
+        )
+        renamed = renamed or moved > 0
+    return renamed
 
 def get_all_tags_for_user(conn, auth_user_id: str):
     """Fetches all unique tags for a user from their courses."""
     with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
-        cursor.execute("SELECT content FROM courses WHERE user_id = %s", (auth_user_id,))
+        cursor.execute(
+            "SELECT LEFT(content, %s) AS content FROM courses WHERE user_id = %s",
+            (FRONTMATTER_HEAD_LEN, auth_user_id))
         courses = cursor.fetchall()
 
     all_tags = set()
@@ -202,7 +294,9 @@ def get_all_tags_for_user(conn, auth_user_id: str):
 def get_courses_by_tag_for_user(conn, tag: str, auth_user_id: str):
     """Fetches all courses for a user that have a specific tag."""
     with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
-        cursor.execute("SELECT path, content FROM courses WHERE user_id = %s", (auth_user_id,))
+        cursor.execute(
+            "SELECT path, LEFT(content, %s) AS content FROM courses WHERE user_id = %s",
+            (FRONTMATTER_HEAD_LEN, auth_user_id))
         courses = cursor.fetchall()
 
     tagged_courses = []

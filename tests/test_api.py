@@ -70,7 +70,7 @@ def truncate_tables(db_conn):
         try:
             # Using TRUNCATE ... RESTART IDENTITY CASCADE is the most efficient way
             # to clean the database and reset primary key sequences.
-            cur.execute("TRUNCATE TABLE cards, courses, profiles RESTART IDENTITY CASCADE;")
+            cur.execute("TRUNCATE TABLE cards, courses, profiles, folders, review_activity RESTART IDENTITY CASCADE;")
             db_conn.commit()
         except Exception as e:
             # If truncate fails (e.g., due to permissions in some environments),
@@ -80,6 +80,8 @@ def truncate_tables(db_conn):
             cur.execute("DELETE FROM cards;")
             cur.execute("DELETE FROM courses;")
             cur.execute("DELETE FROM profiles;")
+            cur.execute("DELETE FROM folders;")
+            cur.execute("DELETE FROM review_activity;")
             db_conn.commit()
     yield
 
@@ -339,6 +341,62 @@ def test_save_and_get_course_content(mock_get_user, client, db_conn):
     response_get = auth_client.get(f"/api/course-content/{file_path}")
     assert response_get.status_code == 200
     assert response_get.json() == content_to_save
+
+# --- Folder Tests ---
+@patch("main.supabase.auth.get_user")
+def test_empty_folder_lifecycle(mock_get_user, client, db_conn):
+    """Creating an empty folder shows it in the tree; deleting removes it."""
+    auth_client, _, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="folderuser@example.com")
+
+    auth_client.post("/api/course-item", json={"path": "empty_folder", "type": "folder"}, headers={"X-CSRF-Token": csrf_token})
+    tree = auth_client.get("/api/courses-tree").json()
+    assert tree == [{"name": "empty_folder", "path": "empty_folder", "type": "directory", "depth": 0, "children": []}]
+
+    auth_client.request("DELETE", "/api/course-item", json={"path": "empty_folder", "type": "folder"}, headers={"X-CSRF-Token": csrf_token})
+    assert auth_client.get("/api/courses-tree").json() == []
+
+@patch("main.supabase.auth.get_user")
+def test_rename_course_file(mock_get_user, client, db_conn):
+    auth_client, _, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="renamefile@example.com")
+    auth_client.post("/api/course-content", json={"path": "old.md", "content": "hello"}, headers={"X-CSRF-Token": csrf_token})
+
+    response = auth_client.post(
+        "/api/course-item/rename",
+        json={"path": "old.md", "new_path": "sub/new.md", "type": "file"},
+        headers={"X-CSRF-Token": csrf_token},
+    )
+    assert response.status_code == 200
+    assert auth_client.get("/api/course-content/sub/new.md").json() == "hello"
+    assert auth_client.get("/api/course-content/old.md").status_code == 404
+
+@patch("main.supabase.auth.get_user")
+def test_rename_folder_moves_contents(mock_get_user, client, db_conn):
+    auth_client, _, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="renamefolder@example.com")
+    auth_client.post("/api/course-content", json={"path": "olddir/a.md", "content": "A"}, headers={"X-CSRF-Token": csrf_token})
+    auth_client.post("/api/course-content", json={"path": "olddir/deep/b.md", "content": "B"}, headers={"X-CSRF-Token": csrf_token})
+
+    response = auth_client.post(
+        "/api/course-item/rename",
+        json={"path": "olddir", "new_path": "newdir", "type": "folder"},
+        headers={"X-CSRF-Token": csrf_token},
+    )
+    assert response.status_code == 200
+    assert auth_client.get("/api/course-content/newdir/a.md").json() == "A"
+    assert auth_client.get("/api/course-content/newdir/deep/b.md").json() == "B"
+    assert auth_client.get("/api/course-content/olddir/a.md").status_code == 404
+
+    # Guard rails: no moving a folder into itself, destination conflicts 409.
+    assert auth_client.post(
+        "/api/course-item/rename",
+        json={"path": "newdir", "new_path": "newdir/inner", "type": "folder"},
+        headers={"X-CSRF-Token": csrf_token},
+    ).status_code == 400
+    auth_client.post("/api/course-content", json={"path": "newdir/a2.md", "content": "A2"}, headers={"X-CSRF-Token": csrf_token})
+    assert auth_client.post(
+        "/api/course-item/rename",
+        json={"path": "newdir/a2.md", "new_path": "newdir/a.md", "type": "file"},
+        headers={"X-CSRF-Token": csrf_token},
+    ).status_code == 409
 
 # --- Card Management Tests ---
 @patch("main.supabase.auth.get_user")
