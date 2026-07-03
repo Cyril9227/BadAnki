@@ -64,6 +64,49 @@ def render_markdown_v2(text: str) -> str:
         return escape_markdown(text, version=2)
 
 
+# Mirrors the web app's cloze pattern (layout.html: CLOZE_PATTERN). Detection
+# is content-based, like the web's isClozeText — the card_type column is not
+# guaranteed to exist.
+_CLOZE = re.compile(r"\{\{c\d+::([^}]+)\}\}")
+
+
+def is_cloze(text: str) -> bool:
+    return bool(_CLOZE.search(text))
+
+
+def cloze_plain_markdown_v2(text: str, reveal: bool = False) -> str:
+    """Escape-everything cloze rendering: blanks become ||spoilers|| (or plain
+    text when reveal=True), everything else is escaped literally. Always
+    parseable, never shows a hidden answer."""
+    parts = []
+    last = 0
+    for match in _CLOZE.finditer(text):
+        parts.append(escape_markdown(text[last:match.start()], version=2))
+        blank = escape_markdown(match.group(1), version=2)
+        parts.append(blank if reveal else f"||{blank}||")
+        last = match.end()
+    parts.append(escape_markdown(text[last:], version=2))
+    return "".join(parts)
+
+
+def render_cloze_markdown_v2(text: str, reveal: bool = False) -> str:
+    """Converts a cloze question to MarkdownV2 with each {{cN::...}} blank as
+    an in-place ||spoiler|| — tapping the blank reveals it, which is the cloze
+    experience. The failure fallback is the plain cloze renderer (not raw
+    escaped text, which would print the {{...}} markup and leak the answers).
+    """
+    def replace(match):
+        return match.group(1) if reveal else f"||{match.group(1)}||"
+
+    try:
+        return telegramify_markdown.markdownify(
+            _normalize_math_delimiters(_CLOZE.sub(replace, text)), latex_escape=True
+        ).strip()
+    except Exception:
+        logger.warning("cloze markdownify failed; falling back to escaped text.", exc_info=True)
+        return cloze_plain_markdown_v2(text, reveal)
+
+
 def spoiler_safe(markdown_v2: str) -> bool:
     """Whether converted MarkdownV2 text may be wrapped in a ||spoiler||.
 

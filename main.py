@@ -54,7 +54,6 @@ def _clean_env_value(name: str) -> str | None:
 
 SECRET_KEY = _clean_env_value("SECRET_KEY")
 SCHEDULER_SECRET = _clean_env_value("SCHEDULER_SECRET")
-TELEGRAM_BOT_TOKEN = _clean_env_value("TELEGRAM_BOT_TOKEN")
 TELEGRAM_WEBHOOK_SECRET = _clean_env_value("TELEGRAM_WEBHOOK_SECRET")
 TELEGRAM_BOT_USERNAME = _clean_env_value("TELEGRAM_BOT_USERNAME")
 SUPABASE_URL = _clean_env_value("SUPABASE_URL")
