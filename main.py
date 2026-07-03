@@ -671,6 +671,32 @@ def _validate_generated_cards(cards) -> list[dict]:
 
 # --- LLM & Card Generation ---
 
+# One JSON Schema enforced natively by every provider (Anthropic structured
+# outputs, Gemini constrained decoding, Ollama format). The decoder can only
+# emit schema-valid JSON, so LaTeX backslashes can no longer break parsing —
+# no escaping instructions or regex repair needed.
+CARDS_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "cards": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string"},
+                    "answer": {"type": "string"},
+                    "card_type": {"type": "string", "enum": ["basic", "cloze"]},
+                },
+                "required": ["question", "answer", "card_type"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["cards"],
+    "additionalProperties": False,
+}
+
+
 def generate_cards(text: str, mode="gemini", api_key: str = None, card_type: str = "basic") -> list[dict]:
     if card_type == "cloze":
         prompt = f"""
@@ -683,11 +709,7 @@ def generate_cards(text: str, mode="gemini", api_key: str = None, card_type: str
             - The "answer" field contains ONLY the hidden word(s), e.g., "mitochondria"
             - Each card should have exactly ONE cloze deletion.
         4.  **LaTeX:** Use LaTeX for mathematical formulas. Enclose inline math with `$` and block math with `$$`.
-        5.  **Format:** Return ONLY a raw JSON object with a "cards" key, containing a list of objects, each with "question", "answer", and "card_type" keys. The "card_type" must be "cloze". Do not include markdown formatting like ```json.
-        6.  **JSON Escaping:** CRITICALLY IMPORTANT: Ensure that any backslashes `\\` within strings are properly escaped as `\\\\`. This is essential for valid JSON, especially for LaTeX content.
-
-        **Example Output:**
-        {{"cards": [{{"question": "The {{{{c1::mitochondria}}}} is the powerhouse of the cell.", "answer": "mitochondria", "card_type": "cloze"}}]}}
+        5.  **card_type:** Set "card_type" to "cloze" for every card.
 
         **Text to Analyze:**
         ---
@@ -701,8 +723,7 @@ def generate_cards(text: str, mode="gemini", api_key: str = None, card_type: str
         1.  **Language:** Generate the cards in the same language as the provided text.
         2.  **Focus:** Concentrate on the core concepts, definitions, and key formulas. Avoid trivial details.
         3.  **LaTeX:** Use LaTeX for all mathematical formulas. Enclose inline math with `$` and block math with `$$`.
-        4.  **Format:** Return ONLY a raw JSON object with a "cards" key, containing a list of objects, each with "question", "answer", and "card_type" keys. The "card_type" must be "basic". Do not include markdown formatting like ```json.
-        5.  **JSON Escaping:** CRITICALLY IMPORTANT: Ensure that any backslashes `\\` within the question or answer strings are properly escaped as `\\`. This is essential for valid JSON, especially for LaTeX content like `\\frac` or `\\mathbb`.
+        4.  **card_type:** Set "card_type" to "basic" for every card.
 
         **Text to Analyze:**
         ---
@@ -724,26 +745,34 @@ def generate_cards(text: str, mode="gemini", api_key: str = None, card_type: str
                     'top_k': 64,
                     'max_output_tokens': 8192,
                     'response_mime_type': 'application/json',
+                    'response_json_schema': CARDS_JSON_SCHEMA,
                 },
             )
             response_text = response.text.strip()
-            
+
         elif mode == "ollama":
             response = ollama.chat(
                 model='gpt-oss:20b',
-                messages=[{'role': 'user', 'content': prompt}]
+                messages=[{'role': 'user', 'content': prompt}],
+                format=CARDS_JSON_SCHEMA,
             )
             response_text = response['message']['content']
-        
+
         elif mode == "anthropic":
             if not api_key:
                 raise ValueError("Anthropic API key is required.")
             client = anthropic.Anthropic(api_key=api_key)
-            # 2048 tokens truncated larger card batches mid-JSON, which made the
-            # whole generation fail to parse. Match the Gemini budget.
+            # Sonnet 5 thinks by default when `thinking` is omitted; card
+            # generation is structured extraction, so keep the old no-thinking
+            # behavior and spend the whole budget on cards. 16k output absorbs
+            # Sonnet 5's ~30% denser tokenizer (8k truncated large batches
+            # before). output_config rides in extra_body only because the
+            # pinned SDK predates the typed parameter — the API itself is GA.
             message = client.messages.create(
-                model='claude-sonnet-4-5-20250929',
-                max_tokens=8192,
+                model='claude-sonnet-5',
+                max_tokens=16000,
+                thinking={"type": "disabled"},
+                extra_body={"output_config": {"format": {"type": "json_schema", "schema": CARDS_JSON_SCHEMA}}},
                 messages=[
                     {
                         "role": "user",
@@ -751,9 +780,10 @@ def generate_cards(text: str, mode="gemini", api_key: str = None, card_type: str
                     }
                 ],
             )
-            response_text = message.content[0].text
-        
-        # Need to carefully escape latex for JSON parsing and then for frontend rendering...
+            response_text = next((b.text for b in message.content if b.type == "text"), "")
+
+        # All providers enforce CARDS_JSON_SCHEMA at decode time, so this is
+        # normally just json.loads; the repair fallback stays as a safety net.
         parsed = robust_json_loads(response_text)
         raw_cards = parsed.get("cards", []) if isinstance(parsed, dict) else []
         cards = _validate_generated_cards(raw_cards)
