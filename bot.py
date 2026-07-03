@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import hashlib
 import os
 import logging
 import time
@@ -16,7 +17,13 @@ from telegram.constants import ChatAction, ParseMode
 from telegram.error import BadRequest
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 from database import get_db_connection, release_db_connection
-from crud import get_card_for_user, get_random_card_for_user, get_user_by_telegram_chat_id
+from crud import (
+    cache_photo_file_id,
+    get_cached_photo_file_id,
+    get_card_for_user,
+    get_random_card_for_user,
+    get_user_by_telegram_chat_id,
+)
 from render_auth import sign_render_request
 from telegram_format import needs_screenshot, render_markdown_v2, spoiler_safe
 
@@ -46,6 +53,9 @@ TELEGRAM_MESSAGE_LIMIT = 4096
 TELEGRAM_CAPTION_LIMIT = 1024
 RENDER_TIMEOUT_SECONDS = 15.0
 RENDER_TOKEN_TTL_SECONDS = 300
+# Bump to invalidate all cached renders (e.g. after changing the render page
+# styling or screenshot parameters).
+RENDER_CACHE_VERSION = "v1"
 
 
 def _web_button(card_id) -> InlineKeyboardButton:
@@ -106,10 +116,103 @@ async def _fetch_answer_image(card_id) -> bytes | None:
     return None
 
 
-async def _send_answer_photo(message, card) -> bool:
-    """Sends the card as one message: question caption + spoilered screenshot
-    of the answer. Returns False when the image can't be produced or sent so
-    the caller can fall back to the text flow."""
+def _answer_cache_key(answer: str) -> str:
+    """Cache key for a rendered answer. Content-addressed: editing a card
+    changes the key, so stale cache rows are simply never read again."""
+    return hashlib.sha256(f"{RENDER_CACHE_VERSION}:{answer}".encode()).hexdigest()
+
+
+def _rollback_quietly(conn):
+    try:
+        conn.rollback()
+    except Exception:
+        pass
+
+
+def _get_cached_file_id(conn, cache_key):
+    """Best-effort cache lookup. A failure (e.g. the cache table does not
+    exist yet) must never break the photo flow, but it does require a
+    rollback so the aborted transaction can't poison later queries."""
+    try:
+        return get_cached_photo_file_id(conn, cache_key)
+    except Exception as e:
+        logger.info(f"Photo cache lookup unavailable: {e}")
+        _rollback_quietly(conn)
+        return None
+
+
+def _store_cached_file_id(conn, cache_key, file_id, card_id):
+    try:
+        cache_photo_file_id(conn, cache_key, file_id, card_id)
+    except Exception as e:
+        logger.info(f"Photo cache store unavailable: {e}")
+        _rollback_quietly(conn)
+
+
+def _is_photo_error(error: BadRequest) -> bool:
+    """Whether a BadRequest is about the photo itself (e.g. a stale cached
+    file_id) rather than the caption formatting."""
+    message = str(error).lower()
+    return "file" in message or "photo" in message or "image" in message
+
+
+async def _try_send_photo(message, card, photo):
+    """Sends the spoilered answer photo with the question attached, degrading
+    the caption (rich -> plain -> separate text message). Returns the sent
+    photo Message, or None when Telegram refuses the photo itself."""
+    keyboard = InlineKeyboardMarkup([[_web_button(card['id'])]])
+    rich_caption = f"❓ *Question*\n{render_markdown_v2(card['question'])}"
+    plain_caption = f"*Question:* {escape_markdown(card['question'], version=2)}"
+
+    for caption in (rich_caption, plain_caption):
+        if len(caption) > TELEGRAM_CAPTION_LIMIT:
+            continue
+        try:
+            return await message.reply_photo(
+                photo=photo,
+                caption=caption,
+                parse_mode=ParseMode.MARKDOWN_V2,
+                has_spoiler=True,
+                reply_markup=keyboard,
+            )
+        except BadRequest as e:
+            if _is_photo_error(e):
+                logger.info("Telegram refused photo for card %s: %s", card['id'], e)
+                return None
+            logger.warning("Telegram rejected photo caption for card %s; degrading.", card['id'], exc_info=True)
+
+    # Question too long for a caption (or rejected): bare photo first (same
+    # photo-then-question order a caption renders in), then the question.
+    try:
+        sent = await message.reply_photo(photo=photo, has_spoiler=True, reply_markup=keyboard)
+    except Exception as e:
+        logger.warning(f"Failed to send answer photo for card {card['id']}: {e}")
+        return None
+    for question in (rich_caption, plain_caption):
+        if len(question) > TELEGRAM_MESSAGE_LIMIT:
+            continue
+        try:
+            await message.reply_text(question, parse_mode=ParseMode.MARKDOWN_V2)
+            break
+        except BadRequest:
+            logger.warning("Telegram rejected question text for card %s; degrading.", card['id'], exc_info=True)
+    return sent
+
+
+async def _send_answer_photo(message, card, conn) -> bool:
+    """Sends the card as question + spoilered screenshot of the answer,
+    reusing Telegram's copy (file_id) when this answer was rendered before.
+    Returns False when no image can be produced or sent, so the caller can
+    fall back to the text flow."""
+    cache_key = _answer_cache_key(card['answer'])
+
+    cached_file_id = _get_cached_file_id(conn, cache_key)
+    if cached_file_id:
+        sent = await _try_send_photo(message, card, cached_file_id)
+        if sent:
+            return True
+        logger.info("Cached file_id rejected for card %s; re-rendering.", card['id'])
+
     try:
         await message.chat.send_action(ChatAction.UPLOAD_PHOTO)
     except Exception:
@@ -119,39 +222,14 @@ async def _send_answer_photo(message, card) -> bool:
     if image is None:
         return False
 
-    keyboard = InlineKeyboardMarkup([[_web_button(card['id'])]])
-    rich_caption = f"❓ *Question*\n{render_markdown_v2(card['question'])}"
-    plain_caption = f"*Question:* {escape_markdown(card['question'], version=2)}"
-    for caption in (rich_caption, plain_caption):
-        if len(caption) > TELEGRAM_CAPTION_LIMIT:
-            continue
-        try:
-            await message.reply_photo(
-                photo=image,
-                caption=caption,
-                parse_mode=ParseMode.MARKDOWN_V2,
-                has_spoiler=True,
-                reply_markup=keyboard,
-            )
-            return True
-        except BadRequest:
-            logger.warning("Telegram rejected photo caption for card %s; degrading.", card['id'], exc_info=True)
-    # Question too long for a caption (or rejected): send it as its own text
-    # message, then the bare spoilered photo.
-    try:
-        for question in (rich_caption, plain_caption):
-            if len(question) > TELEGRAM_MESSAGE_LIMIT:
-                continue
-            try:
-                await message.reply_text(question, parse_mode=ParseMode.MARKDOWN_V2)
-                break
-            except BadRequest:
-                logger.warning("Telegram rejected question text for card %s; degrading.", card['id'], exc_info=True)
-        await message.reply_photo(photo=image, has_spoiler=True, reply_markup=keyboard)
-        return True
-    except Exception as e:
-        logger.warning(f"Failed to send answer photo for card {card['id']}: {e}")
+    sent = await _try_send_photo(message, card, image)
+    if sent is None:
         return False
+    if sent.photo:
+        # Largest PhotoSize is last; its file_id resends this exact photo
+        # without uploading or rendering anything.
+        _store_cached_file_id(conn, cache_key, sent.photo[-1].file_id, card['id'])
+    return True
 
 
 async def _reply_card(send, card, reveal: bool):
@@ -218,7 +296,7 @@ async def random_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # failure there falls back to the regular text flow.
                 sent_as_photo = (
                     needs_screenshot(card['answer'])
-                    and await _send_answer_photo(update.message, card)
+                    and await _send_answer_photo(update.message, card, conn)
                 )
                 if not sent_as_photo:
                     await _reply_card(update.message.reply_text, card, reveal=False)

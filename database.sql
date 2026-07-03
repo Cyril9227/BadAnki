@@ -28,6 +28,18 @@ CREATE TABLE IF NOT EXISTS courses (
     UNIQUE (user_id, path)
 );
 
+-- Cache of Telegram file_ids for rendered card-answer screenshots.
+-- Deliberately standalone (no FK into cards): rows are keyed by a hash of the
+-- answer content, so editing a card produces a new key and stale rows are
+-- simply never read again. The bot treats this table as best-effort — if it
+-- is missing or unreachable, photos are re-rendered as usual.
+CREATE TABLE IF NOT EXISTS telegram_photo_cache (
+    content_hash TEXT PRIMARY KEY,
+    telegram_file_id TEXT NOT NULL,
+    card_id INT,
+    created_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
 -- Supabase Data API hardening:
 -- The browser only needs Supabase Auth, not direct table access. Enabling RLS
 -- keeps the public anon key from exposing tables through PostgREST. The backend
@@ -56,6 +68,9 @@ END $$;
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cards ENABLE ROW LEVEL SECURITY;
 ALTER TABLE courses ENABLE ROW LEVEL SECURITY;
+-- Like profiles, telegram_photo_cache intentionally has no Data API policies:
+-- only the backend's direct connection should ever touch it.
+ALTER TABLE telegram_photo_cache ENABLE ROW LEVEL SECURITY;
 
 DO $$
 BEGIN
