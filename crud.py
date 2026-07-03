@@ -7,7 +7,7 @@ import os
 import posixpath
 import random
 import frontmatter
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from psycopg2 import extras
 from utils.parsing import sanitize_tags
 
@@ -243,12 +243,13 @@ def get_all_cards_for_user(conn, auth_user_id: str):
         cursor.execute("SELECT * FROM cards WHERE user_id = %s ORDER BY due_date", (auth_user_id,))
         return cursor.fetchall()
 
-def update_card_for_user(conn, card_id: int, auth_user_id: str, remembered: bool):
+def update_card_for_user(conn, card_id: int, auth_user_id: str, remembered: bool) -> bool:
+    """Applies a rating to a card. Returns True when a card was updated."""
     with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
         cursor.execute("SELECT * FROM cards WHERE id = %s AND user_id = %s", (card_id, auth_user_id))
         card = cursor.fetchone()
         if not card:
-            return
+            return False
 
         ease_factor, interval = card['ease_factor'], card['interval']
         if remembered:
@@ -264,6 +265,7 @@ def update_card_for_user(conn, card_id: int, auth_user_id: str, remembered: bool
             (next_due_date, ease_factor, interval, card_id, auth_user_id)
         )
     conn.commit()
+    return True
 
 def create_card_for_user(conn, question: str, answer: str, auth_user_id: str, card_type: str = "basic"):
     with conn.cursor() as cursor:
@@ -413,3 +415,110 @@ def save_secrets_for_user(conn, user_id: str, telegram_chat_id: str):
     except Exception:
         conn.rollback()
         raise
+
+# --- Gamification: streaks & leaderboard ---
+# Backed by the standalone review_activity table (one row per user per day,
+# see database.sql). Every access is best-effort, mirroring the
+# telegram_photo_cache convention: if the table doesn't exist yet, reviews
+# keep working and callers get None, which hides the gamification UI.
+
+def _rollback_quietly(conn):
+    try:
+        conn.rollback()
+    except Exception:
+        pass
+
+
+def record_review_activity(conn, auth_user_id: str, remembered: bool):
+    """Counts one rated card towards today's activity."""
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO review_activity (user_id, day, reviews, remembered)
+                VALUES (%s, CURRENT_DATE, 1, %s)
+                ON CONFLICT (user_id, day) DO UPDATE SET
+                    reviews = review_activity.reviews + 1,
+                    remembered = review_activity.remembered + EXCLUDED.remembered
+                """,
+                (auth_user_id, 1 if remembered else 0),
+            )
+        conn.commit()
+    except Exception as e:
+        logger.info("Review activity tracking unavailable: %s", e)
+        _rollback_quietly(conn)
+
+
+def _compute_streaks(days: list, today: date) -> dict:
+    """Streak stats from a DESCENDING list of distinct activity dates.
+
+    The current streak counts back from today — or from yesterday when today
+    has no activity yet, in which case the streak is alive but at risk.
+    """
+    current = 0
+    if days and (today - days[0]).days <= 1:
+        current = 1
+        for day, previous_day in zip(days, days[1:]):
+            if (day - previous_day).days == 1:
+                current += 1
+            else:
+                break
+    longest = run = 1 if days else 0
+    for day, previous_day in zip(days, days[1:]):
+        run = run + 1 if (day - previous_day).days == 1 else 1
+        longest = max(longest, run)
+    return {
+        "current": current,
+        "longest": longest,
+        "reviewed_today": bool(days) and days[0] == today,
+    }
+
+
+def get_review_streak_for_user(conn, auth_user_id: str):
+    """Returns the user's streak dict, or None when tracking is unavailable."""
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT day FROM review_activity WHERE user_id = %s ORDER BY day DESC",
+                (auth_user_id,),
+            )
+            days = [row[0] for row in cursor.fetchall()]
+    except Exception as e:
+        logger.info("Review activity tracking unavailable: %s", e)
+        _rollback_quietly(conn)
+        return None
+    return _compute_streaks(days, date.today())
+
+
+def get_leaderboard(conn, auth_user_id: str, days: int = 30, limit: int = 10):
+    """Most active reviewers over the last `days` days, or None when
+    unavailable. Usernames are emails, so only the local part is exposed."""
+    try:
+        with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
+            cursor.execute(
+                """
+                SELECT a.user_id, SUM(a.reviews) AS reviews, p.username
+                FROM review_activity a
+                LEFT JOIN profiles p ON p.auth_user_id = a.user_id
+                WHERE a.day >= CURRENT_DATE - %s
+                GROUP BY a.user_id, p.username
+                ORDER BY reviews DESC, a.user_id
+                LIMIT %s
+                """,
+                (days, limit),
+            )
+            rows = cursor.fetchall()
+    except Exception as e:
+        logger.info("Review activity tracking unavailable: %s", e)
+        _rollback_quietly(conn)
+        return None
+    board = []
+    for row in rows:
+        streak = get_review_streak_for_user(conn, row["user_id"]) or {"current": 0}
+        board.append({
+            "name": (row["username"] or "anonymous").split("@")[0],
+            "reviews": row["reviews"],
+            "streak": streak["current"],
+            "is_me": str(row["user_id"]) == str(auth_user_id),
+        })
+    return board

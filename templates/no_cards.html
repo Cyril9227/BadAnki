@@ -11,6 +11,9 @@
     <div class="display-3 mb-3" aria-hidden="true">🎉</div>
     <h1 class="display-5 fw-bold">All Done!</h1>
     <p class="lead">Nothing due right now — all {{ total_cards }} card{{ 's' if total_cards != 1 else '' }} in your deck are scheduled for later.</p>
+    {% if streak and streak.current %}
+    <p class="fs-5">🔥 <strong>{{ streak.current }}-day streak</strong>{% if streak.longest > streak.current %} <span class="text-muted">(best: {{ streak.longest }})</span>{% endif %} — see you tomorrow!</p>
+    {% endif %}
     <p class="text-muted">Come back later or keep building your deck.</p>
     {% else %}
     <div class="display-3 mb-3" aria-hidden="true">📚</div>
@@ -25,4 +28,18 @@
         {% endif %}
     </div>
 </div>
+
+{% if leaderboard %}
+<div class="card mx-auto mb-5" style="max-width: 30rem;">
+    <div class="card-header">🏆 Top Reviewers — last 30 days</div>
+    <ul class="list-group list-group-flush">
+        {% for entry in leaderboard %}
+        <li class="list-group-item d-flex justify-content-between align-items-center{{ ' fw-bold' if entry.is_me }}">
+            <span>{{ loop.index }}. {{ entry.name }}{{ ' (you)' if entry.is_me }}</span>
+            <span class="text-muted small">🔥 {{ entry.streak }} · {{ entry.reviews }} review{{ 's' if entry.reviews != 1 }}</span>
+        </li>
+        {% endfor %}
+    </ul>
+</div>
+{% endif %}
 {% endblock %}

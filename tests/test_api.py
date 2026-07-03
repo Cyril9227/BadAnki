@@ -491,6 +491,60 @@ def test_update_review_status(mock_get_user, client, db_conn):
     cur.close()
     assert new_due_date > datetime.now() - timedelta(seconds=1)
 
+# --- Gamification Tests ---
+@patch("main.supabase.auth.get_user")
+def test_review_records_streak_activity(mock_get_user, client, db_conn):
+    """Rating cards upserts today's review_activity row and the AJAX stats
+    payload reports the resulting streak."""
+    auth_client, user_id, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="streakuser@example.com")
+
+    first = create_test_card(db_conn, user_id, "Q1", "A1")
+    second = create_test_card(db_conn, user_id, "Q2", "A2")
+
+    response = auth_client.post(
+        f"/api/review/{first}",
+        data={"status": "remembered"},
+        headers={"X-CSRF-Token": csrf_token},
+    )
+    assert response.status_code == 200
+    assert response.json()["stats"]["streak"] == 1
+
+    auth_client.post(
+        f"/api/review/{second}",
+        data={"status": "forgot"},
+        headers={"X-CSRF-Token": csrf_token},
+    )
+
+    cur = db_conn.cursor()
+    cur.execute("SELECT reviews, remembered FROM review_activity WHERE user_id = %s", (user_id,))
+    row = cur.fetchone()
+    cur.close()
+    assert row["reviews"] == 2
+    assert row["remembered"] == 1
+
+
+@patch("main.supabase.auth.get_user")
+def test_all_done_page_shows_streak_and_leaderboard(mock_get_user, client, db_conn):
+    """Once the deck is cleared, the done page shows the streak and the
+    leaderboard with the email local part only (never the full address)."""
+    auth_client, user_id, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="boarduser@example.com")
+    card_id = create_test_card(db_conn, user_id, "Q", "A")
+
+    auth_client.post(
+        f"/review/{card_id}",
+        data={"status": "remembered"},
+        headers={"X-CSRF-Token": csrf_token},
+        follow_redirects=False,
+    )
+
+    response = auth_client.get("/review")
+    assert response.status_code == 200
+    assert "All Done!" in response.text
+    assert "day streak" in response.text
+    assert "Top Reviewers" in response.text
+    assert "boarduser" in response.text
+    assert "boarduser@example.com" not in response.text
+
 # --- AI Card Generation Tests ---
 @patch("main.supabase.auth.get_user")
 @patch("main.generate_cards")

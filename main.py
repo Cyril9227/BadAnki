@@ -1152,20 +1152,26 @@ async def review(request: Request, conn: psycopg2.extensions.connection = Depend
     stats = crud.get_review_stats_for_user(conn, user.auth_user_id)
 
     if card is None:
-        return templates.TemplateResponse(request, "no_cards.html", {"total_cards": stats['total_cards']})
+        return templates.TemplateResponse(request, "no_cards.html", {
+            "total_cards": stats['total_cards'],
+            "streak": crud.get_review_streak_for_user(conn, user.auth_user_id),
+            "leaderboard": crud.get_leaderboard(conn, user.auth_user_id),
+        })
 
     csrf_token = request.state.csrf_token
     return templates.TemplateResponse(request, "review.html", {
-        "card": card, 
-        "due_today_count": stats['due_today'], 
-        "new_cards_count": stats['new_cards'], 
+        "card": card,
+        "due_today_count": stats['due_today'],
+        "new_cards_count": stats['new_cards'],
         "total_cards": stats['total_cards'],
+        "streak": crud.get_review_streak_for_user(conn, user.auth_user_id),
         "csrf_token": csrf_token
     })
 
 @app.post("/review/{card_id}")
 async def update_review(card_id: int, status: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    crud.update_card_for_user(conn, card_id, user.auth_user_id, status == "remembered")
+    if crud.update_card_for_user(conn, card_id, user.auth_user_id, status == "remembered"):
+        crud.record_review_activity(conn, user.auth_user_id, status == "remembered")
     return RedirectResponse(url="/review", status_code=303)
 
 
@@ -1184,10 +1190,12 @@ async def update_review_ajax(
     if status not in ("remembered", "forgot"):
         raise HTTPException(status_code=400, detail="Invalid review status.")
 
-    crud.update_card_for_user(conn, card_id, user.auth_user_id, status == "remembered")
+    if crud.update_card_for_user(conn, card_id, user.auth_user_id, status == "remembered"):
+        crud.record_review_activity(conn, user.auth_user_id, status == "remembered")
 
     next_card = crud.get_review_cards_for_user(conn, user.auth_user_id)
     stats = crud.get_review_stats_for_user(conn, user.auth_user_id)
+    streak = crud.get_review_streak_for_user(conn, user.auth_user_id)
 
     payload = {
         "next_card": None,
@@ -1195,6 +1203,9 @@ async def update_review_ajax(
             "due_today": stats["due_today"],
             "new_cards": stats["new_cards"],
             "total_cards": stats["total_cards"],
+            # None when activity tracking is unavailable — the UI then leaves
+            # the streak badge alone.
+            "streak": streak["current"] if streak else None,
         },
     }
     if next_card is not None:
