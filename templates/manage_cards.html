@@ -252,6 +252,10 @@
     </div>
 </div>
 
+<div class="text-center my-3">
+    <button id="load-more" class="btn btn-outline-secondary" style="display: none;">Load more cards</button>
+</div>
+
 <div id="no-results" class="alert alert-secondary mt-3" style="display: none;">No cards match your search.</div>
 
 <!-- Add a message if no cards -->
@@ -265,85 +269,133 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    // Process each row: detect card type, set badge, and render markdown in one pass
-    document.querySelectorAll('tr[data-question]').forEach(function(row) {
-        const question = row.dataset.question;
-        const isCloze = window.isClozeText(question);
+    // All rows are server-rendered, but markdown + MathJax rendering is done
+    // lazily in batches as rows are revealed: typesetting every row up front
+    // freezes the page for seconds on large decks. Search, the type filter and
+    // column sorting still cover the whole deck — they read the raw data-*
+    // attributes, which exist whether or not a row has been rendered yet.
+    const PAGE_SIZE = 50;
+    const allRows = Array.from(document.querySelectorAll('tr[data-question]'));
+    const tbody = document.querySelector('table tbody');
+    const searchInput = document.getElementById('card-search');
+    const typeFilter = document.getElementById('card-type-filter');
+    const noResults = document.getElementById('no-results');
+    const cardCount = document.getElementById('card-count');
+    const loadMoreBtn = document.getElementById('load-more');
+    let revealLimit = PAGE_SIZE;
+
+    // Cheap upfront pass: the card type feeds the filter and the Type column
+    // sort, so every row needs it before any rendering happens.
+    allRows.forEach(function (row) {
+        row.dataset.type = window.isClozeText(row.dataset.question) ? 'cloze' : 'basic';
         const typeCell = row.querySelector('.card-type-cell');
+        if (typeCell) typeCell.dataset.sort = row.dataset.type;
+    });
 
-        if (typeCell) {
-            typeCell.innerHTML = window.cardTypeBadge(isCloze);
-            typeCell.dataset.sort = isCloze ? 'cloze' : 'basic';
-        }
-
-        row.querySelectorAll('.markdown-content').forEach(function(el) {
+    // Render a row's badge and markdown the first time it is revealed.
+    // Returns the cells MathJax still needs to typeset (empty on repeat calls).
+    function renderRow(row) {
+        if (row.dataset.rendered) return [];
+        row.dataset.rendered = '1';
+        const isCloze = row.dataset.type === 'cloze';
+        const typeCell = row.querySelector('.card-type-cell');
+        if (typeCell) typeCell.innerHTML = window.cardTypeBadge(isCloze);
+        const cells = [];
+        row.querySelectorAll('.markdown-content').forEach(function (el) {
             let rawContent = el.dataset.content;
             if (rawContent) {
                 if (isCloze && window.isClozeText(rawContent)) {
                     rawContent = window.formatClozeForDisplay(rawContent);
                 }
                 el.innerHTML = window.safeMarkdownInline(rawContent);
+                cells.push(el);
             }
         });
-    });
-
-    // Re-render MathJax for the card content (scoped to the cards, not the whole page).
-    // window.MathJax is a truthy config object before the async bundle loads, so we must
-    // also check typesetPromise exists — otherwise this throws a TypeError during
-    // DOMContentLoaded and aborts the handler before the search/filter listeners below
-    // ever attach. (When MathJax isn't ready yet, its own startup typesets the page.)
-    if (window.MathJax && typeof window.MathJax.typesetPromise === 'function') {
-        MathJax.typesetPromise(Array.from(document.querySelectorAll('.markdown-content'))).catch(function (e) {
-            console.error('MathJax rendering error:', e);
-        });
+        return cells;
     }
 
-    // --- Client-side search + type filter (no backend round-trips) ---
-    const searchInput = document.getElementById('card-search');
-    const typeFilter = document.getElementById('card-type-filter');
-    const noResults = document.getElementById('no-results');
-    const cardCount = document.getElementById('card-count');
-    const filterRows = Array.from(document.querySelectorAll('tr[data-question]'));
+    // --- Single source of truth for visibility: a row shows iff it matches
+    // the search + type filter AND falls within the reveal window. ---
+    let order = allRows.slice(); // current display order, updated by applySort()
 
-    function updateCardCount(visible) {
-        if (!cardCount) return;
-        cardCount.textContent = visible === filterRows.length
-            ? `${filterRows.length} card${filterRows.length === 1 ? '' : 's'}`
-            : `Showing ${visible} of ${filterRows.length} cards`;
-    }
-
-    function applyCardFilter() {
+    function refresh() {
         const q = (searchInput ? searchInput.value : '').trim().toLowerCase();
         const type = typeFilter ? typeFilter.value : 'all';
-        let visible = 0;
-        filterRows.forEach(function (row) {
+        const filtered = q !== '' || type !== 'all';
+        const toTypeset = [];
+        let matched = 0;
+        let shown = 0;
+        order.forEach(function (row) {
             const question = row.dataset.question || '';
             const answerCell = row.querySelector('.answer-col');
             const answer = answerCell ? (answerCell.dataset.content || '') : '';
-            const rowType = window.isClozeText(question) ? 'cloze' : 'basic';
             const matchesText = !q || question.toLowerCase().includes(q) || answer.toLowerCase().includes(q);
-            const matchesType = type === 'all' || rowType === type;
-            const show = matchesText && matchesType;
+            let show = false;
+            if (matchesText && (type === 'all' || row.dataset.type === type)) {
+                matched++;
+                if (matched <= revealLimit) {
+                    show = true;
+                    shown++;
+                    toTypeset.push.apply(toTypeset, renderRow(row));
+                }
+            }
             row.style.display = show ? '' : 'none';
-            if (show) visible++;
         });
-        if (noResults) noResults.style.display = (filterRows.length > 0 && visible === 0) ? '' : 'none';
-        updateCardCount(visible);
+
+        if (noResults) noResults.style.display = (allRows.length > 0 && matched === 0) ? '' : 'none';
+        if (loadMoreBtn) loadMoreBtn.style.display = matched > shown ? '' : 'none';
+        if (cardCount) {
+            const plural = matched === 1 ? '' : 's';
+            if (!filtered) {
+                cardCount.textContent = shown === matched
+                    ? `${matched} card${plural}`
+                    : `Showing ${shown} of ${matched} cards`;
+            } else {
+                cardCount.textContent = shown === matched
+                    ? `${matched} of ${allRows.length} card${allRows.length === 1 ? '' : 's'} match`
+                    : `Showing ${shown} of ${matched} matching cards`;
+            }
+        }
+
+        // window.MathJax is a truthy config object before the async bundle loads, so we
+        // must also check typesetPromise exists. When MathJax isn't ready yet, its own
+        // startup pass typesets whatever has been rendered by then.
+        if (toTypeset.length && window.MathJax && typeof window.MathJax.typesetPromise === 'function') {
+            MathJax.typesetPromise(toTypeset).catch(function (e) {
+                console.error('MathJax rendering error:', e);
+            });
+        }
     }
 
-    if (searchInput) searchInput.addEventListener('input', applyCardFilter);
-    if (typeFilter) typeFilter.addEventListener('change', applyCardFilter);
-    updateCardCount(filterRows.length);
+    if (searchInput) searchInput.addEventListener('input', function () { revealLimit = PAGE_SIZE; refresh(); });
+    if (typeFilter) typeFilter.addEventListener('change', function () { revealLimit = PAGE_SIZE; refresh(); });
+
+    if (loadMoreBtn) {
+        loadMoreBtn.addEventListener('click', function () {
+            revealLimit += PAGE_SIZE;
+            refresh();
+        });
+        // Lazy loading: reveal the next batch automatically as the button
+        // approaches the viewport; the button stays as a manual fallback.
+        if ('IntersectionObserver' in window) {
+            new IntersectionObserver(function (entries) {
+                if (entries.some(function (e) { return e.isIntersecting; }) && loadMoreBtn.style.display !== 'none') {
+                    loadMoreBtn.click();
+                }
+            }, { rootMargin: '600px 0px' }).observe(loadMoreBtn);
+        }
+    }
+
+    refresh();
 
     // --- Client-side column sort: click cycles descending -> ascending -> original ---
     // Headers opt in via data-sort-type in the template; we enhance them here so a
     // no-JS page never shows a clickable affordance that wouldn't work. Sorting
     // reorders the <tr> nodes while the filter above only toggles display, so the
     // two features compose independently.
-    const tbody = document.querySelector('table tbody');
     const sortHeaders = Array.from(document.querySelectorAll('thead th[data-sort-type]'));
     const headerCells = sortHeaders.length ? Array.from(sortHeaders[0].parentElement.children) : [];
-    const originalOrder = filterRows.slice(); // load order = due-date ascending (crud.get_all_cards)
+    const originalOrder = allRows.slice(); // load order = due-date ascending (crud.get_all_cards)
     let sortState = { col: null, dir: null }; // dir: 'desc' | 'asc' | null
 
     // Comparable value for a row in a column. Returns null for missing/blank values
@@ -361,7 +413,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function applySort() {
         if (!tbody) return;
-        let order = originalOrder; // null/null state restores the original load order
+        order = originalOrder; // null/null state restores the original load order
         if (sortState.col !== null && sortState.dir !== null) {
             const type = headerCells[sortState.col].dataset.sortType;
             const sign = sortState.dir === 'asc' ? 1 : -1;
@@ -376,9 +428,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 return 0;
             });
         }
-        // Re-append in order; appendChild moves existing nodes, preserving their
-        // rendered markdown/MathJax and any display:none set by the filter.
+        // Re-append in order; appendChild moves existing nodes, preserving any
+        // already-rendered markdown/MathJax.
         order.forEach(function (row) { tbody.appendChild(row); });
+        revealLimit = PAGE_SIZE; // sorting restarts the reveal window from the top
+        refresh();
     }
 
     function updateSortIndicators() {
