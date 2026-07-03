@@ -1,5 +1,4 @@
 import os
-import psycopg2
 from psycopg2 import pool
 from psycopg2.extras import register_uuid
 from psycopg2.extensions import connection
@@ -27,7 +26,7 @@ def init_db_pool():
         default_max_connections = "5" if os.environ.get("ENVIRONMENT") == "production" else "20"
         min_connections = int(os.environ.get("DB_POOL_MIN", "1"))
         max_connections = int(os.environ.get("DB_POOL_MAX", default_max_connections))
-        db_pool = psycopg2.pool.SimpleConnectionPool(
+        db_pool = pool.SimpleConnectionPool(
             min_connections,
             max_connections,
             **_database_connect_kwargs(db_url)

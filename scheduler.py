@@ -10,9 +10,10 @@ import logging
 import os
 from datetime import datetime
 
-import psycopg2
 from psycopg2 import extras
 from telegram import Bot
+
+from database import get_db_connection, release_db_connection
 
 # --- Logging ---
 logging.basicConfig(
@@ -23,7 +24,6 @@ logger = logging.getLogger(__name__)
 # --- Configuration ---
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 APP_URL = os.environ.get("APP_URL", "http://127.0.0.1:8000")
-DATABASE_URL = os.environ.get("DATABASE_URL")
 
 
 def _redact_identifier(value) -> str:
@@ -33,59 +33,37 @@ def _redact_identifier(value) -> str:
     return f"***{text[-4:]}"
 
 
-def _database_connect_kwargs():
-    kwargs = {"dsn": DATABASE_URL}
-    if os.environ.get("ENVIRONMENT") == "production" and DATABASE_URL and "sslmode=" not in DATABASE_URL.lower():
-        kwargs["sslmode"] = "require"
-    return kwargs
-
-
 def get_users_with_due_cards():
     """
     Queries the database to find users who have cards due for review.
     Returns a list of tuples: (telegram_chat_id, due_card_count).
     Includes users with 0 due cards.
     """
-    if not DATABASE_URL:
-        logger.error("Error: DATABASE_URL environment variable is not set.")
-        return []
-
+    query = """
+        SELECT
+            p.telegram_chat_id,
+            COUNT(c.id) FILTER (WHERE c.due_date <= %s) AS due_cards_count
+        FROM
+            profiles p
+        LEFT JOIN
+            cards c ON p.auth_user_id = c.user_id
+        WHERE
+            p.telegram_chat_id IS NOT NULL
+        GROUP BY
+            p.telegram_chat_id;
+    """
     conn = None
-    users_with_due_cards = []
     try:
-        conn = psycopg2.connect(**_database_connect_kwargs())
-        cursor = conn.cursor(cursor_factory=extras.DictCursor)
-
-        # SQL query: return all users with telegram_chat_id, count due cards (can be zero)
-        query = """
-            SELECT
-                p.telegram_chat_id,
-                COUNT(c.id) FILTER (WHERE c.due_date <= %s) AS due_cards_count
-            FROM
-                profiles p
-            LEFT JOIN
-                cards c ON p.auth_user_id = c.user_id
-            WHERE
-                p.telegram_chat_id IS NOT NULL
-            GROUP BY
-                p.telegram_chat_id;
-        """
-
-        cursor.execute(query, (datetime.now(),))
-        records = cursor.fetchall()
-
-        for record in records:
-            users_with_due_cards.append(
-                (record["telegram_chat_id"], record["due_cards_count"])
-            )
-
-    except psycopg2.Error as e:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
+            cursor.execute(query, (datetime.now(),))
+            return [(r["telegram_chat_id"], r["due_cards_count"]) for r in cursor.fetchall()]
+    except Exception as e:
         logger.error(f"Database error: {e}")
+        return []
     finally:
         if conn:
-            conn.close()
-
-    return users_with_due_cards
+            release_db_connection(conn)
 
 
 async def run_scheduler():
