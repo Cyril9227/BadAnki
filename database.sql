@@ -40,6 +40,18 @@ CREATE TABLE IF NOT EXISTS telegram_photo_cache (
     created_at TIMESTAMP NOT NULL DEFAULT now()
 );
 
+-- Per-user daily review counts powering streaks and the leaderboard
+-- (gamification). Standalone and additive like telegram_photo_cache: no FKs
+-- into existing tables, and the app treats it as best-effort — if the table
+-- is missing, reviews keep working and the gamification UI silently hides.
+CREATE TABLE IF NOT EXISTS review_activity (
+    user_id UUID NOT NULL,
+    day DATE NOT NULL,
+    reviews INT NOT NULL DEFAULT 0,
+    remembered INT NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, day)
+);
+
 -- Supabase Data API hardening:
 -- The browser only needs Supabase Auth, not direct table access. Enabling RLS
 -- keeps the public anon key from exposing tables through PostgREST. The backend
@@ -71,6 +83,8 @@ ALTER TABLE courses ENABLE ROW LEVEL SECURITY;
 -- Like profiles, telegram_photo_cache intentionally has no Data API policies:
 -- only the backend's direct connection should ever touch it.
 ALTER TABLE telegram_photo_cache ENABLE ROW LEVEL SECURITY;
+-- review_activity likewise: backend-only, no Data API policies.
+ALTER TABLE review_activity ENABLE ROW LEVEL SECURITY;
 
 DO $$
 BEGIN

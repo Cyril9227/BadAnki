@@ -13,6 +13,7 @@ from datetime import datetime
 from psycopg2 import extras
 from telegram import Bot
 
+import crud
 from database import get_db_connection, release_db_connection
 
 # --- Logging ---
@@ -36,11 +37,13 @@ def _redact_identifier(value) -> str:
 def get_users_with_due_cards():
     """
     Queries the database to find users who have cards due for review.
-    Returns a list of tuples: (telegram_chat_id, due_card_count).
-    Includes users with 0 due cards.
+    Returns a list of tuples: (telegram_chat_id, due_card_count, streak).
+    Includes users with 0 due cards. `streak` is the crud streak dict, or
+    None when activity tracking is unavailable.
     """
     query = """
         SELECT
+            p.auth_user_id,
             p.telegram_chat_id,
             COUNT(c.id) FILTER (WHERE c.due_date <= %s) AS due_cards_count
         FROM
@@ -50,14 +53,22 @@ def get_users_with_due_cards():
         WHERE
             p.telegram_chat_id IS NOT NULL
         GROUP BY
-            p.telegram_chat_id;
+            p.auth_user_id, p.telegram_chat_id;
     """
     conn = None
     try:
         conn = get_db_connection()
         with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
             cursor.execute(query, (datetime.now(),))
-            return [(r["telegram_chat_id"], r["due_cards_count"]) for r in cursor.fetchall()]
+            rows = cursor.fetchall()
+            return [
+                (
+                    r["telegram_chat_id"],
+                    r["due_cards_count"],
+                    crud.get_review_streak_for_user(conn, r["auth_user_id"]),
+                )
+                for r in rows
+            ]
     except Exception as e:
         logger.error(f"Database error: {e}")
         return []
@@ -86,14 +97,22 @@ async def run_scheduler():
     successful_notifications = 0
     failed_notifications = 0
 
-    for chat_id, due_count in users_to_notify:
+    for chat_id, due_count, streak in users_to_notify:
         redacted_chat_id = _redact_identifier(chat_id)
         if due_count > 0:
             logger.info(
                 f"Found {due_count} card(s) due for chat_id {redacted_chat_id}. Sending notification..."
             )
             review_link = f"{APP_URL}/review"
+            # A streak at stake is the strongest nudge there is.
+            streak_line = ""
+            if streak and streak["current"] and not streak["reviewed_today"]:
+                streak_line = (
+                    f"🔥 Your {streak['current']}-day streak is on the line — "
+                    "review today to keep it alive!\n\n"
+                )
             message = (
+                f"{streak_line}"
                 f"👋 You have {due_count} card(s) due for review today!\n\n"
                 f"Click here to start your session: {review_link}"
             )
