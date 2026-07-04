@@ -215,6 +215,24 @@ def test_auth_register_successfully(mock_sign_in, mock_sign_up, client, db_conn)
     mock_sign_up.assert_called_once()
     mock_sign_in.assert_called_once()
 
+@patch("main.supabase.auth.sign_up")
+def test_auth_register_existing_email_flags_account_exists(mock_sign_up, client):
+    """The page uses account_exists to drop its register intent and fall back
+    to treating the next submit as a login attempt."""
+    csrf_token = get_csrf_token(client)
+    mock_sign_up.side_effect = AuthApiError("User already registered", 422, "user_already_exists")
+
+    response = client.post(
+        "/auth",
+        data={"email": "existing@example.com", "password": "password123", "action": "register"},
+        headers={"X-CSRF-Token": csrf_token},
+    )
+    assert response.status_code == 200
+    json_response = response.json()
+    assert json_response["success"] is False
+    assert json_response["account_exists"] is True
+    assert "already exists" in json_response["error"]
+
 def test_get_auth_page(client):
     """Test that the new unified auth page loads correctly."""
     response = client.get("/auth")

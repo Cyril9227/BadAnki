@@ -983,7 +983,13 @@ async def handle_auth(
             except AuthApiError as e:
                 error_msg = str(e)
                 if "already registered" in error_msg.lower() or "already exists" in error_msg.lower():
-                    return error_response("An account with this email already exists. Please login instead.")
+                    # account_exists tells the page to drop its register intent
+                    # and treat the next submit as a login attempt again.
+                    return JSONResponse(content={
+                        "success": False,
+                        "error": "An account with this email already exists — check your password and log in instead.",
+                        "account_exists": True,
+                    })
                 if "not confirmed" in error_msg.lower():
                     # Same "confirm email" setting, surfaced as an auto-login
                     # error instead of a missing session.

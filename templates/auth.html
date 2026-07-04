@@ -11,7 +11,8 @@
                 <div class="card-body">
                     <h3 class="card-title text-center mb-4">Welcome !</h3>
 
-                    <!-- Social Login Buttons -->
+                    <!-- Social buttons sign in AND sign up: the backend creates
+                         the account on first login. -->
                     <div class="d-grid gap-2 mb-3">
                         <button id="google-login" class="btn btn-light border">
                             <img src="https://developers.google.com/identity/images/g-logo.png" alt="Google logo" style="height: 20px; margin-right: 10px;">
@@ -28,14 +29,16 @@
                         <span class="px-2 text-muted" style="position: relative; top: -23px; background-color: rgb(var(--card-background-rgb));">OR</span>
                     </div>
 
-                    <!-- Email/Password Form (errors come back as JSON from POST /auth) -->
+                    <!-- One form for both cases: the backend tries to sign in,
+                         and when the account doesn't exist the page offers to
+                         create it (errors come back as JSON from POST /auth). -->
                     <div id="error-alert" class="alert alert-danger d-none"></div>
                     <form id="auth-form" method="post" action="/auth">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <input type="hidden" id="action" name="action" value="login">
                         <div class="mb-3">
                             <label for="email" class="form-label">Email</label>
-                            <input type="email" class="form-control" id="email" name="email" required>
+                            <input type="email" class="form-control" id="email" name="email" required autocomplete="email">
                         </div>
                         <div class="mb-3">
                             <label for="password" class="form-label">Password</label>
@@ -48,12 +51,12 @@
                             </div>
                         </div>
                         <div class="d-grid">
-                            <button id="submit-button" type="submit" class="btn btn-primary">Login</button>
+                            <button id="submit-button" type="submit" class="btn btn-primary">Continue</button>
                         </div>
                     </form>
                 </div>
                 <div class="card-footer text-center">
-                    <p id="auth-toggle-text">Don't have an account? <a href="#" id="auth-toggle-link">Register here</a>.</p>
+                    <p class="mb-0 text-muted small">New here? Both the buttons and the form work for sign-up too — we'll offer to create your account.</p>
                 </div>
             </div>
         </div>
@@ -76,12 +79,11 @@
         await supabase.auth.signInWithOAuth({ provider: 'github' });
     });
 
-    // --- Auth Form Toggle ---
     const form = document.getElementById('auth-form');
     const actionInput = document.getElementById('action');
     const submitButton = document.getElementById('submit-button');
-    const toggleText = document.getElementById('auth-toggle-text');
-    let isLogin = true;
+    const emailInput = document.getElementById('email');
+    const passwordInput = document.getElementById('password');
 
     // --- CSRF Token for AJAX ---
     const csrfToken = document.querySelector('input[name="csrf_token"]').value;
@@ -100,18 +102,58 @@
         errorAlert.classList.add('d-none');
     }
 
-    form.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        hideError();
-        submitButton.disabled = true;
-        submitButton.textContent = isLogin ? 'Logging in...' : 'Registering...';
+    // Login is attempted first; when the credentials don't match anything the
+    // user is offered account creation. registerIntent remembers a confirmed
+    // "create my account" choice, so a rejected weak password can be fixed and
+    // resubmitted without asking again. Changing the email withdraws it.
+    let registerIntent = false;
+    emailInput.addEventListener('input', () => { registerIntent = false; });
 
-        const formData = new FormData(form);
+    // Mirrors the server-side policy so a too-weak password never needs a
+    // round trip (the server still enforces it).
+    function passwordPolicyError(password) {
+        if (password.length < 8 || !/\d/.test(password)) {
+            return 'Password must be at least 8 characters and contain one number.';
+        }
+        return null;
+    }
+
+    async function offerRegistration(errorMessage) {
+        const result = await Swal.fire({
+            icon: 'question',
+            title: 'Create a new account?',
+            text: `We couldn't sign you in — either the password is wrong, or no account exists for ${emailInput.value}. Create a new account with these details?`,
+            showCancelButton: true,
+            confirmButtonText: 'Create account',
+            cancelButtonText: 'Try again',
+        });
+        if (result.isConfirmed) {
+            registerIntent = true;
+            await submitAuth();
+        } else {
+            showError(errorMessage);
+        }
+    }
+
+    async function submitAuth() {
+        hideError();
+
+        if (registerIntent) {
+            const policyError = passwordPolicyError(passwordInput.value);
+            if (policyError) {
+                showError(policyError);
+                return;
+            }
+        }
+        actionInput.value = registerIntent ? 'register' : 'login';
+
+        submitButton.disabled = true;
+        submitButton.textContent = registerIntent ? 'Creating account...' : 'Logging in...';
 
         try {
             const response = await fetch('/auth', {
                 method: 'POST',
-                body: new URLSearchParams(formData),  // Send as application/x-www-form-urlencoded
+                body: new URLSearchParams(new FormData(form)),  // Send as application/x-www-form-urlencoded
                 headers: {
                     'X-CSRF-Token': csrfToken
                 }
@@ -140,14 +182,17 @@
                     // Not a failure — e.g. account created but email
                     // confirmation is required before logging in.
                     showAlert(data.info, 'info');
-                    setUI('login');
+                    registerIntent = false;
                 } else if (data.error) {
-                    // Application-level error
-                    showError(data.error);
-
-                    // If prompted to register, switch to register mode
-                    if (data.prompt_register) {
-                        setUI('register');
+                    if (data.account_exists) {
+                        // They asked to register but the account is already
+                        // there — switch back to signing in.
+                        registerIntent = false;
+                        showError(data.error);
+                    } else if (data.prompt_register) {
+                        await offerRegistration(data.error);
+                    } else {
+                        showError(data.error);
                     }
                 } else {
                     showError('An error occurred. Please try again.');
@@ -161,25 +206,13 @@
             showError('A network error occurred. Please check your connection and try again.');
         } finally {
             submitButton.disabled = false;
-            submitButton.textContent = isLogin ? 'Login' : 'Register';
+            submitButton.textContent = 'Continue';
         }
-    });
-
-    function setUI(mode) {
-        isLogin = mode === 'login';
-        actionInput.value = mode;
-        submitButton.textContent = isLogin ? 'Login' : 'Register';
-        toggleText.innerHTML = isLogin
-            ? 'Don\'t have an account? <a href="#" id="auth-toggle-link">Register here</a>.'
-            : 'Already have an account? <a href="#" id="auth-toggle-link">Login here</a>.';
     }
 
-    // Delegate so the listener survives setUI replacing the link element.
-    toggleText.addEventListener('click', (e) => {
-        if (e.target.id === 'auth-toggle-link') {
-            e.preventDefault();
-            setUI(isLogin ? 'register' : 'login');
-        }
+    form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        submitAuth();
     });
 </script>
 {% endblock %}
