@@ -71,6 +71,27 @@
             </form>
         </div>
     </div>
+
+    <div class="card mt-4">
+        <div class="card-header">Change Password</div>
+        <div class="card-body">
+            <form id="password-form" autocomplete="off">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <div class="mb-3">
+                    <label for="current_password" class="form-label">Current password</label>
+                    <input type="password" class="form-control" id="current_password" name="current_password" required autocomplete="current-password">
+                </div>
+                <div class="mb-3">
+                    <label for="new_password" class="form-label">New password</label>
+                    <input type="password" class="form-control" id="new_password" name="new_password" required minlength="8" autocomplete="new-password" aria-describedby="new_password_help">
+                    <div class="form-text" id="new_password_help">
+                        At least 8 characters, containing a number. Signed up with Google/GitHub and never set a password? Use the "Forgot password?" link on the login page to create one.
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary">Change Password</button>
+            </form>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -125,6 +146,51 @@ document.getElementById('api-keys-form').addEventListener('submit', function(eve
     .finally(() => {
         saveBtn.disabled = false;
         saveBtn.textContent = originalLabel;
+    });
+});
+
+document.getElementById('password-form').addEventListener('submit', function(event) {
+    event.preventDefault();
+
+    const form = this;
+    const submitBtn = form.querySelector('button[type="submit"]');
+
+    submitBtn.disabled = true;
+    const originalLabel = submitBtn.textContent;
+    submitBtn.textContent = 'Saving...';
+
+    window.fetchJson('/auth/change-password', {
+        method: 'POST',
+        body: new URLSearchParams(new FormData(form)),
+        headers: {
+            'X-CSRF-Token': window.getCsrfToken() || "{{ csrf_token }}",
+            'Content-Type': 'application/x-www-form-urlencoded'
+        }
+    })
+    .then((data) => {
+        // The endpoint reports failures (wrong current password, weak new
+        // password) as { success: false, error } with a 200 status.
+        if (data && data.success) {
+            form.reset();
+            Swal.fire({
+                toast: true,
+                position: 'top-end',
+                icon: 'success',
+                title: 'Password updated!',
+                showConfirmButton: false,
+                timer: 2000
+            });
+        } else {
+            Swal.fire({ icon: 'error', title: 'Oops...', text: (data && data.error) || 'Could not update the password.' });
+        }
+    })
+    .catch(error => {
+        console.error('Failed to change password:', error);
+        Swal.fire({ icon: 'error', title: 'Oops...', text: error.message || 'An unexpected error occurred.' });
+    })
+    .finally(() => {
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalLabel;
     });
 });
 

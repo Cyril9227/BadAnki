@@ -323,6 +323,11 @@ class AuthCallback(BaseModel):
     access_token: str = Field(..., min_length=1, max_length=8192)
     refresh_token: str | None = Field(default=None, max_length=8192)
 
+class PasswordResetConfirm(BaseModel):
+    access_token: str = Field(..., min_length=1, max_length=8192)
+    refresh_token: str | None = Field(default=None, max_length=8192)
+    password: str = Field(..., min_length=1, max_length=MAX_SECRET_INPUT_LEN)
+
 # --- Database Dependency ---
 def get_db(request: Request):
     """
@@ -477,6 +482,85 @@ def _sign_out_sync(access_token: str) -> None:
             logger.debug("Supabase sign out rejected with status %s", response.status_code)
     except httpx.HTTPError as e:
         logger.warning("Supabase sign out request failed: %s", e)
+
+
+def _new_password_error(password: str) -> Optional[str]:
+    """Single password policy shared by registration, reset and change."""
+    if len(password) < 8 or not any(char.isdigit() for char in password):
+        return "Password must be at least 8 characters and contain one number."
+    return None
+
+
+def _recover_password_sync(email: str, redirect_to: str) -> Optional[bool]:
+    """Ask GoTrue to email a password-recovery link — stateless like
+    _refresh_session_sync. Returns True when accepted, False when rate
+    limited, None when the service is unreachable. GoTrue answers 200 whether
+    or not the email has an account, so acceptance leaks nothing.
+    """
+    try:
+        response = httpx.post(
+            f"{SUPABASE_URL}/auth/v1/recover",
+            params={"redirect_to": redirect_to},
+            json={"email": email},
+            headers={"apikey": SUPABASE_KEY},
+            timeout=10.0,
+        )
+    except httpx.HTTPError as e:
+        logger.warning("Password recovery request failed: %s", e)
+        return None
+    if response.status_code == 429:
+        return False
+    if response.status_code >= 400:
+        # Other rejections (e.g. malformed email) must look identical to the
+        # unknown-address case, or the endpoint becomes an enumeration oracle.
+        logger.debug("Password recovery rejected with status %s", response.status_code)
+    return True
+
+
+def _update_password_sync(access_token: str, new_password: str) -> tuple[Optional[int], Optional[str]]:
+    """Set a new password on the account behind this access token via the
+    stateless GoTrue REST API. Returns (status_code, server_message);
+    status None means the request itself failed.
+    """
+    try:
+        response = httpx.put(
+            f"{SUPABASE_URL}/auth/v1/user",
+            json={"password": new_password},
+            headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {access_token}"},
+            timeout=10.0,
+        )
+    except httpx.HTTPError as e:
+        logger.warning("Password update request failed: %s", e)
+        return None, None
+    if response.status_code == 200:
+        return 200, None
+    message = None
+    try:
+        body = response.json()
+        message = body.get("msg") or body.get("message") or body.get("error_description")
+    except Exception:
+        pass
+    logger.debug("Password update rejected with status %s: %s", response.status_code, message)
+    return response.status_code, message
+
+
+def _verify_password_sync(email: str, password: str) -> bool:
+    """Check an email/password pair via the stateless password grant. The
+    minted session is discarded unused — this is only a credentials check
+    for the change-password flow.
+    """
+    try:
+        response = httpx.post(
+            f"{SUPABASE_URL}/auth/v1/token",
+            params={"grant_type": "password"},
+            json={"email": email, "password": password},
+            headers={"apikey": SUPABASE_KEY},
+            timeout=10.0,
+        )
+        return response.status_code == 200
+    except httpx.HTTPError as e:
+        logger.warning("Password verification request failed: %s", e)
+        return False
 
 
 async def _try_refresh_session(request: Request) -> Optional[tuple[str, str]]:
@@ -872,8 +956,9 @@ async def handle_auth(
     try:
         if action == "register":
             # --- REGISTRATION FLOW ---
-            if len(password) < 8 or not any(char.isdigit() for char in password):
-                return error_response("Password must be at least 8 characters and contain one number.")
+            policy_error = _new_password_error(password)
+            if policy_error:
+                return error_response(policy_error)
 
             try:
                 # Create user in Supabase
@@ -885,12 +970,27 @@ async def handle_auth(
                 crud.create_profile(conn, username=email, auth_user_id=auth_response.user.id)
                 auto_login_response = supabase.auth.sign_in_with_password({"email": email, "password": password})
 
+                # With Supabase's "confirm email" setting enabled, the account
+                # exists but can't sign in yet — don't crash on the missing
+                # session, tell the user what to do next.
+                if not auto_login_response.session:
+                    return JSONResponse(content={
+                        "success": False,
+                        "info": "Account created! Check your email to confirm your address, then log in.",
+                    })
                 return success_response(auto_login_response.session, "Account created successfully!")
 
             except AuthApiError as e:
                 error_msg = str(e)
                 if "already registered" in error_msg.lower() or "already exists" in error_msg.lower():
                     return error_response("An account with this email already exists. Please login instead.")
+                if "not confirmed" in error_msg.lower():
+                    # Same "confirm email" setting, surfaced as an auto-login
+                    # error instead of a missing session.
+                    return JSONResponse(content={
+                        "success": False,
+                        "info": "Account created! Check your email to confirm your address, then log in.",
+                    })
                 return error_response(f"Registration failed: {error_msg}")
         else:
             # --- LOGIN FLOW ---
@@ -941,9 +1041,114 @@ async def auth_callback(
         set_flash_cookie(response, request, "success:Logged in successfully!")
         return response
 
+    except HTTPException:
+        # An invalid token is the client's fault — don't collapse it into a 500.
+        raise
     except Exception as e:
         logger.error(f"Auth callback error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Authentication callback failed.")
+
+# --- Password reset (lost password) and change ---
+@app.get("/auth/reset", response_class=HTMLResponse)
+async def password_reset_form(request: Request):
+    """Request-a-reset-email form. The same page finishes the flow when the
+    Supabase recovery link lands back here with tokens in the URL fragment."""
+    return templates.TemplateResponse(request, "reset_password.html", {
+        "csrf_token": request.state.csrf_token,
+    })
+
+
+@app.post("/auth/reset")
+async def password_reset_request(request: Request, email: str = Form(...)):
+    """Send a password-recovery email via Supabase.
+
+    The response is deliberately identical for known and unknown addresses so
+    the endpoint can't be used to enumerate accounts. Abuse is bounded by
+    Supabase's own per-email and global email rate limits (surfaced as 429).
+    """
+    # The recovery link must land back on this page to finish the flow. The
+    # host comes from the request so every deployment works unchanged; a
+    # spoofed Host header can't hijack the link because Supabase only
+    # redirects to allowlisted URLs and falls back to the Site URL otherwise.
+    scheme = "https" if should_use_secure_cookies(request) else "http"
+    redirect_to = f"{scheme}://{request.url.netloc}/auth/reset"
+
+    result = await run_in_threadpool(_recover_password_sync, email.strip(), redirect_to)
+    if result is False:
+        return JSONResponse(content={
+            "success": False,
+            "error": "Too many reset emails requested. Please wait a while and try again.",
+        })
+    if result is None:
+        return JSONResponse(content={
+            "success": False,
+            "error": "The authentication service is temporarily unavailable. Please try again.",
+        })
+    return JSONResponse(content={
+        "success": True,
+        "message": "If an account exists for that address, a password reset link is on its way.",
+    })
+
+
+@app.post("/auth/reset/confirm")
+async def password_reset_confirm(request: Request, data: PasswordResetConfirm):
+    """Set a new password using the short-lived recovery session from the
+    emailed link (tokens arrive in the URL fragment, so only the browser can
+    see them — the page posts them here)."""
+    policy_error = _new_password_error(data.password)
+    if policy_error:
+        return JSONResponse(content={"success": False, "error": policy_error})
+
+    status_code, message = await run_in_threadpool(_update_password_sync, data.access_token, data.password)
+    if status_code == 200:
+        # The recovery session survives the update; reuse it to log the user
+        # straight in, exactly like the OAuth callback does.
+        response = JSONResponse(content={"success": True, "redirect_url": "/"})
+        _set_session_cookies(response, request, data.access_token, data.refresh_token)
+        set_flash_cookie(response, request, "success:Password updated!")
+        return response
+    if status_code in (401, 403):
+        return JSONResponse(content={
+            "success": False,
+            "error": "This reset link has expired or was already used. Please request a new one.",
+        })
+    return JSONResponse(content={
+        "success": False,
+        "error": message or "Could not update the password. Please request a new reset link.",
+    })
+
+
+@app.post("/auth/change-password")
+async def change_password(
+    request: Request,
+    current_password: str = Form(...),
+    new_password: str = Form(...),
+    user: User = Depends(get_current_active_user),
+):
+    """Change the password of the logged-in user, gated on the current one so
+    a stolen session cookie can't be parlayed into account takeover."""
+    policy_error = _new_password_error(new_password)
+    if policy_error:
+        return JSONResponse(content={"success": False, "error": policy_error})
+
+    # user.username is the auth email (profiles are created from it). OAuth-only
+    # accounts have no password to verify — they set one via the reset email.
+    verified = await run_in_threadpool(_verify_password_sync, user.username, current_password)
+    if not verified:
+        return JSONResponse(content={"success": False, "error": "Current password is incorrect."})
+
+    # Use the freshest token for this session: the cookie one may have just
+    # been rotated by the transparent refresh earlier in this request.
+    refreshed = getattr(request.state, "refreshed_session", None)
+    access_token = refreshed["access_token"] if refreshed else request.cookies.get("access_token")
+    status_code, message = await run_in_threadpool(_update_password_sync, access_token, new_password)
+    if status_code == 200:
+        return JSONResponse(content={"success": True})
+    return JSONResponse(content={
+        "success": False,
+        "error": message or "Could not update the password. Please try again.",
+    })
+
 
 @app.get("/health", response_class=JSONResponse)
 async def health_check():

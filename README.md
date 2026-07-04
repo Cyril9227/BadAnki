@@ -90,6 +90,13 @@ default Gemini key.
 Deployed on Vercel (region `sin1`, configured in `vercel.json`). A Vercel cron
 hits `/api/cron` daily at 01:00 UTC to send review reminders.
 
+Password reset emails are sent by Supabase: add
+`https://<your-domain>/auth/reset` (plus `http://localhost:8000/auth/reset`
+for local dev) to **Authentication → URL Configuration → Redirect URLs** in
+the Supabase dashboard, or the recovery links will fall back to the Site URL.
+In production, configure custom SMTP — Supabase's built-in sender is limited
+to a couple of emails per hour.
+
 ## Caveats
 
 *   Currently only handles Markdown files. Support for other formats like PDFs could be added in the future.
