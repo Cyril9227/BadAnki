@@ -161,11 +161,7 @@ document.getElementById('password-form').addEventListener('submit', function(eve
 
     window.fetchJson('/auth/change-password', {
         method: 'POST',
-        body: new URLSearchParams(new FormData(form)),
-        headers: {
-            'X-CSRF-Token': window.getCsrfToken() || "{{ csrf_token }}",
-            'Content-Type': 'application/x-www-form-urlencoded'
-        }
+        body: new URLSearchParams(new FormData(form))
     })
     .then((data) => {
         // The endpoint reports failures (wrong current password, weak new

@@ -129,6 +129,13 @@ def should_resolve_user_for_request(request: Request) -> bool:
     ):
         return False
 
+    # The password-reset POSTs never read the user and typically arrive with
+    # stale cookies (that's why the visitor is there) — don't burn a DB
+    # connection and GoTrue round trips on them. The GET still resolves so
+    # the navbar renders correctly for logged-in visitors.
+    if request.method == "POST" and path.startswith("/auth/reset"):
+        return False
+
     return True
 
 
@@ -489,6 +496,11 @@ def _new_password_error(password: str) -> Optional[str]:
     if len(password) < 8 or not any(char.isdigit() for char in password):
         return "Password must be at least 8 characters and contain one number."
     return None
+
+
+def _auth_error(message: str, **extra) -> JSONResponse:
+    """App-level auth failure in the shape the auth pages' JS reads."""
+    return JSONResponse(content={"success": False, "error": message, **extra})
 
 
 def _recover_password_sync(email: str, redirect_to: str) -> Optional[bool]:
@@ -960,6 +972,14 @@ async def handle_auth(
             if policy_error:
                 return error_response(policy_error)
 
+            # With Supabase's "confirm email" setting enabled the account is
+            # created but can't sign in yet — surfaced either as a missing
+            # auto-login session or as a "not confirmed" AuthApiError.
+            confirm_email_response = JSONResponse(content={
+                "success": False,
+                "info": "Account created! Check your email to confirm your address, then log in.",
+            })
+
             try:
                 # Create user in Supabase
                 auth_response = supabase.auth.sign_up({"email": email, "password": password})
@@ -970,14 +990,8 @@ async def handle_auth(
                 crud.create_profile(conn, username=email, auth_user_id=auth_response.user.id)
                 auto_login_response = supabase.auth.sign_in_with_password({"email": email, "password": password})
 
-                # With Supabase's "confirm email" setting enabled, the account
-                # exists but can't sign in yet — don't crash on the missing
-                # session, tell the user what to do next.
                 if not auto_login_response.session:
-                    return JSONResponse(content={
-                        "success": False,
-                        "info": "Account created! Check your email to confirm your address, then log in.",
-                    })
+                    return confirm_email_response
                 return success_response(auto_login_response.session, "Account created successfully!")
 
             except AuthApiError as e:
@@ -985,18 +999,12 @@ async def handle_auth(
                 if "already registered" in error_msg.lower() or "already exists" in error_msg.lower():
                     # account_exists tells the page to drop its register intent
                     # and treat the next submit as a login attempt again.
-                    return JSONResponse(content={
-                        "success": False,
-                        "error": "An account with this email already exists — check your password and log in instead.",
-                        "account_exists": True,
-                    })
+                    return _auth_error(
+                        "An account with this email already exists — check your password and log in instead.",
+                        account_exists=True,
+                    )
                 if "not confirmed" in error_msg.lower():
-                    # Same "confirm email" setting, surfaced as an auto-login
-                    # error instead of a missing session.
-                    return JSONResponse(content={
-                        "success": False,
-                        "info": "Account created! Check your email to confirm your address, then log in.",
-                    })
+                    return confirm_email_response
                 return error_response(f"Registration failed: {error_msg}")
         else:
             # --- LOGIN FLOW ---
@@ -1081,15 +1089,9 @@ async def password_reset_request(request: Request, email: str = Form(...)):
 
     result = await run_in_threadpool(_recover_password_sync, email.strip(), redirect_to)
     if result is False:
-        return JSONResponse(content={
-            "success": False,
-            "error": "Too many reset emails requested. Please wait a while and try again.",
-        })
+        return _auth_error("Too many reset emails requested. Please wait a while and try again.")
     if result is None:
-        return JSONResponse(content={
-            "success": False,
-            "error": "The authentication service is temporarily unavailable. Please try again.",
-        })
+        return _auth_error("The authentication service is temporarily unavailable. Please try again.")
     return JSONResponse(content={
         "success": True,
         "message": "If an account exists for that address, a password reset link is on its way.",
@@ -1103,7 +1105,7 @@ async def password_reset_confirm(request: Request, data: PasswordResetConfirm):
     see them — the page posts them here)."""
     policy_error = _new_password_error(data.password)
     if policy_error:
-        return JSONResponse(content={"success": False, "error": policy_error})
+        return _auth_error(policy_error)
 
     status_code, message = await run_in_threadpool(_update_password_sync, data.access_token, data.password)
     if status_code == 200:
@@ -1114,14 +1116,8 @@ async def password_reset_confirm(request: Request, data: PasswordResetConfirm):
         set_flash_cookie(response, request, "success:Password updated!")
         return response
     if status_code in (401, 403):
-        return JSONResponse(content={
-            "success": False,
-            "error": "This reset link has expired or was already used. Please request a new one.",
-        })
-    return JSONResponse(content={
-        "success": False,
-        "error": message or "Could not update the password. Please request a new reset link.",
-    })
+        return _auth_error("This reset link has expired or was already used. Please request a new one.")
+    return _auth_error(message or "Could not update the password. Please request a new reset link.")
 
 
 @app.post("/auth/change-password")
@@ -1135,13 +1131,13 @@ async def change_password(
     a stolen session cookie can't be parlayed into account takeover."""
     policy_error = _new_password_error(new_password)
     if policy_error:
-        return JSONResponse(content={"success": False, "error": policy_error})
+        return _auth_error(policy_error)
 
     # user.username is the auth email (profiles are created from it). OAuth-only
     # accounts have no password to verify — they set one via the reset email.
     verified = await run_in_threadpool(_verify_password_sync, user.username, current_password)
     if not verified:
-        return JSONResponse(content={"success": False, "error": "Current password is incorrect."})
+        return _auth_error("Current password is incorrect.")
 
     # Use the freshest token for this session: the cookie one may have just
     # been rotated by the transparent refresh earlier in this request.
@@ -1150,10 +1146,7 @@ async def change_password(
     status_code, message = await run_in_threadpool(_update_password_sync, access_token, new_password)
     if status_code == 200:
         return JSONResponse(content={"success": True})
-    return JSONResponse(content={
-        "success": False,
-        "error": message or "Could not update the password. Please try again.",
-    })
+    return _auth_error(message or "Could not update the password. Please try again.")
 
 
 @app.get("/health", response_class=JSONResponse)

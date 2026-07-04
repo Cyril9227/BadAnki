@@ -74,7 +74,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         ):
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
 
-        if request.url.path in {"/auth", "/auth/reset", "/login", "/logout", "/settings"}:
+        # Every /auth* page handles credentials; the prefix match keeps new
+        # auth sub-pages covered without touching this list.
+        if request.url.path in {"/login", "/logout", "/settings"} or request.url.path.startswith("/auth"):
             response.headers["Cache-Control"] = "no-store"
             response.headers["Pragma"] = "no-cache"
 

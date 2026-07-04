@@ -3,13 +3,37 @@
 {# The auth page has no markdown/LaTeX; skip the heavy MathJax bundle. #}
 {% block mathjax %}{% endblock %}
 
+{% block head %}
+<style>
+    /* The create-account dialog, restyled to match the site's cards in both
+       themes (SweetAlert's own button styling is disabled in favor of the
+       site's Bootstrap buttons). */
+    .auth-dialog {
+        background-color: rgb(var(--card-background-rgb));
+        color: rgb(var(--foreground-rgb));
+        border: 1px solid rgba(var(--border-rgb), 0.7);
+        border-radius: var(--radius);
+        box-shadow: var(--box-shadow);
+    }
+    .auth-dialog .swal2-title {
+        color: rgb(var(--foreground-rgb));
+        font-size: 1.25rem;
+    }
+    .auth-dialog .swal2-html-container {
+        color: rgb(var(--muted-foreground-rgb));
+        font-size: 0.95rem;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container mt-5">
     <div class="row justify-content-center">
         <div class="col-md-6">
             <div class="card shadow">
                 <div class="card-body">
-                    <h3 class="card-title text-center mb-4">Welcome !</h3>
+                    <h3 class="card-title text-center mb-1">Welcome !</h3>
+                    <p class="text-center text-muted mb-4">Log in or sign up to continue</p>
 
                     <!-- Social buttons sign in AND sign up: the backend creates
                          the account on first login. -->
@@ -55,9 +79,6 @@
                         </div>
                     </form>
                 </div>
-                <div class="card-footer text-center">
-                    <p class="mb-0 text-muted small">New here? Both the buttons and the form work for sign-up too — we'll offer to create your account.</p>
-                </div>
             </div>
         </div>
     </div>
@@ -83,7 +104,6 @@
     const actionInput = document.getElementById('action');
     const submitButton = document.getElementById('submit-button');
     const emailInput = document.getElementById('email');
-    const passwordInput = document.getElementById('password');
 
     // --- CSRF Token for AJAX ---
     const csrfToken = document.querySelector('input[name="csrf_token"]').value;
@@ -109,23 +129,24 @@
     let registerIntent = false;
     emailInput.addEventListener('input', () => { registerIntent = false; });
 
-    // Mirrors the server-side policy so a too-weak password never needs a
-    // round trip (the server still enforces it).
-    function passwordPolicyError(password) {
-        if (password.length < 8 || !/\d/.test(password)) {
-            return 'Password must be at least 8 characters and contain one number.';
-        }
-        return null;
-    }
-
     async function offerRegistration(errorMessage) {
         const result = await Swal.fire({
-            icon: 'question',
             title: 'Create a new account?',
-            text: `We couldn't sign you in — either the password is wrong, or no account exists for ${emailInput.value}. Create a new account with these details?`,
+            text: `We couldn't sign you in — either the password is wrong, or ${emailInput.value} isn't registered yet.`,
             showCancelButton: true,
             confirmButtonText: 'Create account',
             cancelButtonText: 'Try again',
+            reverseButtons: true,
+            // A password typo is the likeliest reason to land here — don't
+            // let a stray Enter create a duplicate account.
+            focusCancel: true,
+            buttonsStyling: false,
+            customClass: {
+                popup: 'auth-dialog',
+                actions: 'gap-2',
+                confirmButton: 'btn btn-primary',
+                cancelButton: 'btn btn-outline-secondary',
+            },
         });
         if (result.isConfirmed) {
             registerIntent = true;
@@ -137,14 +158,6 @@
 
     async function submitAuth() {
         hideError();
-
-        if (registerIntent) {
-            const policyError = passwordPolicyError(passwordInput.value);
-            if (policyError) {
-                showError(policyError);
-                return;
-            }
-        }
         actionInput.value = registerIntent ? 'register' : 'login';
 
         submitButton.disabled = true;
