@@ -43,6 +43,9 @@
                             <small id="password-hint" class="form-text text-muted">
                                 New accounts: password must be at least 8 characters and contain a number.
                             </small>
+                            <div class="text-end">
+                                <a href="/auth/reset" class="small">Forgot password?</a>
+                            </div>
                         </div>
                         <div class="d-grid">
                             <button id="submit-button" type="submit" class="btn btn-primary">Login</button>
@@ -85,10 +88,13 @@
 
     const errorAlert = document.getElementById('error-alert');
 
-    function showError(message) {
+    function showAlert(message, kind) {
         errorAlert.textContent = message;
-        errorAlert.classList.remove('d-none');
+        errorAlert.classList.remove('d-none', 'alert-danger', 'alert-info');
+        errorAlert.classList.add('alert-' + kind);
     }
+
+    function showError(message) { showAlert(message, 'danger'); }
 
     function hideError() {
         errorAlert.classList.add('d-none');
@@ -130,6 +136,11 @@
                     } else {
                         showError(data.detail);
                     }
+                } else if (data.info) {
+                    // Not a failure — e.g. account created but email
+                    // confirmation is required before logging in.
+                    showAlert(data.info, 'info');
+                    setUI('login');
                 } else if (data.error) {
                     // Application-level error
                     showError(data.error);

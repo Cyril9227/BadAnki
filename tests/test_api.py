@@ -745,3 +745,112 @@ def test_photo_cache_roundtrip_and_upsert(db_conn):
     # Re-rendering the same content upserts the newer file_id.
     crud.cache_photo_file_id(db_conn, content_hash, "file-2", card_id=123)
     assert crud.get_cached_photo_file_id(db_conn, content_hash) == "file-2"
+
+# --- Password Reset & Change Tests ---
+def _fake_httpx_response(status_code, json_body=None):
+    """Stand-in for the GoTrue REST responses used by the password helpers."""
+    response = MagicMock()
+    response.status_code = status_code
+    response.json.return_value = json_body if json_body is not None else {}
+    return response
+
+def test_password_reset_request_is_enumeration_safe(client):
+    """Known and unknown addresses must get the same generic answer."""
+    csrf_token = get_csrf_token(client)
+    with patch("main.httpx.post", return_value=_fake_httpx_response(200)) as mock_post:
+        response = client.post(
+            "/auth/reset",
+            data={"email": "whoever@example.com", "csrf_token": csrf_token},
+        )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert "if an account exists" in body["message"].lower()
+    # The recovery link must land back on the reset page to be completed.
+    assert mock_post.call_args.kwargs["params"]["redirect_to"].endswith("/auth/reset")
+
+def test_password_reset_request_surfaces_rate_limit(client):
+    csrf_token = get_csrf_token(client)
+    with patch("main.httpx.post", return_value=_fake_httpx_response(429)):
+        response = client.post(
+            "/auth/reset",
+            data={"email": "whoever@example.com", "csrf_token": csrf_token},
+        )
+    body = response.json()
+    assert body["success"] is False
+    assert "too many" in body["error"].lower()
+
+def test_password_reset_confirm_enforces_password_policy(client):
+    csrf_token = get_csrf_token(client)
+    with patch("main.httpx.put") as mock_put:
+        response = client.post(
+            "/auth/reset/confirm",
+            json={"access_token": "recovery-token", "password": "short"},
+            headers={"X-CSRF-Token": csrf_token},
+        )
+    body = response.json()
+    assert body["success"] is False
+    assert "8 characters" in body["error"]
+    mock_put.assert_not_called()
+
+def test_password_reset_confirm_success_logs_user_in(client):
+    csrf_token = get_csrf_token(client)
+    with patch("main.httpx.put", return_value=_fake_httpx_response(200)):
+        response = client.post(
+            "/auth/reset/confirm",
+            json={
+                "access_token": "recovery-token",
+                "refresh_token": "recovery-refresh",
+                "password": "newpassword1",
+            },
+            headers={"X-CSRF-Token": csrf_token},
+        )
+    body = response.json()
+    assert body["success"] is True
+    # The recovery session doubles as the login session.
+    assert response.cookies.get("access_token") == "recovery-token"
+    assert response.cookies.get("refresh_token") == "recovery-refresh"
+
+def test_password_reset_confirm_rejects_dead_link(client):
+    csrf_token = get_csrf_token(client)
+    with patch("main.httpx.put", return_value=_fake_httpx_response(401)):
+        response = client.post(
+            "/auth/reset/confirm",
+            json={"access_token": "stale-token", "password": "newpassword1"},
+            headers={"X-CSRF-Token": csrf_token},
+        )
+    body = response.json()
+    assert body["success"] is False
+    assert "expired" in body["error"].lower()
+    assert "access_token" not in response.cookies
+
+@patch("main.supabase.auth.get_user")
+def test_change_password_rejects_wrong_current_password(mock_get_user, client, db_conn):
+    auth_client, _, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="pw_user@example.com")
+    with patch("main.httpx.post", return_value=_fake_httpx_response(400)), \
+         patch("main.httpx.put") as mock_put:
+        response = auth_client.post(
+            "/auth/change-password",
+            data={"current_password": "wrong", "new_password": "newpassword1"},
+            headers={"X-CSRF-Token": csrf_token},
+        )
+    body = response.json()
+    assert body["success"] is False
+    assert "current password" in body["error"].lower()
+    mock_put.assert_not_called()
+
+@patch("main.supabase.auth.get_user")
+def test_change_password_success(mock_get_user, client, db_conn):
+    auth_client, _, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="pw_user2@example.com")
+    with patch("main.httpx.post", return_value=_fake_httpx_response(200)) as mock_grant, \
+         patch("main.httpx.put", return_value=_fake_httpx_response(200)) as mock_put:
+        response = auth_client.post(
+            "/auth/change-password",
+            data={"current_password": "oldpassword1", "new_password": "newpassword1"},
+            headers={"X-CSRF-Token": csrf_token},
+        )
+    body = response.json()
+    assert body["success"] is True
+    # Verified against the account email, updated with the session's token.
+    assert mock_grant.call_args.kwargs["json"]["email"] == "pw_user2@example.com"
+    assert mock_put.call_args.kwargs["headers"]["Authorization"] == "Bearer fake-test-token"

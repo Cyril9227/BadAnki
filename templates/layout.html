@@ -562,9 +562,15 @@ window.MathJax = {
     const supabaseUrl = "{{ supabase_url or '' }}";
     const supabaseKey = "{{ supabase_key or '' }}";
 
+    // A password-recovery link may land on any page (Supabase falls back to
+    // the Site URL when the redirect target isn't allowlisted). Hand it to the
+    // reset page, which finishes the flow — completing the login here would
+    // swallow the "set a new password" step.
+    if (window.location.hash.includes('type=recovery') && window.location.pathname !== '/auth/reset') {
+        window.location.replace('/auth/reset' + window.location.hash);
     // Only pull in the Supabase SDK when there is actually an OAuth redirect to
     // complete (token in the URL hash). Normal navigations skip the download.
-    if (supabaseUrl && supabaseKey && window.location.hash.includes('access_token')) {
+    } else if (supabaseUrl && supabaseKey && window.location.hash.includes('access_token')) {
         import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm').then(({ createClient }) => {
             const supabase = createClient(supabaseUrl, supabaseKey);
 
