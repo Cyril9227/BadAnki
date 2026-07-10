@@ -52,13 +52,17 @@
     <div class="card">
         <div class="card-header">Telegram Notifications</div>
         <div class="card-body">
-            <p class="text-muted small mb-3">Connect your Telegram account to receive daily review reminders and pull cards with /random. Connecting happens through the bot itself, so a chat can only be claimed by its owner.</p>
-            <div class="d-flex align-items-center gap-2 flex-wrap">
+            <p class="text-muted small mb-2">Connect your Telegram account to receive daily review reminders and pull cards with /random. Connecting happens through the bot itself, so a chat can only be claimed by its owner.</p>
+            <p class="mb-3">Status:
                 {% if telegram_linked %}
                     <span class="badge bg-success">Connected</span>
                 {% else %}
                     <span class="badge bg-secondary">Not connected</span>
                 {% endif %}
+            </p>
+            {# Same responsive idiom as the review page's rating buttons:
+               stacked full-width on phones, inline row from sm up. #}
+            <div class="d-grid gap-2 d-sm-flex">
                 {% if telegram_bot_username %}
                 <a class="btn btn-primary" target="_blank" rel="noopener"
                    href="https://t.me/{{ telegram_bot_username }}?start={{ telegram_link_token }}">
