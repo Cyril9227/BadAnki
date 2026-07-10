@@ -101,6 +101,10 @@ document.addEventListener('DOMContentLoaded', function () {
             body: JSON.stringify({ content: content, card_type: cardType })
         })
         .then(response => {
+            if (response.redirected) {
+                // A followed redirect means the session expired mid-generation.
+                throw new Error('Your session has expired. Please log in again.');
+            }
             if (!response.ok) {
                 const contentType = response.headers.get('content-type') || '';
                 if (contentType.includes('application/json')) {

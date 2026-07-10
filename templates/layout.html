@@ -394,6 +394,13 @@ window.MathJax = {
             if (token) headers['X-CSRF-Token'] = token;
         }
         const response = await fetch(url, Object.assign({}, options, { headers }));
+        if (response.redirected) {
+            // JSON endpoints never redirect; a followed redirect means the
+            // session expired and this 200 is the login page's HTML.
+            const err = new Error('Your session has expired. Please log in again.');
+            err.status = 401;
+            throw err;
+        }
         const contentType = response.headers.get('content-type') || '';
         let payload = null;
         if (contentType.includes('application/json')) {

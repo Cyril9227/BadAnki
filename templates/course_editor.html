@@ -124,11 +124,12 @@ document.addEventListener('DOMContentLoaded', function () {
     function loadFileTree() {
         const expandedPaths = getExpandedFolders();
         fetch('/api/courses-tree')
-            .then(response => response.json())
+            .then(handleResponse)
             .then(data => {
                 fileTreeContainer.innerHTML = buildTreeHTML(data);
                 restoreTreeState(expandedPaths);
-            });
+            })
+            .catch(handleError);
     }
 
     // Folders the user has opened, so rebuilding the tree (after save/upload/
@@ -566,6 +567,11 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     function handleResponse(response) {
+        if (response.redirected) {
+            // JSON endpoints never redirect; a followed redirect means the
+            // session expired and this 200 is the login page's HTML.
+            throw new Error('Your session has expired. Please log in again.');
+        }
         if (!response.ok) {
             return response.json().then(err => { throw new Error(err.detail || `HTTP error! status: ${response.status}`) });
         }
