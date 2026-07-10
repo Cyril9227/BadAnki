@@ -333,26 +333,44 @@ document.addEventListener('DOMContentLoaded', function () {
         .catch(handleError);
     }
 
-    function loadEditorContent(path) {
-        fetch(`/api/course-content/${encodeURIComponent(path)}`)
-            .then(handleResponse)
-            .then(content => {
-                currentDirectory = path.substring(0, path.lastIndexOf('/'));
-                editorContainer.style.display = 'block';
-                noFileSelected.style.display = 'none';
-                editingFilename.textContent = `Editing: ${path}`;
-                currentFilePathInput.value = path;
-                markdownEditor.value = content;
-                isDirty = false; // Freshly loaded content is not a pending edit.
-                updatePreview();
-                localStorage.setItem('lastEditedFilePath', path);
-                revealInTree(path);
+    // Loading a file overwrites the buffer, so in-page file switches need the
+    // same protection beforeunload gives real navigation.
+    function confirmDiscardEdits() {
+        if (!isDirty) return Promise.resolve(true);
+        return Swal.fire({
+            title: 'Discard unsaved changes?',
+            text: `${currentFilePathInput.value} has unsaved edits.`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'Yes, discard'
+        }).then(result => result.isConfirmed);
+    }
 
-                if (window.innerWidth < 992) { // 992px is the breakpoint for lg devices
-                    editorContainer.scrollIntoView({ behavior: 'smooth' });
-                }
-            })
-            .catch(handleError);
+    function loadEditorContent(path) {
+        confirmDiscardEdits().then(confirmed => {
+            if (!confirmed) return;
+            fetch(`/api/course-content/${encodeURIComponent(path)}`)
+                .then(handleResponse)
+                .then(content => {
+                    currentDirectory = path.substring(0, path.lastIndexOf('/'));
+                    editorContainer.style.display = 'block';
+                    noFileSelected.style.display = 'none';
+                    editingFilename.textContent = `Editing: ${path}`;
+                    currentFilePathInput.value = path;
+                    markdownEditor.value = content;
+                    isDirty = false; // Freshly loaded content is not a pending edit.
+                    updatePreview();
+                    localStorage.setItem('lastEditedFilePath', path);
+                    revealInTree(path);
+
+                    if (window.innerWidth < 992) { // 992px is the breakpoint for lg devices
+                        editorContainer.scrollIntoView({ behavior: 'smooth' });
+                    }
+                })
+                .catch(handleError);
+        });
     }
 
     document.body.addEventListener('click', function(e) {
@@ -381,10 +399,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
         const fileTarget = e.target.closest('.file-item');
         if (fileTarget) {
-            const path = fileTarget.dataset.path;
-            loadEditorContent(path);
-            document.querySelectorAll('.list-group-item').forEach(item => item.classList.remove('bg-light'));
-            fileTarget.closest('.list-group-item').classList.add('bg-light');
+            // Highlighting is handled by revealInTree once the load goes
+            // through — moving it here would mark a file the user may cancel.
+            loadEditorContent(fileTarget.dataset.path);
             return;
         }
 
