@@ -39,6 +39,50 @@
         font-size: 0.95rem;
         text-align: left;
     }
+
+    /* Placeholder shown until the first card renders — the content is
+       client-rendered, so without this the card is blank on slow loads. */
+    .skeleton-line {
+        display: block;
+        height: 1.1rem;
+        margin: 0.6rem auto;
+        border-radius: 0.25rem;
+        background: var(--bs-secondary-bg);
+    }
+
+    #review-card-body { transition: opacity 0.15s ease; }
+    #review-card-body.rating-pending { opacity: 0.45; }
+
+    /* Spinner appended to whichever rating button was activated. Reuses
+       Bootstrap's spinner-border keyframes. */
+    .btn-loading::after {
+        content: '';
+        display: inline-block;
+        width: 0.85em;
+        height: 0.85em;
+        margin-left: 0.5em;
+        vertical-align: -0.08em;
+        border: 0.16em solid currentColor;
+        border-right-color: transparent;
+        border-radius: 50%;
+        animation: spinner-border 0.6s linear infinite;
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+        .skeleton-line { animation: skeleton-pulse 1.2s ease-in-out infinite; }
+        .reveal-in { animation: slide-fade-in 0.2s ease-out; }
+        .card-swap-in { animation: slide-fade-in 0.25s ease-out; }
+    }
+    @keyframes skeleton-pulse { 50% { opacity: 0.4; } }
+    @keyframes slide-fade-in {
+        from { opacity: 0; transform: translateY(0.5rem); }
+        to { opacity: 1; transform: none; }
+    }
+
+    /* Keyboard hints are noise on touch-only devices. */
+    @media (hover: none) and (pointer: coarse) {
+        .kbd-hint { display: none; }
+    }
 </style>
 {% endblock %}
 
@@ -48,10 +92,10 @@
         Review Card
         <span id="card-type-badge" class="badge bg-info ms-2" style="display: none;">Cloze</span>
     </div>
-    <div class="card-body">
+    <div class="card-body" id="review-card-body">
         <div class="question">
             <h5 class="card-title" id="question-title">Question</h5>
-            <div class="card-text fs-4 markdown-content review-card-content" id="question-content"></div>
+            <div class="card-text fs-4 markdown-content review-card-content" id="question-content"><span class="skeleton-line w-75"></span><span class="skeleton-line w-50"></span></div>
         </div>
         <hr>
         <div class="answer" id="answer-section" style="display: none;">
@@ -61,7 +105,7 @@
     </div>
     <div class="card-footer text-muted">
         <button class="btn btn-primary" id="show-answer-btn" type="button">Show Answer</button>
-        <div class="form-text mt-2" id="show-answer-hint">Shortcut: <kbd>Space</kbd> Show answer</div>
+        <div class="form-text mt-2 kbd-hint" id="show-answer-hint">Shortcut: <kbd>Space</kbd> Show answer</div>
 
         <form id="review-form" action="/review/{{ card.id }}" method="post" class="mt-3" style="display: none;">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -69,7 +113,7 @@
                 <button type="submit" name="status" value="remembered" class="btn btn-success rating-btn">Remembered</button>
                 <button type="submit" name="status" value="forgot" class="btn btn-danger rating-btn">Forgot</button>
             </div>
-            <div class="form-text mt-2">Shortcuts: <kbd>1</kbd> Remembered · <kbd>2</kbd> Forgot</div>
+            <div class="form-text mt-2 kbd-hint">Shortcuts: <kbd>1</kbd> Remembered · <kbd>2</kbd> Forgot</div>
         </form>
     </div>
 </div>
@@ -122,6 +166,7 @@
         const questionTitle = document.getElementById('question-title');
         const cardTypeBadge = document.getElementById('card-type-badge');
         const showAnswerHint = document.getElementById('show-answer-hint');
+        const cardBody = document.getElementById('review-card-body');
         const ratingButtons = Array.from(reviewForm.querySelectorAll('.rating-btn'));
 
         let answerShown = false;
@@ -181,6 +226,8 @@
             showAnswerBtn.disabled = true;
             answerSection.style.display = 'block';
             reviewForm.style.display = 'block';
+            answerSection.classList.add('reveal-in');
+            reviewForm.classList.add('reveal-in');
             showAnswerBtn.style.display = 'none';
             if (showAnswerHint) showAnswerHint.style.display = 'none';
             // For cloze cards, also reveal the hidden words in place so the
@@ -200,10 +247,12 @@
             lastRatingValue = null;
             answerSection.style.display = 'none';
             reviewForm.style.display = 'none';
+            answerSection.classList.remove('reveal-in');
+            reviewForm.classList.remove('reveal-in');
             showAnswerBtn.style.display = 'inline-block';
             showAnswerBtn.disabled = false;
             if (showAnswerHint) showAnswerHint.style.display = '';
-            ratingButtons.forEach(btn => { btn.disabled = false; });
+            ratingButtons.forEach(btn => { btn.disabled = false; btn.classList.remove('btn-loading'); });
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
@@ -223,27 +272,74 @@
             }
         }
 
+        // Swap the UI to whatever the server says comes next (shared by
+        // rating and undo, which return the same payload shape).
+        function applyReviewPayload(data) {
+            updateStats(data && data.stats);
+            if (data && data.next_card) {
+                currentCardId = data.next_card.id;
+                reviewForm.action = '/review/' + currentCardId;
+                renderCard(data.next_card);
+                resetForNextCard();
+                cardBody.classList.remove('card-swap-in');
+                void cardBody.offsetWidth; // restart the entrance animation
+                cardBody.classList.add('card-swap-in');
+            } else {
+                // No cards left to review — let the server render "All Done".
+                window.location.href = '/review';
+            }
+        }
+
+        // A transient toast telling the user what their rating did, with a
+        // short undo window for mis-keys. A newer toast dismisses the older
+        // one, so only the latest rating is undoable — which is the one a
+        // mis-key just produced.
+        function showRatingToast(status, ratedCardId, data) {
+            const review = data && data.review;
+            if (!review) return;
+            Swal.fire({
+                toast: true,
+                position: 'top-end',
+                icon: status === 'remembered' ? 'success' : 'info',
+                title: review.interval === 1 ? 'Next review tomorrow' : `Next review in ${review.interval} days`,
+                showConfirmButton: true,
+                confirmButtonText: 'Undo',
+                timer: 5000,
+                timerProgressBar: true
+            }).then(result => {
+                if (result.isConfirmed) undoRating(ratedCardId, review.previous);
+            });
+        }
+
+        function undoRating(cardId, previous) {
+            window.fetchJson('/api/review/' + cardId + '/undo', {
+                method: 'POST',
+                body: JSON.stringify(previous)
+            }).then(applyReviewPayload)
+            .catch(error => {
+                console.error('Undo failed; reloading to recover:', error);
+                window.location.href = '/review';
+            });
+        }
+
         // Record a rating without a full page reload, then swap in the next card.
         // Falls back to a normal navigation on any error so a rating is never lost.
         function rate(status) {
             if (submitting || !answerShown) return;
             submitting = true;
             ratingButtons.forEach(btn => { btn.disabled = true; });
+            const activeBtn = ratingButtons.find(btn => btn.value === status);
+            if (activeBtn) activeBtn.classList.add('btn-loading');
+            cardBody.classList.add('rating-pending');
+            const ratedCardId = currentCardId;
 
             window.fetchJson('/api/review/' + currentCardId, {
                 method: 'POST',
                 body: new URLSearchParams({ status: status })
             }).then(data => {
-                updateStats(data && data.stats);
-                if (data && data.next_card) {
-                    currentCardId = data.next_card.id;
-                    reviewForm.action = '/review/' + currentCardId;
-                    renderCard(data.next_card);
-                    resetForNextCard();
-                } else {
-                    // No cards left to review — let the server render "All Done".
-                    window.location.href = '/review';
-                }
+                cardBody.classList.remove('rating-pending');
+                applyReviewPayload(data);
+                showRatingToast(status, ratedCardId, data);
             }).catch(error => {
                 console.error('Review submit failed; reloading to recover:', error);
                 window.location.href = '/review';
@@ -256,6 +352,7 @@
         // 2/F = forgot. Ignored while typing in a field.
         document.addEventListener('keydown', function(e) {
             if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
+            if (e.ctrlKey || e.metaKey || e.altKey) return; // browser shortcuts, not ratings
             if (!answerShown) {
                 if (e.key === ' ' || e.key === 'Enter') {
                     e.preventDefault();

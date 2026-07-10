@@ -8,6 +8,7 @@ import os
 import secrets
 import time
 from collections import deque
+from datetime import datetime
 from threading import Lock
 from typing import Optional
 import uuid
@@ -325,6 +326,14 @@ class Secrets(BaseModel):
     telegram_token: str | None = Field(default=None, max_length=MAX_SECRET_INPUT_LEN)
     telegram_chat_id: str | None = Field(default=None, max_length=MAX_SECRET_INPUT_LEN)
     scheduler_secret: str | None = Field(default=None, max_length=MAX_SECRET_INPUT_LEN)
+
+class ReviewUndo(BaseModel):
+    # Echo of the `previous` scheduling values returned by the rating call.
+    # Only ever applied to the caller's own cards, so at worst a user
+    # reschedules a card they could rate anyway.
+    interval: int = Field(..., ge=0, le=36500)
+    ease_factor: float = Field(..., gt=0, le=1000)
+    due_date: datetime
 
 class AuthCallback(BaseModel):
     access_token: str = Field(..., min_length=1, max_length=8192)
@@ -1416,9 +1425,42 @@ async def update_review_ajax(
     if status not in ("remembered", "forgot"):
         raise HTTPException(status_code=400, detail="Invalid review status.")
 
-    if crud.update_card_for_user(conn, card_id, user.auth_user_id, status == "remembered"):
+    result = crud.update_card_for_user(conn, card_id, user.auth_user_id, status == "remembered")
+    if result:
         crud.record_review_activity(conn, user.auth_user_id, status == "remembered")
 
+    payload = _review_state_payload(conn, user)
+    if result:
+        payload["review"] = {
+            "interval": result["interval"],
+            "previous": {
+                "interval": result["previous"]["interval"],
+                "ease_factor": result["previous"]["ease_factor"],
+                "due_date": result["previous"]["due_date"].isoformat(),
+            },
+        }
+    return JSONResponse(content=payload)
+
+
+@app.post("/api/review/{card_id}/undo", response_class=JSONResponse)
+async def undo_review_ajax(
+    card_id: int,
+    payload: ReviewUndo,
+    conn: psycopg2.extensions.connection = Depends(get_db),
+    user: User = Depends(get_current_active_user),
+):
+    """Restores a card's pre-rating scheduling so a mis-keyed rating can be
+    undone from the toast. Review activity is left as recorded — streaks
+    count effort, not outcomes."""
+    crud.restore_card_schedule_for_user(
+        conn, card_id, user.auth_user_id,
+        payload.interval, payload.ease_factor, payload.due_date,
+    )
+    return JSONResponse(content=_review_state_payload(conn, user))
+
+
+def _review_state_payload(conn, user: User) -> dict:
+    """The next due card plus deck stats, as consumed by the review page JS."""
     next_card = crud.get_review_cards_for_user(conn, user.auth_user_id)
     stats = crud.get_review_stats_for_user(conn, user.auth_user_id)
     streak = crud.get_review_streak_for_user(conn, user.auth_user_id)
@@ -1442,7 +1484,7 @@ async def update_review_ajax(
             "answer": card["answer"],
             "card_type": card.get("card_type") or "basic",
         }
-    return JSONResponse(content=payload)
+    return payload
 
 @app.get("/manage", response_class=HTMLResponse)
 async def manage_cards(request: Request, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):

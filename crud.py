@@ -363,13 +363,15 @@ def get_all_cards_for_user(conn, auth_user_id: str):
         cursor.execute("SELECT * FROM cards WHERE user_id = %s ORDER BY due_date", (auth_user_id,))
         return cursor.fetchall()
 
-def update_card_for_user(conn, card_id: int, auth_user_id: str, remembered: bool) -> bool:
-    """Applies a rating to a card. Returns True when a card was updated."""
+def update_card_for_user(conn, card_id: int, auth_user_id: str, remembered: bool):
+    """Applies a rating to a card. Returns the scheduling change — the new
+    interval plus the pre-rating values so the rating can be undone — or
+    None when the card doesn't belong to the user."""
     with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
         cursor.execute("SELECT * FROM cards WHERE id = %s AND user_id = %s", (card_id, auth_user_id))
         card = cursor.fetchone()
         if not card:
-            return False
+            return None
 
         ease_factor, interval = card['ease_factor'], card['interval']
         if remembered:
@@ -385,7 +387,26 @@ def update_card_for_user(conn, card_id: int, auth_user_id: str, remembered: bool
             (next_due_date, ease_factor, interval, card_id, auth_user_id)
         )
     conn.commit()
-    return True
+    return {
+        "interval": interval,
+        "previous": {
+            "interval": card["interval"],
+            "ease_factor": card["ease_factor"],
+            "due_date": card["due_date"],
+        },
+    }
+
+def restore_card_schedule_for_user(conn, card_id: int, auth_user_id: str, interval: int, ease_factor: float, due_date: datetime) -> bool:
+    """Reverts a rating by writing back the scheduling values that
+    update_card_for_user returned. User-scoped like every other card write."""
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "UPDATE cards SET due_date = %s, ease_factor = %s, interval = %s WHERE id = %s AND user_id = %s",
+            (due_date, ease_factor, interval, card_id, auth_user_id)
+        )
+        updated = cursor.rowcount > 0
+    conn.commit()
+    return updated
 
 def create_card_for_user(conn, question: str, answer: str, auth_user_id: str, card_type: str = "basic"):
     with conn.cursor() as cursor:
