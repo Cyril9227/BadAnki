@@ -737,7 +737,11 @@ def test_create_profile_retries_on_username_collision(db_conn):
     email = "collision@example.com"
     first, second = str(uuid.uuid4()), str(uuid.uuid4())
     cur = db_conn.cursor()
-    cur.execute("INSERT INTO auth.users (id, email) VALUES (%s, %s), (%s, %s)", (first, email, second, email))
+    # The fixture's dummy auth.users enforces UNIQUE(email); real Supabase
+    # doesn't for unverified accounts. Only the FK ids matter here — the
+    # collision under test is on profiles.username.
+    cur.execute("INSERT INTO auth.users (id, email) VALUES (%s, %s), (%s, %s)",
+                (first, email, second, f"other-{email}"))
     db_conn.commit()
     cur.close()
 
