@@ -1,4 +1,5 @@
 import os
+import threading
 from psycopg2 import pool
 from psycopg2.extras import register_uuid
 from psycopg2.extensions import connection
@@ -8,6 +9,7 @@ from datetime import datetime
 load_dotenv()
 
 db_pool = None
+_pool_init_lock = threading.Lock()
 
 def _database_connect_kwargs(db_url: str | None) -> dict:
     if not db_url:
@@ -21,18 +23,22 @@ def _database_connect_kwargs(db_url: str | None) -> dict:
 def init_db_pool():
     """Initializes the database connection pool and registers the UUID adapter."""
     global db_pool
-    if db_pool is None:
-        db_url = os.environ.get("DATABASE_URL")
-        default_max_connections = "5" if os.environ.get("ENVIRONMENT") == "production" else "20"
-        min_connections = int(os.environ.get("DB_POOL_MIN", "1"))
-        max_connections = int(os.environ.get("DB_POOL_MAX", default_max_connections))
-        db_pool = pool.SimpleConnectionPool(
-            min_connections,
-            max_connections,
-            **_database_connect_kwargs(db_url)
-        )
-        # Register the UUID adapter globally for all connections
-        register_uuid()
+    # The pool is used from the event loop (db middleware) and from FastAPI's
+    # threadpool workers at the same time, so it must be the thread-safe
+    # variant, and initialization must not race into two pools.
+    with _pool_init_lock:
+        if db_pool is None:
+            db_url = os.environ.get("DATABASE_URL")
+            default_max_connections = "5" if os.environ.get("ENVIRONMENT") == "production" else "20"
+            min_connections = int(os.environ.get("DB_POOL_MIN", "1"))
+            max_connections = int(os.environ.get("DB_POOL_MAX", default_max_connections))
+            db_pool = pool.ThreadedConnectionPool(
+                min_connections,
+                max_connections,
+                **_database_connect_kwargs(db_url)
+            )
+            # Register the UUID adapter globally for all connections
+            register_uuid()
 
 def get_db_pool():
     """Returns the connection pool, initializing it if necessary."""
