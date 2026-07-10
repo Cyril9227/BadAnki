@@ -451,7 +451,9 @@ window.MathJax = {
                 {% if request.state.user %}
                 <div class="dropdown">
                     <a class="nav-link dropdown-toggle" href="#" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-                        <i class="fas fa-user"></i> <span class="d-none d-sm-inline">{{ request.state.user.username }}</span>
+                        {# Local part only: usernames are emails, and the full
+                           address is both noisy and shoulder-surfable. #}
+                        <i class="fas fa-user"></i> <span class="d-none d-sm-inline">{{ request.state.user.username.split('@')[0] }}</span>
                     </a>
                     <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
                         <li><a class="dropdown-item" href="/settings">Settings</a></li>
