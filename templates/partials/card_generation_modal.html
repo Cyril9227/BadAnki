@@ -1,5 +1,5 @@
 <!-- templates/partials/card_generation_modal.html -->
-<div class="modal fade" id="cards-modal" tabindex="-1" aria-labelledby="cardsModalLabel" aria-hidden="true">
+<div class="modal fade" id="cards-modal" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1" aria-labelledby="cardsModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
@@ -25,7 +25,8 @@
 // Card generation + approval logic. Lives with the modal markup so only the
 // pages that include this partial ship it.
 document.addEventListener('DOMContentLoaded', function () {
-    const cardsModal = new bootstrap.Modal(document.getElementById('cards-modal'));
+    const cardsModalEl = document.getElementById('cards-modal');
+    const cardsModal = new bootstrap.Modal(cardsModalEl);
     const cardsModalBody = document.getElementById('cards-modal-body-content');
     const saveCardsBtn = document.getElementById('save-cards-btn');
     const loadingSpinner = document.getElementById('loading-spinner');
@@ -81,6 +82,7 @@ document.addEventListener('DOMContentLoaded', function () {
         // Clear any stale interval from a previous run before starting a new one.
         if (messageInterval) clearInterval(messageInterval);
 
+        generatedCardsData = []; // Drop any previous batch before a new run.
         cardsModalBody.innerHTML = '';
         loadingSpinner.style.display = 'block';
         if(loadingMessage) loadingMessage.textContent = loadingMessages[0];
@@ -131,6 +133,9 @@ document.addEventListener('DOMContentLoaded', function () {
             if (messageInterval) { clearInterval(messageInterval); messageInterval = null; }
             loadingSpinner.style.display = 'none';
             generateInFlight = false;
+            // No-op when already visible; brings the result (or error) back if
+            // the user closed the modal during the long generation call.
+            cardsModal.show();
         });
     }
 
@@ -237,8 +242,11 @@ document.addEventListener('DOMContentLoaded', function () {
         });
 
         cardsModalBody.appendChild(container);
-        if (window.MathJax) {
-            MathJax.typesetPromise([cardsModalBody]);
+        // window.MathJax is a plain config object until the async bundle loads.
+        if (window.MathJax && typeof window.MathJax.typesetPromise === 'function') {
+            MathJax.typesetPromise([cardsModalBody]).catch(function (e) {
+                console.warn('MathJax typesetting failed:', e);
+            });
         }
     }
 
@@ -277,8 +285,10 @@ document.addEventListener('DOMContentLoaded', function () {
             questionSpan.innerHTML = window.safeMarkdownInline(newQuestion);
             answerSpan.innerHTML = window.safeMarkdownInline(newAnswer);
 
-            if (window.MathJax) {
-                MathJax.typesetPromise([questionSpan, answerSpan]);
+            if (window.MathJax && typeof window.MathJax.typesetPromise === 'function') {
+                MathJax.typesetPromise([questionSpan, answerSpan]).catch(function (e) {
+                    console.warn('MathJax typesetting failed:', e);
+                });
             }
 
             cardElement.querySelector('.card-content').style.display = 'block';
@@ -334,6 +344,7 @@ document.addEventListener('DOMContentLoaded', function () {
             body: JSON.stringify({ cards: approvedCards })
         })
         .then(data => {
+            generatedCardsData = []; // Saved — let the discard guard release the modal.
             Swal.fire({ icon: 'success', title: 'Success!', text: data.message });
             cardsModal.hide();
         })
@@ -353,6 +364,28 @@ document.addEventListener('DOMContentLoaded', function () {
             saveInFlight = false;
             saveCardsBtn.disabled = false;
             saveCardsBtn.textContent = originalLabel;
+        });
+    });
+
+    // With a static backdrop, only the Close buttons reach here — but they
+    // used to drop an entire generated (and possibly hand-edited) batch with
+    // zero warning. Confirm first while unsaved cards exist.
+    cardsModalEl.addEventListener('hide.bs.modal', function (e) {
+        if (!generatedCardsData.some(Boolean)) return;
+        e.preventDefault();
+        Swal.fire({
+            title: 'Discard generated cards?',
+            text: 'Cards you have not saved will be lost.',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'Yes, discard'
+        }).then(result => {
+            if (result.isConfirmed) {
+                generatedCardsData = [];
+                cardsModal.hide();
+            }
         });
     });
 });
