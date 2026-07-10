@@ -1211,14 +1211,22 @@ async def view_course(request: Request, course_path: str, conn: psycopg2.extensi
     except (json.JSONDecodeError, TypeError):
         pass
 
-    post = frontmatter.loads(content)
+    # Hand-edited frontmatter can be invalid YAML (or parse to a non-dict) —
+    # render the file raw rather than 500; the crud helpers already tolerate
+    # this the same way.
+    try:
+        post = frontmatter.loads(content)
+        metadata = post.metadata if isinstance(post.metadata, dict) else {}
+        body = post.content
+    except Exception:
+        metadata, body = {}, content
 
-    if 'tags' in post.metadata:
-        post.metadata['tags'] = sanitize_tags(post.metadata['tags'])
+    if 'tags' in metadata:
+        metadata['tags'] = sanitize_tags(metadata['tags'])
 
     return templates.TemplateResponse(request, "course_viewer.html", {
-        "metadata": post.metadata,
-        "content": post.content,
+        "metadata": metadata,
+        "content": body,
         "course_path": course_path,
         "gemini_api_key_exists": bool(user.gemini_api_key),
         "anthropic_api_key_exists": bool(user.anthropic_api_key),
