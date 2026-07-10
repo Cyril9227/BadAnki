@@ -37,30 +37,35 @@ def get_profile_by_auth_id(conn, auth_user_id: str):
 
 def create_profile(conn, username: str, auth_user_id: str) -> bool:
     """
-    Creates a new profile linked to a Supabase auth user.
-    If the GEMINI_API_KEY environment variable is set, it will be used
-    as the default key for the new user.
-    This function is idempotent.
-    Returns True if a new profile was created, False otherwise.
+    Creates a new profile linked to a Supabase auth user, seeding the env
+    GEMINI_API_KEY when set. Idempotent; returns True if a new profile was
+    created. One email can map to two auth users (Supabase doesn't
+    identity-link unverified accounts), so a taken username is retried with
+    a unique suffix — display paths only ever show the part before '@'.
     """
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                """
-                INSERT INTO profiles (username, auth_user_id, gemini_api_key)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (auth_user_id) DO NOTHING
-                """,
-                (username, auth_user_id, os.environ.get("GEMINI_API_KEY"))
-            )
-            # rowcount is 1 if a row was inserted, 0 if ON CONFLICT happened.
-            is_new_user = cursor.rowcount > 0
-        conn.commit()
-        return is_new_user
-    except Exception:
-        conn.rollback()
-        logger.exception("Failed to create profile for auth_user_id=%s", auth_user_id)
-        return False
+    for name in (username, f"{username}#{str(auth_user_id)[:8]}"):
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO profiles (username, auth_user_id, gemini_api_key)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (auth_user_id) DO NOTHING
+                    """,
+                    (name, auth_user_id, os.environ.get("GEMINI_API_KEY"))
+                )
+                # rowcount is 1 if a row was inserted, 0 if ON CONFLICT happened.
+                is_new_user = cursor.rowcount > 0
+            conn.commit()
+            return is_new_user
+        except psycopg2.IntegrityError:
+            conn.rollback()
+        except Exception:
+            conn.rollback()
+            logger.exception("Failed to create profile for auth_user_id=%s", auth_user_id)
+            return False
+    logger.error("No unique username available for auth_user_id=%s", auth_user_id)
+    return False
 
 def get_user_by_telegram_chat_id(conn, chat_id: int):
     """Fetches a user by their Telegram chat ID."""

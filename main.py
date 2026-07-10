@@ -1055,8 +1055,12 @@ async def auth_callback(
         if not auth_user:
             raise HTTPException(status_code=401, detail="Invalid token")
 
-        # Create a profile if it doesn't exist.
+        # Create a profile if it doesn't exist. Without one, every request
+        # treats the session as logged out — fail loudly rather than set
+        # cookies that produce an invisible login loop.
         crud.create_profile(conn, username=auth_user.email, auth_user_id=auth_user.id)
+        if not crud.get_profile_by_auth_id(conn, auth_user.id):
+            raise HTTPException(status_code=500, detail="Could not initialize your profile. Please try again.")
 
         # Set the session cookies to log the user in. The refresh token keeps
         # the session alive after the ~1h access token expires.

@@ -18,6 +18,7 @@ os.environ["TELEGRAM_WEBHOOK_SECRET"] = "testsecret"
 
 # Import FastAPI app after setting env
 from main import app
+import crud
 
 # --- Ephemeral Postgres Fixture ---
 @pytest.fixture(scope="session")
@@ -728,6 +729,25 @@ def test_settings_page_and_legacy_redirects(mock_get_user, client, db_conn):
         response = auth_client.get(legacy, follow_redirects=False)
         assert response.status_code == 307
         assert response.headers["location"] == "/settings"
+
+def test_create_profile_retries_on_username_collision(db_conn):
+    """One email can belong to two auth users (e.g. Google sign-in next to an
+    unconfirmed email signup); the second must still get a profile instead of
+    a silent login loop."""
+    email = "collision@example.com"
+    first, second = str(uuid.uuid4()), str(uuid.uuid4())
+    cur = db_conn.cursor()
+    cur.execute("INSERT INTO auth.users (id, email) VALUES (%s, %s), (%s, %s)", (first, email, second, email))
+    db_conn.commit()
+    cur.close()
+
+    assert crud.create_profile(db_conn, username=email, auth_user_id=first) is True
+    assert crud.create_profile(db_conn, username=email, auth_user_id=second) is True
+
+    cur = db_conn.cursor()
+    cur.execute("SELECT username FROM profiles WHERE auth_user_id = %s", (second,))
+    assert cur.fetchone()["username"] == f"{email}#{second[:8]}"
+    cur.close()
 
 # --- Scheduler Tests ---
 @patch("main._ensure_webhook")
