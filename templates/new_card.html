@@ -15,7 +15,7 @@
                     <label for="card-type-select" class="form-label"><strong>Card Type</strong></label>
                     <select id="card-type-select" name="card_type" class="form-select">
                         <option value="basic">Basic Q&A</option>
-                        <option value="cloze">Cloze (Fill-in-the-blank)</option>
+                        <option value="cloze" {{ 'selected' if card_type == 'cloze' }}>Cloze (Fill-in-the-blank)</option>
                     </select>
                     <div id="cloze-hint" class="alert alert-info mt-3" style="display: none;">
                         <strong>Cloze format:</strong> Use <code>{{ '{{' }}c1::answer{{ '}}' }}</code> to mark the hidden text.
@@ -44,7 +44,7 @@
                 <div class="card-header">
                     <h3>Question Preview</h3>
                 </div>
-                <div class="card-body" id="question-preview">
+                <div class="card-body markdown-content" id="question-preview">
                     <!-- Preview will be rendered here -->
                 </div>
             </div>
@@ -70,7 +70,7 @@
                 <div class="card-header">
                     <h3>Answer Preview</h3>
                 </div>
-                <div class="card-body" id="answer-preview">
+                <div class="card-body markdown-content" id="answer-preview">
                     <!-- Preview will be rendered here -->
                 </div>
             </div>
@@ -114,11 +114,15 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
+    // Auto-fill stops as soon as the user edits the answer themselves —
+    // otherwise every question keystroke clobbered their refinement.
+    let answerEdited = false;
+
     function updateQuestionPreview() {
         let input = questionInput.value;
         if (cardTypeSelect.value === 'cloze') {
             const extracted = extractClozeAnswers(input);
-            if (extracted) {
+            if (extracted && !answerEdited) {
                 answerInput.value = extracted;
                 renderPreview(answerPreview, extracted);
             }
@@ -133,6 +137,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function toggleCardType() {
         if (cardTypeSelect.value === 'cloze') {
+            answerEdited = false; // fresh cloze intent — let auto-fill take over
             clozeHint.style.display = 'block';
             questionLabel.textContent = 'Text (with cloze syntax)';
             answerLabel.textContent = 'Answer (auto-filled)';
@@ -156,6 +161,7 @@ document.addEventListener('DOMContentLoaded', function () {
         questionPreviewTimeout = setTimeout(updateQuestionPreview, PREVIEW_DEBOUNCE_MS);
     });
     answerInput.addEventListener('input', function () {
+        answerEdited = true;
         clearTimeout(answerPreviewTimeout);
         answerPreviewTimeout = setTimeout(updateAnswerPreview, PREVIEW_DEBOUNCE_MS);
     });
@@ -188,7 +194,14 @@ document.addEventListener('DOMContentLoaded', function () {
         submitBtn.textContent = 'Saving...';
     });
 
-    updateQuestionPreview();
+    // Re-arm the submit button on bfcache restores (back navigation would
+    // otherwise revive the page with it stuck on "Saving...").
+    window.addEventListener('pageshow', function () {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Save Card';
+    });
+
+    toggleCardType(); // honor a preselected card type (e.g. ?card_type=cloze)
     updateAnswerPreview();
 });
 </script>

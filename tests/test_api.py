@@ -436,7 +436,8 @@ def test_create_card(mock_get_user, client, db_conn):
         follow_redirects=False
     )
     assert response.status_code == 303
-    assert response.headers["location"] == "/"
+    # Creation returns to a fresh form (card creation is repetitive).
+    assert response.headers["location"] == "/new?card_type=basic"
 
     cur = db_conn.cursor()
     cur.execute("SELECT * FROM cards WHERE question = 'What is FastAPI?'")

@@ -389,9 +389,12 @@ def _set_session_cookies(response: Response, request: Request, access_token: str
 
 
 def set_flash_cookie(response: Response, request: Request, value: str) -> None:
+    # Percent-encode: SimpleCookie wraps values containing spaces in literal
+    # quotes, which the flash JS would render into the toast. The client
+    # already decodeURIComponent()s the value.
     response.set_cookie(
         key="flash",
-        value=value,
+        value=quote(value),
         max_age=5,
         samesite="lax",
         secure=should_use_secure_cookies(request),
@@ -1523,15 +1526,19 @@ async def manage_cards(request: Request, conn: psycopg2.extensions.connection = 
     return templates.TemplateResponse(request, "manage_cards.html", {"cards": cards, "csrf_token": csrf_token})
 
 @app.get("/new", response_class=HTMLResponse)
-async def new_card_form(request: Request, user: User = Depends(get_current_active_user)):
+async def new_card_form(request: Request, card_type: str = "basic", user: User = Depends(get_current_active_user)):
     csrf_token = request.state.csrf_token
-    return templates.TemplateResponse(request, "new_card.html", {"csrf_token": csrf_token})
+    return templates.TemplateResponse(request, "new_card.html", {
+        "csrf_token": csrf_token,
+        "card_type": card_type if card_type in ("basic", "cloze") else "basic",
+    })
 
 @app.post("/new")
 async def create_new_card(request: Request, question: str = Form(...), answer: str = Form(...), card_type: str = Form("basic"), conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     question, answer, card_type = _validate_card_input(question, answer, card_type)
     crud.create_card_for_user(conn, question, answer, user.auth_user_id, card_type=card_type)
-    response = RedirectResponse(url="/", status_code=303)
+    # Card creation is repetitive — return to a fresh form of the same type.
+    response = RedirectResponse(url=f"/new?card_type={card_type}", status_code=303)
     set_flash_cookie(response, request, "success:Card created successfully!")
     return response
 
