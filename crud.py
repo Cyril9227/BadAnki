@@ -19,6 +19,9 @@ EASE_FACTOR_MODIFIER = 0.1
 MIN_EASE_FACTOR = 1.3
 EASE_FACTOR_PENALTY = 0.2
 INITIAL_INTERVAL = 1
+# Cap interval growth (~100 years): repeated "remembered" ratings otherwise
+# compound until due_date overflows datetime.max and the card 500s forever.
+MAX_INTERVAL_DAYS = 36500
 
 # How much of a course document to fetch when only the frontmatter matters
 # (titles, tags). Frontmatter blocks are tiny; documents can reach 1 MB.
@@ -370,7 +373,7 @@ def update_card_for_user(conn, card_id: int, auth_user_id: str, remembered: bool
 
         ease_factor, interval = card['ease_factor'], card['interval']
         if remembered:
-            interval = max(1, int(interval * ease_factor))
+            interval = min(MAX_INTERVAL_DAYS, max(1, int(interval * ease_factor)))
             ease_factor += EASE_FACTOR_MODIFIER
         else:
             interval = INITIAL_INTERVAL
