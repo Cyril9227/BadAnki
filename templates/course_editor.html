@@ -14,9 +14,17 @@
     .list-group-item:hover .item-actions {
         display: inline-block;
     }
+    /* No hover on touch devices — the actions must simply be there. */
+    @media (hover: none) {
+        .item-actions { display: inline-block; }
+    }
     .item-actions .btn {
         padding: 0.1rem 0.4rem;
         font-size: 0.8rem;
+    }
+    /* Theme-aware selection highlight (bg-light stays white in dark mode). */
+    .tree-active {
+        background-color: rgba(var(--primary-rgb), 0.12);
     }
 </style>
 {% endblock %}
@@ -78,7 +86,7 @@
                 </form>
                 <hr>
                 <h5>Live Preview</h5>
-                <div id="live-preview" class="border p-3"></div>
+                <div id="live-preview" class="border p-3 markdown-content"></div>
                 <div id="drop-zone-editor" class="border rounded p-3 mt-3 text-center text-muted" style="border-style: dashed !important;">
                     Drag & Drop .md files here or click to upload
                 </div>
@@ -163,8 +171,8 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         const fileEl = fileTreeContainer.querySelector(`.file-item[data-path="${CSS.escape(path)}"]`);
         if (fileEl) {
-            document.querySelectorAll('.list-group-item').forEach(item => item.classList.remove('bg-light'));
-            fileEl.closest('.list-group-item').classList.add('bg-light');
+            document.querySelectorAll('.list-group-item').forEach(item => item.classList.remove('tree-active'));
+            fileEl.closest('.list-group-item').classList.add('tree-active');
         }
     }
 
@@ -173,13 +181,14 @@ document.addEventListener('DOMContentLoaded', function () {
         revealInTree(currentFilePathInput.value);
     }
 
+    let collapseSeq = 0; // flattened paths can collide; a sequence can't
+
     function buildTreeHTML(nodes) {
         const esc = window.escapeHtml;
         let html = '<div class="list-group list-group-flush">';
         nodes.forEach((node, index) => {
             const padding = (node.depth || 0) * 20;
-            const safePath = node.path.replace(/[^a-zA-Z0-9]/g, '-');
-            const collapseId = `collapse-${safePath}-${index}`;
+            const collapseId = `collapse-${++collapseSeq}`;
             const dataPath = esc(node.path);
             const displayName = esc(node.type === 'directory' ? node.name : (node.title || node.name));
 
@@ -409,8 +418,8 @@ document.addEventListener('DOMContentLoaded', function () {
         if (folderTarget) {
             const path = folderTarget.dataset.path;
             currentDirectory = path;
-            document.querySelectorAll('.list-group-item').forEach(item => item.classList.remove('bg-light'));
-            folderTarget.closest('.list-group-item').classList.add('bg-light');
+            document.querySelectorAll('.list-group-item').forEach(item => item.classList.remove('tree-active'));
+            folderTarget.closest('.list-group-item').classList.add('tree-active');
         }
     });
 
@@ -590,7 +599,11 @@ document.addEventListener('DOMContentLoaded', function () {
             throw new Error('Your session has expired. Please log in again.');
         }
         if (!response.ok) {
-            return response.json().then(err => { throw new Error(err.detail || `HTTP error! status: ${response.status}`) });
+            return response.json().then(err => {
+                const error = new Error(err.detail || `HTTP error! status: ${response.status}`);
+                error.status = response.status;
+                throw error;
+            });
         }
         const contentType = response.headers.get("content-type");
         if (contentType && contentType.indexOf("application/json") !== -1) {
@@ -600,9 +613,9 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function handleError(error) {
-        // Check if the error is a 'Not Found' error, which can happen if a previously selected file was deleted
-        // or if a new user has no courses yet.
-        const isNotFound = error.message.includes('Not Found') || error.message.includes('404');
+        // 404s happen when a previously selected file was deleted or a new
+        // user has no courses yet; match on status, not message wording.
+        const isNotFound = error.status === 404 || /not found/i.test(error.message);
 
         if (isNotFound) {
             // Stale localStorage path or a freshly deleted file — reset quietly.
