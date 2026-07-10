@@ -19,11 +19,7 @@
                 <div class="mb-3">
                     <label for="gemini_api_key" class="form-label d-flex align-items-center gap-2">
                         Google Gemini API Key
-                        {% if gemini_key_set %}
-                            <span class="badge bg-success">Configured</span>
-                        {% else %}
-                            <span class="badge bg-secondary">Not set</span>
-                        {% endif %}
+                        <span id="gemini-key-badge" class="badge {{ 'bg-success' if gemini_key_set else 'bg-secondary' }}">{{ 'Configured' if gemini_key_set else 'Not set' }}</span>
                     </label>
                     <input type="password" id="gemini_api_key" name="gemini_api_key"
                            class="form-control" autocomplete="new-password"
@@ -33,11 +29,7 @@
                 <div class="mb-3">
                     <label for="anthropic_api_key" class="form-label d-flex align-items-center gap-2">
                         Anthropic API Key
-                        {% if anthropic_key_set %}
-                            <span class="badge bg-success">Configured</span>
-                        {% else %}
-                            <span class="badge bg-secondary">Not set</span>
-                        {% endif %}
+                        <span id="anthropic-key-badge" class="badge {{ 'bg-success' if anthropic_key_set else 'bg-secondary' }}">{{ 'Configured' if anthropic_key_set else 'Not set' }}</span>
                     </label>
                     <input type="password" id="anthropic_api_key" name="anthropic_api_key"
                            class="form-control" autocomplete="new-password"
@@ -135,13 +127,24 @@ document.getElementById('api-keys-form').addEventListener('submit', function(eve
         body: JSON.stringify(payload)
     })
     .then(() => {
+        // Flip the badges in place — no blocking dialog, no reload.
+        ['gemini', 'anthropic'].forEach(provider => {
+            if (payload[provider + '_api_key']) {
+                const badge = document.getElementById(provider + '-key-badge');
+                badge.className = 'badge bg-success';
+                badge.textContent = 'Configured';
+            }
+        });
+        this.reset();
         Swal.fire({
+            toast: true,
+            position: 'top-end',
             icon: 'success',
-            title: 'Success!',
-            text: 'API keys saved successfully.',
+            title: 'API keys saved!',
+            showConfirmButton: false,
             timer: 2000,
-            showConfirmButton: false
-        }).then(() => window.location.reload());
+            timerProgressBar: true
+        });
     })
     .catch(error => {
         console.error('Failed to save API keys:', error);
