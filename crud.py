@@ -361,7 +361,7 @@ def get_review_stats_for_user(conn, auth_user_id: str):
     query = """
     SELECT
         (SELECT COUNT(*) FROM cards WHERE user_id = %s AND due_date <= %s) AS due_today,
-        (SELECT COUNT(*) FROM cards WHERE user_id = %s AND interval = 1 AND ease_factor = 2.5) AS new_cards,
+        (SELECT COUNT(*) FROM cards WHERE user_id = %s AND interval = 0 AND ease_factor = 2.5) AS new_cards,
         (SELECT COUNT(*) FROM cards WHERE user_id = %s) AS total_cards;
     """
     with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
