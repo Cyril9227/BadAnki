@@ -184,8 +184,10 @@
         let lastRatingValue = null;
         let currentCardId = {{ card.id | tojson }};
         let currentCardData = null;
-        const skippedIds = [];   // cards set aside for later this session
-        const ratedHistory = []; // {id, card, previous} per rating, for going back
+        const skippedIds = [];    // cards set aside for later this session
+        // Every forward step (skip or rating) pushes here so swipe-back can
+        // retrace it; `previous` is set only on rated entries.
+        const sessionHistory = []; // {id, card, previous?}
         const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
         function typesetMath(elements) {
@@ -266,7 +268,7 @@
             showAnswerBtn.disabled = false;
             if (showAnswerHint) showAnswerHint.style.display = '';
             ratingButtons.forEach(btn => { btn.disabled = false; btn.classList.remove('btn-loading'); });
-            backBtn.style.visibility = ratedHistory.length ? 'visible' : 'hidden';
+            backBtn.style.visibility = sessionHistory.length ? 'visible' : 'hidden';
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
@@ -325,6 +327,7 @@
             if (submitting || navigating) return;
             navigating = true;
             skippedIds.push(currentCardId);
+            sessionHistory.push({ id: currentCardId, card: currentCardData });
             animateOut(-1);
             window.fetchJson('/api/review/next?exclude=' + skippedIds.join(','))
                 .then(data => {
@@ -344,12 +347,25 @@
                 });
         }
 
-        // Swipe right / ← : revert the last rating server-side and re-show
-        // that card, answer visible, ready to be re-rated.
+        // Swipe right / ← : back to the previous card. A skipped card is
+        // simply un-skipped and re-shown; a rated card gets its rating
+        // reverted server-side and comes back answer-visible for re-rating.
         function goBack() {
-            if (submitting || navigating || !ratedHistory.length) return;
+            if (submitting || navigating || !sessionHistory.length) return;
+            const last = sessionHistory.pop();
+
+            if (!last.previous) {
+                const i = skippedIds.indexOf(last.id);
+                if (i !== -1) skippedIds.splice(i, 1);
+                currentCardId = last.id;
+                reviewForm.action = '/review/' + last.id;
+                renderCard(last.card);
+                resetForNextCard();
+                enterCard('translateX(-2rem)');
+                return;
+            }
+
             navigating = true;
-            const last = ratedHistory.pop();
             animateOut(1);
             window.fetchJson('/api/review/' + last.id + '/undo', {
                 method: 'POST',
@@ -387,7 +403,7 @@
             }).then(data => {
                 cardBody.classList.remove('rating-pending');
                 if (data && data.review) {
-                    ratedHistory.push({ id: ratedCardId, card: ratedCard, previous: data.review.previous });
+                    sessionHistory.push({ id: ratedCardId, card: ratedCard, previous: data.review.previous });
                 }
                 applyReviewPayload(data, 'translateX(2rem)');
             }).catch(error => {
@@ -483,7 +499,7 @@
             if (touchStartX === null || !swiping) { touchStartX = null; return; }
             touchStartX = null;
             if (touchDx < -60) return skipCard();
-            if (touchDx > 60 && ratedHistory.length) return goBack();
+            if (touchDx > 60 && sessionHistory.length) return goBack();
             springBack(); // not far enough, or nothing to go back to
         }, { passive: true });
 
