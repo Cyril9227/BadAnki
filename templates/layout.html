@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#ffffff">
     <title>{% block title %}Bad Anki{% endblock %}</title>
 
     <!-- Apply the saved or system-preferred theme before first paint to avoid a
@@ -12,7 +13,11 @@
             try {
                 var stored = localStorage.getItem('theme');
                 var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-                document.documentElement.setAttribute('data-bs-theme', stored || (prefersDark ? 'dark' : 'light'));
+                var theme = stored || (prefersDark ? 'dark' : 'light');
+                document.documentElement.setAttribute('data-bs-theme', theme);
+                // Match the mobile browser chrome to the page background.
+                var meta = document.querySelector('meta[name="theme-color"]');
+                if (meta) meta.setAttribute('content', theme === 'dark' ? '#121212' : '#ffffff');
             } catch (e) { /* localStorage unavailable; keep the default theme */ }
         })();
     </script>
@@ -71,6 +76,16 @@
         --card-background-rgb: 30, 30, 30;
         --box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 16px rgba(0, 0, 0, 0.3);
         color-scheme: dark;
+    }
+
+    /* Route Bootstrap's own tokens through the brand color so links, badges
+       and focus states agree with the buttons in both themes (previously only
+       .btn-primary's rest state was branded). */
+    :root, [data-bs-theme="dark"] {
+        --bs-primary: rgb(var(--primary-rgb));
+        --bs-primary-rgb: var(--primary-rgb);
+        --bs-link-color-rgb: var(--primary-rgb);
+        --bs-link-hover-color-rgb: var(--primary-rgb);
     }
 
     /* Full page loads crossfade instead of flashing white (where supported). */
@@ -138,8 +153,20 @@
     }
 
     .btn-primary {
-        background-color: rgb(var(--primary-rgb));
-        border-color: rgb(var(--primary-rgb));
+        --bs-btn-bg: rgb(var(--primary-rgb));
+        --bs-btn-border-color: rgb(var(--primary-rgb));
+        --bs-btn-hover-bg: rgba(var(--primary-rgb), 0.85);
+        --bs-btn-hover-border-color: rgba(var(--primary-rgb), 0.85);
+        --bs-btn-active-bg: rgba(var(--primary-rgb), 0.75);
+        --bs-btn-active-border-color: rgba(var(--primary-rgb), 0.75);
+        --bs-btn-disabled-bg: rgb(var(--primary-rgb));
+        --bs-btn-disabled-border-color: rgb(var(--primary-rgb));
+        --bs-btn-focus-shadow-rgb: var(--primary-rgb);
+    }
+
+    .form-control:focus, .form-select:focus {
+        border-color: rgba(var(--primary-rgb), 0.5);
+        box-shadow: 0 0 0 0.25rem rgba(var(--primary-rgb), 0.25);
     }
 
     .btn, .form-control, .form-select {
@@ -155,15 +182,6 @@
         border-bottom-width: 2px;
         background-color: rgba(var(--border-rgb), 0.4);
         color: rgb(var(--foreground-rgb));
-    }
-
-    @media (max-width: 768px) {
-        .home-hero {
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            height: calc(100vh - 56px); /* Full viewport height minus navbar */
-        }
     }
 
     main {
@@ -229,6 +247,19 @@
         overflow-x: auto;
         display: block;
     }
+
+    /* Shared skeleton placeholder for client-rendered content. */
+    .skeleton-line {
+        display: block;
+        height: 1.1rem;
+        margin: 0.6rem 0;
+        border-radius: 0.25rem;
+        background: var(--bs-secondary-bg);
+    }
+    @media (prefers-reduced-motion: no-preference) {
+        .skeleton-line { animation: skeleton-pulse 1.2s ease-in-out infinite; }
+    }
+    @keyframes skeleton-pulse { 50% { opacity: 0.4; } }
 
     /* Mobile-specific adjustments */
     @media (max-width: 576px) {
@@ -548,6 +579,8 @@ window.MathJax = {
                 const theme = html.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark';
                 html.setAttribute('data-bs-theme', theme);
                 localStorage.setItem('theme', theme);
+                const themeMeta = document.querySelector('meta[name="theme-color"]');
+                if (themeMeta) themeMeta.setAttribute('content', theme === 'dark' ? '#121212' : '#ffffff');
             });
         });
 
@@ -610,7 +643,14 @@ window.MathJax = {
                         window.location.href = data.redirect_url || '/'; // Fallback to home
                     } else {
                         console.error('Backend login failed.');
-                        alert('There was an error logging you in. Please try again.');
+                        Swal.fire({
+                            toast: true,
+                            position: 'top-end',
+                            icon: 'error',
+                            title: 'There was an error logging you in. Please try again.',
+                            showConfirmButton: false,
+                            timer: 4000
+                        });
                     }
                 }
             });

@@ -34,12 +34,10 @@
                 </div>
                 <div class="card-body">
                     <h5 class="card-title">Question</h5>
-                    <div class="card-text mb-4 markdown-content" data-content="{{ card.question }}">
-                    </div>
+                    <div class="card-text mb-4 markdown-content" data-content="{{ card.question }}"><span class="skeleton-line w-75"></span></div>
                     <hr>
                     <h5 class="card-title">Answer</h5>
-                    <div class="card-text markdown-content" data-content="{{ card.answer }}">
-                    </div>
+                    <div class="card-text markdown-content" data-content="{{ card.answer }}"><span class="skeleton-line w-50"></span></div>
                 </div>
                 <div class="card-footer text-muted">
                     <a href="{{ url_for('manage_cards') }}" class="btn btn-secondary">Back to Manage Cards</a>

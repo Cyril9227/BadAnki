@@ -40,15 +40,9 @@
         text-align: left;
     }
 
-    /* Placeholder shown until the first card renders — the content is
-       client-rendered, so without this the card is blank on slow loads. */
-    .skeleton-line {
-        display: block;
-        height: 1.1rem;
-        margin: 0.6rem auto;
-        border-radius: 0.25rem;
-        background: var(--bs-secondary-bg);
-    }
+    /* The shared .skeleton-line lives in the layout; this card is centered,
+       so center its skeleton lines too. */
+    .skeleton-line { margin-left: auto; margin-right: auto; }
 
     #review-card-body { transition: opacity 0.15s ease; }
     #review-card-body.rating-pending { opacity: 0.45; }
@@ -69,11 +63,9 @@
     }
 
     @media (prefers-reduced-motion: no-preference) {
-        .skeleton-line { animation: skeleton-pulse 1.2s ease-in-out infinite; }
         .reveal-in { animation: slide-fade-in 0.2s ease-out; }
         .card-swap-in { animation: slide-fade-in 0.25s ease-out; }
     }
-    @keyframes skeleton-pulse { 50% { opacity: 0.4; } }
     @keyframes slide-fade-in {
         from { opacity: 0; transform: var(--enter-from, translateY(0.5rem)); }
         to { opacity: 1; transform: none; }

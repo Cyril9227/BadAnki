@@ -39,13 +39,9 @@
                 <div class="card-body">
                     <h5 class="card-title">Telegram Bot Setup</h5>
                     <ol>
-                        <li><strong>Find your Chat ID:</strong> Talk to a bot like <a href="https://t.me/userinfobot" target="_blank">@userinfobot</a> on Telegram to find your unique user ID.</li>
-                        <li><strong>Save your Chat ID:</strong> Go to the <a href="/settings">Settings</a> page and save your Telegram Chat ID.</li>
-                        {% if telegram_bot_username %}
-                        <li><strong>Start Chatting:</strong> Click here to start a conversation with our bot: <a href="https://t.me/{{ telegram_bot_username }}" target="_blank">@{{ telegram_bot_username }}</a>.</li>
-                        {% else %}
-                        <li><strong>Start Chatting:</strong> Once your ID is saved, you can start interacting with the bot on Telegram to review cards and more.</li>
-                        {% endif %}
+                        <li><strong>Connect Telegram:</strong> Go to <a href="/settings">Settings</a> and tap <em>Connect Telegram</em> — it opens the bot with a secure link that pairs your account automatically.</li>
+                        <li><strong>Get reminders:</strong> You'll receive a daily summary of your due cards{% if telegram_bot_username %} from <a href="https://t.me/{{ telegram_bot_username }}" target="_blank">@{{ telegram_bot_username }}</a>{% endif %}.</li>
+                        <li><strong>Review anywhere:</strong> Send <code>/random</code> to the bot anytime for a quick card, LaTeX and code included.</li>
                     </ol>
                 </div>
             </div>
@@ -55,21 +51,17 @@
 
 <style>
 @media (max-width: 768px) {
-    html, body {
-        height: 100%;
-        margin: 0;
-        padding: 0;
-    }
-
+    /* Keep the body's navbar offset (zeroing it slid the hero under the
+       fixed navbar) and subtract it from the hero height instead. */
     .home-hero {
-        min-height: 100vh;
-        min-height: 100dvh;
+        min-height: calc(100vh - 56px);
+        min-height: calc(100dvh - 56px);
         display: flex;
         align-items: center;
         justify-content: center;
         padding: 1rem;
     }
-    
+
     .home-hero .card {
         width: 100%;
     }
