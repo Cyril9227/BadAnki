@@ -346,9 +346,15 @@ def get_courses_by_tag_for_user(conn, tag: str, auth_user_id: str):
 
 # --- Card CRUD Functions ---
 
-def get_review_cards_for_user(conn, auth_user_id: str):
+def get_review_cards_for_user(conn, auth_user_id: str, exclude_ids=None):
+    """Earliest due card, minus any the client set aside this session."""
+    query = "SELECT * FROM cards WHERE user_id = %s AND due_date <= %s"
+    params = [auth_user_id, datetime.now()]
+    if exclude_ids:
+        query += " AND NOT (id = ANY(%s))"
+        params.append(list(exclude_ids))
     with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
-        cursor.execute("SELECT * FROM cards WHERE user_id = %s AND due_date <= %s ORDER BY due_date LIMIT 1", (auth_user_id, datetime.now()))
+        cursor.execute(query + " ORDER BY due_date LIMIT 1", params)
         return cursor.fetchone()
 
 def get_review_stats_for_user(conn, auth_user_id: str):

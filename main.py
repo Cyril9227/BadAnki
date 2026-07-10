@@ -1426,6 +1426,7 @@ async def update_review(card_id: int, status: str = Form(...), conn: psycopg2.ex
 async def update_review_ajax(
     card_id: int,
     status: str = Form(...),
+    exclude: str = Form(None),
     conn: psycopg2.extensions.connection = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
@@ -1441,7 +1442,7 @@ async def update_review_ajax(
     if result:
         crud.record_review_activity(conn, user.auth_user_id, status == "remembered")
 
-    payload = _review_state_payload(conn, user)
+    payload = _review_state_payload(conn, user, _parse_exclude(exclude))
     if result:
         payload["review"] = {
             "interval": result["interval"],
@@ -1471,9 +1472,26 @@ async def undo_review_ajax(
     return JSONResponse(content=_review_state_payload(conn, user))
 
 
-def _review_state_payload(conn, user: User) -> dict:
+def _parse_exclude(exclude: str | None) -> list[int]:
+    """Comma-separated card ids the client has set aside this session."""
+    if not exclude:
+        return []
+    return [int(part) for part in exclude.split(",")[:200] if part.strip().isdigit()]
+
+
+@app.get("/api/review/next", response_class=JSONResponse)
+async def next_review_card(
+    exclude: str = None,
+    conn: psycopg2.extensions.connection = Depends(get_db),
+    user: User = Depends(get_current_active_user),
+):
+    """Next due card minus skipped ids — powers swipe-to-skip."""
+    return JSONResponse(content=_review_state_payload(conn, user, _parse_exclude(exclude)))
+
+
+def _review_state_payload(conn, user: User, exclude_ids=None) -> dict:
     """The next due card plus deck stats, as consumed by the review page JS."""
-    next_card = crud.get_review_cards_for_user(conn, user.auth_user_id)
+    next_card = crud.get_review_cards_for_user(conn, user.auth_user_id, exclude_ids)
     stats = crud.get_review_stats_for_user(conn, user.auth_user_id)
     streak = crud.get_review_streak_for_user(conn, user.auth_user_id)
 

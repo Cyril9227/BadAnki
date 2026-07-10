@@ -601,6 +601,23 @@ def test_review_records_streak_activity(mock_get_user, client, db_conn):
 
 
 @patch("main.supabase.auth.get_user")
+def test_next_card_respects_exclude(mock_get_user, client, db_conn):
+    """Swipe-to-skip: /api/review/next serves the next due card minus the
+    session's skipped ids."""
+    auth_client, user_id, _ = authenticate_client(mock_get_user, client, db_conn, email="skipuser@example.com")
+    first = create_test_card(db_conn, user_id, "Q1", "A1", due_date=datetime.now() - timedelta(days=2))
+    second = create_test_card(db_conn, user_id, "Q2", "A2", due_date=datetime.now() - timedelta(days=1))
+
+    response = auth_client.get(f"/api/review/next?exclude={first}")
+    assert response.status_code == 200
+    assert response.json()["next_card"]["id"] == second
+
+    response = auth_client.get(f"/api/review/next?exclude={first},{second}")
+    assert response.status_code == 200
+    assert response.json()["next_card"] is None
+
+
+@patch("main.supabase.auth.get_user")
 def test_all_done_page_shows_streak_and_leaderboard(mock_get_user, client, db_conn):
     """Once the deck is cleared, the done page shows the streak and the
     leaderboard with the email local part only (never the full address)."""

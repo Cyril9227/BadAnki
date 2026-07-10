@@ -75,7 +75,7 @@
     }
     @keyframes skeleton-pulse { 50% { opacity: 0.4; } }
     @keyframes slide-fade-in {
-        from { opacity: 0; transform: translateY(0.5rem); }
+        from { opacity: 0; transform: var(--enter-from, translateY(0.5rem)); }
         to { opacity: 1; transform: none; }
     }
 
@@ -87,7 +87,7 @@
 {% endblock %}
 
 {% block content %}
-<div class="card text-center mx-auto" style="max-width: 40rem;">
+<div class="card text-center mx-auto" id="review-card" style="max-width: 40rem;">
     <div class="card-header">
         Review Card
         <span id="card-type-badge" class="badge bg-info ms-2" style="display: none;">Cloze</span>
@@ -105,7 +105,7 @@
     </div>
     <div class="card-footer text-muted">
         <button class="btn btn-primary" id="show-answer-btn" type="button">Show Answer</button>
-        <div class="form-text mt-2 kbd-hint" id="show-answer-hint">Shortcut: <kbd>Space</kbd> Show answer</div>
+        <div class="form-text mt-2 kbd-hint" id="show-answer-hint">Shortcut: <kbd>Space</kbd> Show answer · <kbd>→</kbd> Skip</div>
 
         <form id="review-form" action="/review/{{ card.id }}" method="post" class="mt-3" style="display: none;">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -113,8 +113,14 @@
                 <button type="submit" name="status" value="remembered" class="btn btn-success rating-btn">Remembered</button>
                 <button type="submit" name="status" value="forgot" class="btn btn-danger rating-btn">Forgot</button>
             </div>
-            <div class="form-text mt-2 kbd-hint">Shortcuts: <kbd>1</kbd> Remembered · <kbd>2</kbd> Forgot</div>
+            <div class="form-text mt-2 kbd-hint">Shortcuts: <kbd>1</kbd> Remembered · <kbd>2</kbd> Forgot · <kbd>←</kbd> Back</div>
         </form>
+
+        {# Swipe left / right does the same on touch devices. #}
+        <div class="d-flex justify-content-between mt-2">
+            <button type="button" id="back-btn" class="btn btn-link btn-sm text-body-secondary p-0 text-decoration-none" style="visibility: hidden;">← Back</button>
+            <button type="button" id="skip-btn" class="btn btn-link btn-sm text-body-secondary p-0 text-decoration-none">Skip →</button>
+        </div>
     </div>
 </div>
 
@@ -167,13 +173,20 @@
         const cardTypeBadge = document.getElementById('card-type-badge');
         const showAnswerHint = document.getElementById('show-answer-hint');
         const cardBody = document.getElementById('review-card-body');
+        const reviewCard = document.getElementById('review-card');
+        const backBtn = document.getElementById('back-btn');
+        const skipBtn = document.getElementById('skip-btn');
         const ratingButtons = Array.from(reviewForm.querySelectorAll('.rating-btn'));
 
         let answerShown = false;
         let submitting = false;
+        let navigating = false;
         let lastRatingValue = null;
         let currentCardId = {{ card.id | tojson }};
         let currentCardData = null;
+        const skippedIds = [];   // cards set aside for later this session
+        const ratedHistory = []; // {id, card, previous} per rating, for going back
+        const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
         function typesetMath(elements) {
             if (!window.MathJax || typeof window.MathJax.typesetPromise !== 'function') return;
@@ -253,6 +266,7 @@
             showAnswerBtn.disabled = false;
             if (showAnswerHint) showAnswerHint.style.display = '';
             ratingButtons.forEach(btn => { btn.disabled = false; btn.classList.remove('btn-loading'); });
+            backBtn.style.visibility = ratedHistory.length ? 'visible' : 'hidden';
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
@@ -272,51 +286,84 @@
             }
         }
 
+        // Slide the current card off-screen while its replacement is fetched.
+        function animateOut(direction) {
+            if (REDUCED_MOTION) return;
+            reviewCard.style.transition = 'transform 0.18s ease-in, opacity 0.18s ease-in';
+            reviewCard.style.transform = 'translateX(' + (direction < 0 ? '-110%' : '110%') + ')';
+            reviewCard.style.opacity = '0';
+        }
+
+        // Restart the entrance animation, coming in from `from`.
+        function enterCard(from) {
+            reviewCard.style.transition = reviewCard.style.transform = reviewCard.style.opacity = '';
+            reviewCard.style.setProperty('--enter-from', from);
+            reviewCard.classList.remove('card-swap-in');
+            void reviewCard.offsetWidth;
+            reviewCard.classList.add('card-swap-in');
+        }
+
         // Swap the UI to whatever the server says comes next (shared by
-        // rating and undo, which return the same payload shape).
-        function applyReviewPayload(data) {
+        // rating and skipping, which return the same payload shape).
+        function applyReviewPayload(data, enterFrom) {
             updateStats(data && data.stats);
             if (data && data.next_card) {
                 currentCardId = data.next_card.id;
                 reviewForm.action = '/review/' + currentCardId;
                 renderCard(data.next_card);
                 resetForNextCard();
-                cardBody.classList.remove('card-swap-in');
-                void cardBody.offsetWidth; // restart the entrance animation
-                cardBody.classList.add('card-swap-in');
+                enterCard(enterFrom || 'translateY(0.5rem)');
             } else {
                 // No cards left to review — let the server render "All Done".
                 window.location.href = '/review';
             }
         }
 
-        // A transient toast telling the user what their rating did, with a
-        // short undo window for mis-keys. A newer toast dismisses the older
-        // one, so only the latest rating is undoable — which is the one a
-        // mis-key just produced.
-        function showRatingToast(status, ratedCardId, data) {
-            const review = data && data.review;
-            if (!review) return;
-            Swal.fire({
-                toast: true,
-                position: 'top-end',
-                icon: status === 'remembered' ? 'success' : 'info',
-                title: review.interval === 1 ? 'Next review tomorrow' : `Next review in ${review.interval} days`,
-                showConfirmButton: true,
-                confirmButtonText: 'Undo',
-                timer: 5000,
-                timerProgressBar: true
-            }).then(result => {
-                if (result.isConfirmed) undoRating(ratedCardId, review.previous);
-            });
+        // Swipe left / → : set the current card aside and move on. Skipped
+        // cards stay due — once only skipped cards remain, cycle through them.
+        function skipCard() {
+            if (submitting || navigating) return;
+            navigating = true;
+            skippedIds.push(currentCardId);
+            animateOut(-1);
+            window.fetchJson('/api/review/next?exclude=' + skippedIds.join(','))
+                .then(data => {
+                    if (!data.next_card && skippedIds.length) {
+                        skippedIds.length = 0;
+                        return window.fetchJson('/api/review/next');
+                    }
+                    return data;
+                })
+                .then(data => {
+                    navigating = false;
+                    applyReviewPayload(data, 'translateX(2rem)');
+                })
+                .catch(error => {
+                    console.error('Skip failed; reloading to recover:', error);
+                    window.location.href = '/review';
+                });
         }
 
-        function undoRating(cardId, previous) {
-            window.fetchJson('/api/review/' + cardId + '/undo', {
+        // Swipe right / ← : revert the last rating server-side and re-show
+        // that card, answer visible, ready to be re-rated.
+        function goBack() {
+            if (submitting || navigating || !ratedHistory.length) return;
+            navigating = true;
+            const last = ratedHistory.pop();
+            animateOut(1);
+            window.fetchJson('/api/review/' + last.id + '/undo', {
                 method: 'POST',
-                body: JSON.stringify(previous)
-            }).then(applyReviewPayload)
-            .catch(error => {
+                body: JSON.stringify(last.previous)
+            }).then(data => {
+                navigating = false;
+                updateStats(data && data.stats);
+                currentCardId = last.id;
+                reviewForm.action = '/review/' + last.id;
+                renderCard(last.card);
+                resetForNextCard();
+                enterCard('translateX(-2rem)');
+                showAnswer();
+            }).catch(error => {
                 console.error('Undo failed; reloading to recover:', error);
                 window.location.href = '/review';
             });
@@ -332,14 +379,17 @@
             if (activeBtn) activeBtn.classList.add('btn-loading');
             cardBody.classList.add('rating-pending');
             const ratedCardId = currentCardId;
+            const ratedCard = currentCardData;
 
             window.fetchJson('/api/review/' + currentCardId, {
                 method: 'POST',
-                body: new URLSearchParams({ status: status })
+                body: new URLSearchParams({ status: status, exclude: skippedIds.join(',') })
             }).then(data => {
                 cardBody.classList.remove('rating-pending');
-                applyReviewPayload(data);
-                showRatingToast(status, ratedCardId, data);
+                if (data && data.review) {
+                    ratedHistory.push({ id: ratedCardId, card: ratedCard, previous: data.review.previous });
+                }
+                applyReviewPayload(data, 'translateX(2rem)');
             }).catch(error => {
                 console.error('Review submit failed; reloading to recover:', error);
                 window.location.href = '/review';
@@ -353,6 +403,8 @@
         document.addEventListener('keydown', function(e) {
             if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
             if (e.ctrlKey || e.metaKey || e.altKey) return; // browser shortcuts, not ratings
+            if (e.key === 'ArrowRight') { e.preventDefault(); skipCard(); return; }
+            if (e.key === 'ArrowLeft') { e.preventDefault(); goBack(); return; }
             if (!answerShown) {
                 if (e.key === ' ' || e.key === 'Enter') {
                     e.preventDefault();
@@ -382,6 +434,63 @@
             const submitter = (e.submitter && e.submitter.name === 'status') ? e.submitter.value : null;
             rate(submitter || lastRatingValue || 'remembered');
         });
+
+        skipBtn.addEventListener('click', skipCard);
+        backBtn.addEventListener('click', goBack);
+
+        // Touch swipe on the card: left = skip, right = back. Touches that
+        // start inside horizontally scrollable content (code blocks, wide
+        // math) are left to native scrolling.
+        let touchStartX = null, touchStartY = null, touchDx = 0, swiping = false;
+
+        function insideHorizontalScroller(el) {
+            for (; el && el !== reviewCard; el = el.parentElement) {
+                if (el.scrollWidth > el.clientWidth + 1) return true;
+            }
+            return false;
+        }
+
+        function springBack() {
+            reviewCard.style.transition = 'transform 0.15s ease, opacity 0.15s ease';
+            reviewCard.style.transform = '';
+            reviewCard.style.opacity = '';
+        }
+
+        reviewCard.addEventListener('touchstart', function (e) {
+            if (e.touches.length !== 1 || submitting || navigating || insideHorizontalScroller(e.target)) {
+                touchStartX = null;
+                return;
+            }
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+            touchDx = 0;
+            swiping = false;
+        }, { passive: true });
+
+        reviewCard.addEventListener('touchmove', function (e) {
+            if (touchStartX === null) return;
+            touchDx = e.touches[0].clientX - touchStartX;
+            const dy = e.touches[0].clientY - touchStartY;
+            if (!swiping && Math.abs(touchDx) > 12 && Math.abs(touchDx) > Math.abs(dy) * 1.5) swiping = true;
+            if (swiping) {
+                reviewCard.style.transition = 'none';
+                reviewCard.style.transform = 'translateX(' + touchDx + 'px)';
+                reviewCard.style.opacity = String(1 - Math.min(Math.abs(touchDx) / 400, 0.4));
+            }
+        }, { passive: true });
+
+        reviewCard.addEventListener('touchend', function () {
+            if (touchStartX === null || !swiping) { touchStartX = null; return; }
+            touchStartX = null;
+            if (touchDx < -60) return skipCard();
+            if (touchDx > 60 && ratedHistory.length) return goBack();
+            springBack(); // not far enough, or nothing to go back to
+        }, { passive: true });
+
+        reviewCard.addEventListener('touchcancel', function () {
+            touchStartX = null;
+            if (swiping) springBack();
+        }, { passive: true });
 
         // Initial card render from the server-embedded data.
         try {
