@@ -34,7 +34,7 @@ from supabase_auth.errors import AuthApiError
 # Local application
 import crud
 from bot import get_bot_application
-from render_auth import verify_render_request
+from render_auth import make_telegram_link_token, verify_render_request
 from database import get_db_connection, release_db_connection
 from scheduler import run_scheduler
 from parsing import normalize_cards, robust_json_loads, sanitize_tags
@@ -894,8 +894,9 @@ async def settings_form(request: Request, user: User = Depends(get_current_activ
         "csrf_token": request.state.csrf_token,
         "gemini_key_set": bool(user.gemini_api_key),
         "anthropic_key_set": bool(user.anthropic_api_key),
-        "telegram_chat_id": user.telegram_chat_id,
+        "telegram_linked": bool(user.telegram_chat_id),
         "telegram_bot_username": TELEGRAM_BOT_USERNAME,
+        "telegram_link_token": make_telegram_link_token(user.auth_user_id),
     })
 
 @app.get("/api-keys")
@@ -906,14 +907,14 @@ async def legacy_settings_redirect():
 
 @app.post("/secrets")
 async def save_secrets(telegram_chat_id: str = Form(None), conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    # A blank chat ID means "unset".
-    telegram_chat_id = (telegram_chat_id or "").strip() or None
-    if telegram_chat_id is not None:
-        numeric = telegram_chat_id.removeprefix("-")
-        if len(telegram_chat_id) > 32 or not numeric.isdigit():
-            raise HTTPException(status_code=400, detail="Invalid Telegram chat ID.")
+    # Chat IDs are only ever written by the bot's /start deep link, which
+    # proves the caller owns the chat — a self-reported ID could point this
+    # account's reminders (and cards) at someone else's chat. This endpoint
+    # only disconnects.
+    if (telegram_chat_id or "").strip():
+        raise HTTPException(status_code=400, detail="Telegram is connected through the bot — use the Connect Telegram button in Settings.")
 
-    crud.save_secrets_for_user(conn, user.auth_user_id, telegram_chat_id)
+    crud.save_secrets_for_user(conn, user.auth_user_id, None)
     return JSONResponse(content={"success": True})
 
 

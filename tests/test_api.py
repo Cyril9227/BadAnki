@@ -688,14 +688,23 @@ def test_save_api_keys(mock_get_user, client, db_conn):
 @patch("main.supabase.auth.get_user")
 def test_save_secrets(mock_get_user, client, db_conn):
     auth_client, user_id, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="secrets_user@example.com")
-    
-    secrets_data = {"telegram_chat_id": "12345"}
-    
+
+    # Chat IDs are no longer accepted from the browser — linking goes through
+    # the bot's signed /start deep link, which proves chat ownership.
     response = auth_client.post(
-        "/secrets", 
-        data=secrets_data,
+        "/secrets",
+        data={"telegram_chat_id": "12345"},
         headers={"X-CSRF-Token": csrf_token}
     )
+    assert response.status_code == 400
+
+    # An empty POST disconnects.
+    cur = db_conn.cursor()
+    cur.execute("UPDATE profiles SET telegram_chat_id = '12345' WHERE auth_user_id = %s", (user_id,))
+    db_conn.commit()
+    cur.close()
+
+    response = auth_client.post("/secrets", headers={"X-CSRF-Token": csrf_token})
     assert response.status_code == 200
     assert response.json()["success"] is True
 
@@ -703,7 +712,7 @@ def test_save_secrets(mock_get_user, client, db_conn):
     cur.execute("SELECT telegram_chat_id FROM profiles WHERE auth_user_id = %s", (user_id,))
     user_secrets = cur.fetchone()
     cur.close()
-    assert user_secrets['telegram_chat_id'] == "12345"
+    assert user_secrets['telegram_chat_id'] is None
 
 @patch("main.supabase.auth.get_user")
 def test_settings_page_and_legacy_redirects(mock_get_user, client, db_conn):

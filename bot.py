@@ -23,8 +23,9 @@ from crud import (
     get_card_for_user,
     get_random_card_for_user,
     get_user_by_telegram_chat_id,
+    link_telegram_chat,
 )
-from render_auth import sign_render_request
+from render_auth import sign_render_request, verify_telegram_link_token
 from telegram_format import (
     cloze_plain_markdown_v2,
     is_cloze,
@@ -274,8 +275,28 @@ async def _reply_card(send, card, reveal: bool):
 # --- Command Handlers ---
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Sends a welcome message when the /start command is issued."""
+    """Welcomes the user; with a deep-link token from the settings page,
+    links this chat to the web account that generated it. Receiving the
+    token here proves the caller owns the chat, which self-reported chat
+    IDs never did."""
     try:
+        if context.args:
+            auth_user_id = verify_telegram_link_token(context.args[0])
+            if not auth_user_id:
+                await update.message.reply_text(
+                    "This link is invalid or has expired. Open Settings in the web app and tap Connect Telegram again."
+                )
+                return
+            conn = get_db_connection()
+            try:
+                link_telegram_chat(conn, auth_user_id, update.message.chat_id)
+            finally:
+                release_db_connection(conn)
+            logger.info("Linked chat_id %s via deep link.", _redact_identifier(update.message.chat_id))
+            await update.message.reply_text(
+                "✅ Telegram connected! Daily review reminders will arrive here. Try /random for a card."
+            )
+            return
         await update.message.reply_text(
             "Welcome to the Anki Clone bot! Use /review to get a link to your next review session or /random to get a random card."
         )

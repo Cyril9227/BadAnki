@@ -52,23 +52,23 @@
     <div class="card">
         <div class="card-header">Telegram Notifications</div>
         <div class="card-body">
-            <form id="secretsForm" action="/secrets" method="post">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <div class="mb-3">
-                    <label for="telegram_chat_id" class="form-label">Telegram Chat ID</label>
-                    <input type="text" inputmode="numeric" pattern="-?\d+" class="form-control" id="telegram_chat_id" name="telegram_chat_id" value="{{ telegram_chat_id or '' }}" aria-describedby="telegram_chat_id_help">
-                    <div class="form-text" id="telegram_chat_id_help">
-                        To receive daily review reminders on Telegram:
-                        <br>1. Open Telegram and search for the bot <strong>@userinfobot</strong>.
-                        <br>2. Start a chat with it — it replies with your user info.
-                        <br>3. Copy the number next to "Id:" and paste it above. Leave blank to disable notifications.
-                        <a href="https://t.me/{{ telegram_bot_username }}" target="_blank" class="btn btn-sm btn-outline-primary mt-1">
-                            <i class="fab fa-telegram-plane"></i> Open Bot
-                        </a>
-                    </div>
-                </div>
-                <button type="submit" class="btn btn-primary">Save Telegram Settings</button>
-            </form>
+            <p class="text-muted small mb-3">Connect your Telegram account to receive daily review reminders and pull cards with /random. Connecting happens through the bot itself, so a chat can only be claimed by its owner.</p>
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+                {% if telegram_linked %}
+                    <span class="badge bg-success">Connected</span>
+                {% else %}
+                    <span class="badge bg-secondary">Not connected</span>
+                {% endif %}
+                {% if telegram_bot_username %}
+                <a class="btn btn-primary" target="_blank" rel="noopener"
+                   href="https://t.me/{{ telegram_bot_username }}?start={{ telegram_link_token }}">
+                    <i class="fab fa-telegram-plane"></i> {{ 'Reconnect' if telegram_linked else 'Connect Telegram' }}
+                </a>
+                {% endif %}
+                {% if telegram_linked %}
+                <button id="telegram-disconnect-btn" type="button" class="btn btn-outline-danger">Disconnect</button>
+                {% endif %}
+            </div>
         </div>
     </div>
 
@@ -190,43 +190,19 @@ document.getElementById('password-form').addEventListener('submit', function(eve
     });
 });
 
-document.getElementById('secretsForm').addEventListener('submit', function(event) {
-    event.preventDefault();
-
-    const form = this;
-    const submitBtn = form.querySelector('button[type="submit"]');
-    const csrfToken = window.getCsrfToken() || "{{ csrf_token }}";
-
-    submitBtn.disabled = true;
-    const originalLabel = submitBtn.textContent;
-    submitBtn.textContent = 'Saving...';
-
-    window.fetchJson('/secrets', {
-        method: 'POST',
-        body: new URLSearchParams(new FormData(form)),
-        headers: {
-            'X-CSRF-Token': csrfToken,
-            'Content-Type': 'application/x-www-form-urlencoded'
-        }
-    })
-    .then(() => {
-        Swal.fire({
-            toast: true,
-            position: 'top-end',
-            icon: 'success',
-            title: 'Telegram settings saved!',
-            showConfirmButton: false,
-            timer: 2000
+const telegramDisconnectBtn = document.getElementById('telegram-disconnect-btn');
+if (telegramDisconnectBtn) {
+    telegramDisconnectBtn.addEventListener('click', function () {
+        telegramDisconnectBtn.disabled = true;
+        // An empty POST to /secrets disconnects; fetchJson attaches the CSRF header.
+        window.fetchJson('/secrets', { method: 'POST' })
+        .then(() => window.location.reload())
+        .catch(error => {
+            telegramDisconnectBtn.disabled = false;
+            console.error('Failed to disconnect Telegram:', error);
+            Swal.fire({ icon: 'error', title: 'Oops...', text: error.message || 'An unexpected error occurred.' });
         });
-    })
-    .catch(error => {
-        console.error('Failed to save Telegram settings:', error);
-        Swal.fire({ icon: 'error', title: 'Oops...', text: error.message || 'An unexpected error occurred.' });
-    })
-    .finally(() => {
-        submitBtn.disabled = false;
-        submitBtn.textContent = originalLabel;
     });
-});
+}
 </script>
 {% endblock %}

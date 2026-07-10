@@ -65,6 +65,29 @@ def get_user_by_telegram_chat_id(conn, chat_id: int):
         cursor.execute("SELECT * FROM profiles WHERE telegram_chat_id = %s", (str(chat_id),))
         return cursor.fetchone()
 
+def link_telegram_chat(conn, auth_user_id: str, chat_id: int):
+    """Points a Telegram chat at exactly one profile: the verified owner's.
+
+    Only called from the bot's /start deep-link handler — the one place a
+    caller has actually proven they control the chat — so taking the chat_id
+    over from any other profile is correct, and keeps chat_ids unique
+    without a schema constraint.
+    """
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "UPDATE profiles SET telegram_chat_id = NULL WHERE telegram_chat_id = %s AND auth_user_id != %s",
+                (str(chat_id), auth_user_id),
+            )
+            cursor.execute(
+                "UPDATE profiles SET telegram_chat_id = %s WHERE auth_user_id = %s",
+                (str(chat_id), auth_user_id),
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
 
 # --- Course & Folder CRUD Functions ---
 
