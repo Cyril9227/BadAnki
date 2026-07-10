@@ -12,6 +12,7 @@ from datetime import datetime
 
 from psycopg2 import extras
 from telegram import Bot
+from telegram.request import HTTPXRequest
 
 import crud
 from database import get_db_connection, release_db_connection
@@ -93,11 +94,15 @@ async def run_scheduler():
         logger.info(result)
         return result
 
-    bot = Bot(token=TELEGRAM_BOT_TOKEN)
-    successful_notifications = 0
-    failed_notifications = 0
+    # Sends run concurrently: sequentially, the run time scaled with the user
+    # count and blew past the cron timeout (dropping whoever came last). The
+    # pool must be sized up — PTB's default allows one request at a time.
+    bot = Bot(
+        token=TELEGRAM_BOT_TOKEN,
+        request=HTTPXRequest(connection_pool_size=32, pool_timeout=30.0),
+    )
 
-    for chat_id, due_count, streak in users_to_notify:
+    async def notify(chat_id, due_count, streak):
         redacted_chat_id = _redact_identifier(chat_id)
         if due_count > 0:
             logger.info(
@@ -127,10 +132,14 @@ async def run_scheduler():
 
         try:
             await bot.send_message(chat_id=chat_id, text=message)
-            successful_notifications += 1
+            return True
         except Exception as e:
             logger.error(f"Failed to send Telegram message to chat_id {redacted_chat_id}: {e}")
-            failed_notifications += 1
+            return False
+
+    outcomes = await asyncio.gather(*(notify(*user) for user in users_to_notify))
+    successful_notifications = sum(outcomes)
+    failed_notifications = len(outcomes) - successful_notifications
 
     result = (
         f"Scheduler finished. Sent {successful_notifications} notifications. "

@@ -33,7 +33,9 @@ class handler(BaseHTTPRequestHandler):
             response = requests.get(
                 trigger_url,
                 headers={"X-Scheduler-Secret": scheduler_secret},
-                timeout=10,
+                # Covers webhook checks + the notification fan-out with room
+                # to spare; the sends themselves run concurrently.
+                timeout=55,
             )
             response.raise_for_status()  # Raise an exception for bad status codes
             
