@@ -26,6 +26,18 @@
     .tree-active {
         background-color: rgba(var(--primary-rgb), 0.12);
     }
+    /* The editor is a writing surface: monospace source on the left, live
+       preview beside it on desktop (stacked below on mobile). */
+    #markdown-editor {
+        font-family: var(--bs-font-monospace);
+        font-size: 0.875rem;
+        min-height: 24rem;
+    }
+    #live-preview {
+        min-height: 24rem;
+        max-height: 75vh;
+        overflow-y: auto;
+    }
 </style>
 {% endblock %}
 
@@ -54,8 +66,13 @@
                 <h4 id="editing-filename"></h4>
                 <form id="editor-form">
                     <input type="hidden" id="current-file-path" name="path">
-                    <div class="form-group mb-2">
-                        <textarea id="markdown-editor" name="content" class="form-control" rows="15"></textarea>
+                    <div class="row g-3 mb-2">
+                        <div class="col-lg-6">
+                            <textarea id="markdown-editor" name="content" class="form-control" rows="18"></textarea>
+                        </div>
+                        <div class="col-lg-6">
+                            <div id="live-preview" class="border rounded p-3 markdown-content"></div>
+                        </div>
                     </div>
                     {# Writing surface only — download and card generation
                        live on the rendered course page, where Save lands. #}
@@ -63,9 +80,6 @@
                         <button type="submit" class="btn btn-primary px-4" title="Save and view the course (Ctrl+S saves in place)">Save</button>
                     </div>
                 </form>
-                <hr>
-                <h5>Live Preview</h5>
-                <div id="live-preview" class="border p-3 markdown-content"></div>
                 <div id="drop-zone-editor" class="border rounded p-3 mt-3 text-center text-muted" style="border-style: dashed !important;">
                     Drag & Drop .md files here or click to upload
                 </div>
@@ -300,6 +314,7 @@ document.addEventListener('DOMContentLoaded', function () {
         .then(handleResponse)
         .then(() => {
             loadFileTree();
+            if (type === 'file') clearDraft(path);
             // Clear the editor when the open file itself was deleted, or when it
             // lived inside a deleted folder — otherwise a later Save would
             // silently recreate a file the user just removed.
@@ -331,7 +346,10 @@ document.addEventListener('DOMContentLoaded', function () {
             confirmButtonColor: '#d33',
             cancelButtonColor: '#3085d6',
             confirmButtonText: 'Yes, discard'
-        }).then(result => result.isConfirmed);
+        }).then(result => {
+            if (result.isConfirmed) clearDraft(currentFilePathInput.value);
+            return result.isConfirmed;
+        });
     }
 
     function loadEditorContent(path) {
@@ -348,6 +366,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     markdownEditor.value = content;
                     isDirty = false; // Freshly loaded content is not a pending edit.
                     updatePreview();
+                    offerDraftRestore(path, content);
                     localStorage.setItem('lastEditedFilePath', path);
                     revealInTree(path);
 
@@ -423,6 +442,7 @@ document.addEventListener('DOMContentLoaded', function () {
         .then(handleResponse)
         .then(() => {
             isDirty = false;
+            clearDraft(path);
             if (!quickSave) {
                 // Complete the view → edit → save loop on the rendered course.
                 window.location.href = '/courses/' + path.split('/').map(encodeURIComponent).join('/');
@@ -591,7 +611,63 @@ document.addEventListener('DOMContentLoaded', function () {
     markdownEditor.addEventListener('input', function () {
         isDirty = true;
         schedulePreviewUpdate();
+        scheduleDraftSave();
     });
+
+    // Tab indents instead of leaving the field (Shift+Tab still moves focus,
+    // keeping a keyboard escape route).
+    markdownEditor.addEventListener('keydown', function (e) {
+        if (e.key !== 'Tab' || e.shiftKey) return;
+        e.preventDefault();
+        this.setRangeText('    ', this.selectionStart, this.selectionEnd, 'end');
+        isDirty = true;
+        schedulePreviewUpdate();
+        scheduleDraftSave();
+    });
+
+    // Crash/battery insurance: the dirty buffer is snapshotted to
+    // localStorage (per file), offered back on the next load, and cleared on
+    // save or explicit discard.
+    const DRAFT_DEBOUNCE_MS = 1000;
+    let draftSaveTimeout = null;
+    const draftKey = path => 'draft:' + path;
+
+    function scheduleDraftSave() {
+        clearTimeout(draftSaveTimeout);
+        draftSaveTimeout = setTimeout(() => {
+            const path = currentFilePathInput.value;
+            if (path && isDirty) {
+                try { localStorage.setItem(draftKey(path), markdownEditor.value); } catch (e) { /* storage unavailable */ }
+            }
+        }, DRAFT_DEBOUNCE_MS);
+    }
+
+    function clearDraft(path) {
+        clearTimeout(draftSaveTimeout);
+        localStorage.removeItem(draftKey(path));
+    }
+
+    function offerDraftRestore(path, loadedContent) {
+        const draft = localStorage.getItem(draftKey(path));
+        if (draft === null) return;
+        if (draft === loadedContent) { localStorage.removeItem(draftKey(path)); return; }
+        Swal.fire({
+            title: 'Restore unsaved draft?',
+            text: 'This file has an unsaved draft from a previous session.',
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonText: 'Restore',
+            cancelButtonText: 'Discard draft'
+        }).then(result => {
+            if (result.isConfirmed) {
+                markdownEditor.value = draft;
+                isDirty = true;
+                updatePreview();
+            } else if (result.dismiss === Swal.DismissReason.cancel) {
+                localStorage.removeItem(draftKey(path)); // Esc keeps it for next time
+            }
+        });
+    }
 
     function schedulePreviewUpdate() {
         clearTimeout(previewUpdateTimeout);
