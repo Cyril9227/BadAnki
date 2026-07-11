@@ -8,17 +8,16 @@ class handler(BaseHTTPRequestHandler):
         scheduler_secret = os.environ.get("SCHEDULER_SECRET")
         app_url = os.environ.get("APP_URL")
         cron_secret = os.environ.get("CRON_SECRET")
-        environment = os.environ.get("ENVIRONMENT")
 
-        if cron_secret or environment == "production":
-            authorization = self.headers.get("authorization", "")
-            expected = f"Bearer {cron_secret}" if cron_secret else ""
-            if not cron_secret or not secrets.compare_digest(authorization, expected):
-                self.send_response(401)
-                self.send_header('Content-type', 'text/plain')
-                self.end_headers()
-                self.wfile.write(b"Unauthorized")
-                return
+        # Fail closed: without a configured CRON_SECRET nothing may trigger
+        # the notification fan-out, regardless of environment.
+        authorization = self.headers.get("authorization", "")
+        if not cron_secret or not secrets.compare_digest(authorization, f"Bearer {cron_secret}"):
+            self.send_response(401)
+            self.send_header('Content-type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b"Unauthorized")
+            return
 
         if not scheduler_secret or not app_url:
             self.send_response(500)

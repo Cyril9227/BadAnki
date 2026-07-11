@@ -93,7 +93,11 @@ class CSRFMiddleware:
 
     def __init__(self, app: ASGIApp):
         self.app = app
-        self.exempt_paths = ["/webhook/", "/docs", "/openapi.json", "/health"]
+        # Static-ish paths render no forms; minting tokens there lets a
+        # first visit's parallel asset responses race Set-Cookie against the
+        # document's token, 403ing the no-JS form fallbacks.
+        self.exempt_paths = ["/webhook/", "/docs", "/openapi.json", "/health",
+                             "/static/", "/_vercel/", "/favicon.ico"]
 
     def _should_use_secure_cookies(self, scope: Scope) -> bool:
         forwarded_proto = _header_value(scope, b"x-forwarded-proto") or ""

@@ -363,6 +363,12 @@ async def random_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def show_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Reveals a card's answer when its "Show answer" button is tapped."""
     query = update.callback_query
+    # Ack first: on a cold start the callback expires before the DB and
+    # Telegram round trips finish, leaving the button spinner stuck.
+    try:
+        await query.answer()
+    except Exception:
+        pass
     conn = None
     try:
         card_id = int(query.data.split(":", 1)[1])
@@ -370,15 +376,27 @@ async def show_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = get_user_by_telegram_chat_id(conn, query.message.chat.id)
         card = get_card_for_user(conn, card_id, user['auth_user_id']) if user else None
         if not card:
-            await query.answer("Card not found.")
+            await query.message.reply_text("Card not found.")
             return
 
-        await _reply_card(query.edit_message_text, card, reveal=True)
-        await query.answer()
+        async def send(text, **kwargs):
+            try:
+                await query.edit_message_text(text, **kwargs)
+            except BadRequest as e:
+                reason = str(e).lower()
+                if "message is not modified" in reason:
+                    return  # double-tap: the reveal is already on screen
+                if "can't be edited" in reason or "message to edit not found" in reason:
+                    # Telegram forbids edits after ~48h — send a fresh message.
+                    await query.message.reply_text(text, **kwargs)
+                    return
+                raise  # genuine formatting rejection: let _reply_card degrade
+
+        await _reply_card(send, card, reveal=True)
     except Exception as e:
         logger.error(f"Error in show answer callback: {e}", exc_info=True)
         try:
-            await query.answer("Sorry, something went wrong.")
+            await query.message.reply_text("Sorry, something went wrong.")
         except Exception:
             pass
     finally:

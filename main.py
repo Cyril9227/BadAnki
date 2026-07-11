@@ -1196,6 +1196,19 @@ async def edit_course(request: Request, course_path: str, user: User = Depends(g
         "csrf_token": request.state.csrf_token
     })
 
+def _course_text(content: str) -> str:
+    """Legacy rows stored the markdown JSON-encoded; unwrap only when the
+    decoded value is still a string, so plain markdown that happens to parse
+    as JSON (e.g. "123") stays untouched."""
+    try:
+        decoded = json.loads(content)
+        if isinstance(decoded, str):
+            return decoded
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return content
+
+
 @app.get("/courses/{course_path:path}", response_class=HTMLResponse)
 async def view_course(request: Request, course_path: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     course_path = _validate_course_path(course_path)
@@ -1203,16 +1216,7 @@ async def view_course(request: Request, course_path: str, conn: psycopg2.extensi
     if not course or not course['content']:
         raise HTTPException(status_code=404, detail="Course not found")
 
-    content = course['content']
-    # Legacy rows stored the markdown JSON-encoded; only unwrap when the
-    # decoded value is still a string, otherwise frontmatter.loads would crash
-    # on plain markdown that happens to parse as JSON (e.g. "123").
-    try:
-        decoded = json.loads(content)
-        if isinstance(decoded, str):
-            content = decoded
-    except (json.JSONDecodeError, TypeError):
-        pass
+    content = _course_text(course['content'])
 
     # Hand-edited frontmatter can be invalid YAML (or parse to a non-dict) —
     # render the file raw rather than 500; the crud helpers already tolerate
@@ -1263,7 +1267,7 @@ async def download_course(course_path: str, conn: psycopg2.extensions.connection
     disposition = f'attachment; filename="{ascii_filename}"; filename*=UTF-8\'\'{utf8_filename}'
     
     return Response(
-        content=course['content'],
+        content=_course_text(course['content']),
         media_type="text/markdown",
         headers={"Content-Disposition": disposition}
     )
@@ -1274,7 +1278,7 @@ async def api_get_course_content(course_path: str, conn: psycopg2.extensions.con
     course = crud.get_course_content_for_user(conn, course_path, auth_user_id=user.auth_user_id)
     if not course:
         raise HTTPException(status_code=404, detail="File not found")
-    return JSONResponse(content=course['content'])
+    return JSONResponse(content=_course_text(course['content']))
 
 @app.post("/api/course-content")
 async def api_save_course_content(item: CourseContent, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
