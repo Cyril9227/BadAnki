@@ -379,7 +379,9 @@ def update_card_for_user(conn, card_id: int, auth_user_id: str, remembered: bool
     interval plus the pre-rating values so the rating can be undone — or
     None when the card doesn't belong to the user."""
     with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
-        cursor.execute("SELECT * FROM cards WHERE id = %s AND user_id = %s", (card_id, auth_user_id))
+        # FOR UPDATE: rating is read-modify-write, and a simultaneous rating
+        # of the same card (web + Telegram) could bump the interval twice.
+        cursor.execute("SELECT * FROM cards WHERE id = %s AND user_id = %s FOR UPDATE", (card_id, auth_user_id))
         card = cursor.fetchone()
         if not card:
             return None
