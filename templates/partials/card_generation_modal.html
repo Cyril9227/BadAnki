@@ -12,6 +12,8 @@
                     <div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div>
                     <p>Generating cards, please wait...</p>
                     <p id="loading-message" class="text-muted mt-2"></p>
+                    <p id="loading-elapsed" class="text-muted small mb-2"></p>
+                    <button type="button" id="cancel-generation-btn" class="btn btn-sm btn-outline-secondary">Cancel</button>
                 </div>
             </div>
             <div class="modal-footer">
@@ -31,9 +33,14 @@ document.addEventListener('DOMContentLoaded', function () {
     const saveCardsBtn = document.getElementById('save-cards-btn');
     const loadingSpinner = document.getElementById('loading-spinner');
     const loadingMessage = document.getElementById('loading-message');
-    
+    const loadingElapsed = document.getElementById('loading-elapsed');
+    const cancelGenerationBtn = document.getElementById('cancel-generation-btn');
+
     let generatedCardsData = [];
     let messageInterval;
+    let elapsedInterval = null;
+    let generateController = null;
+    let lastRequest = null; // args of the latest generation, for retry-in-place
     const loadingMessages = [
         "Summoning digital flashcards...",
         "Teaching the AI to count in binary...",
@@ -67,8 +74,11 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
-        // Clear any stale interval from a previous run before starting a new one.
+        lastRequest = { apiUrl, contentProvider, csrfToken, cardType };
+
+        // Clear any stale intervals from a previous run before starting a new one.
         if (messageInterval) clearInterval(messageInterval);
+        if (elapsedInterval) clearInterval(elapsedInterval);
 
         generatedCardsData = []; // Drop any previous batch before a new run.
         cardsModalBody.innerHTML = '';
@@ -85,10 +95,24 @@ document.addEventListener('DOMContentLoaded', function () {
             if(loadingMessage) loadingMessage.textContent = loadingMessages[messageIndex];
         }, 2500);
 
+        // Elapsed counter — LLM calls run 10-60s, and a ticking number says
+        // more than a spinner about whether anything is still happening.
+        const startedAt = Date.now();
+        if (loadingElapsed) loadingElapsed.textContent = '0s';
+        elapsedInterval = setInterval(() => {
+            if (loadingElapsed) loadingElapsed.textContent = Math.round((Date.now() - startedAt) / 1000) + 's';
+        }, 1000);
+
+        // The Cancel button aborts this fetch; the finally below closes up.
+        generateController = new AbortController();
+        let cancelled = false;
+        generateController.signal.addEventListener('abort', () => { cancelled = true; });
+
         fetch(apiUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': effectiveToken },
-            body: JSON.stringify({ content: content, card_type: cardType })
+            body: JSON.stringify({ content: content, card_type: cardType }),
+            signal: generateController.signal
         })
         .then(response => {
             if (response.redirected) {
@@ -114,16 +138,48 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         })
         .catch(error => {
-            cardsModalBody.innerHTML = `<p class="text-danger">Error: ${window.escapeHtml(error.message)}</p>`;
+            if (cancelled) return; // user aborted — nothing to report
+            showGenerationError(error);
             console.error('Error generating cards:', error);
         })
         .finally(() => {
             if (messageInterval) { clearInterval(messageInterval); messageInterval = null; }
+            if (elapsedInterval) { clearInterval(elapsedInterval); elapsedInterval = null; }
             loadingSpinner.style.display = 'none';
             generateInFlight = false;
+            generateController = null;
+            if (cancelled) {
+                cardsModal.hide(); // empty batch, so the discard guard lets it close
+                return;
+            }
             // No-op when already visible; brings the result (or error) back if
             // the user closed the modal during the long generation call.
             cardsModal.show();
+        });
+    }
+
+    // Error state with a retry button — regenerating shouldn't require
+    // closing the modal and hunting down the original Generate button.
+    function showGenerationError(error) {
+        cardsModalBody.innerHTML = '';
+        const message = document.createElement('p');
+        message.className = 'text-danger';
+        message.textContent = `Error: ${error.message}`;
+        const retry = document.createElement('button');
+        retry.type = 'button';
+        retry.className = 'btn btn-outline-primary';
+        retry.textContent = 'Try again';
+        retry.addEventListener('click', function () {
+            if (lastRequest) {
+                window.handleGenerateCards(lastRequest.apiUrl, lastRequest.contentProvider, lastRequest.csrfToken, lastRequest.cardType);
+            }
+        });
+        cardsModalBody.append(message, retry);
+    }
+
+    if (cancelGenerationBtn) {
+        cancelGenerationBtn.addEventListener('click', function () {
+            if (generateController) generateController.abort();
         });
     }
 
