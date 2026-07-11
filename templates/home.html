@@ -7,13 +7,14 @@
 
 {% block content %}
 <div class="container-fluid home-hero">
-    <div class="card p-5 text-center">
+    {# p-4 below md: desktop-scale p-5 squeezes the CTA labels into wrapping. #}
+    <div class="card p-4 p-md-5 text-center">
         <h1 class="display-5 fw-bold">Personal Learning App</h1>
         <div class="col-lg-8 mx-auto">
             <p class="lead mb-4">Welcome to your personal spaced repetition learning application. Create new cards with Markdown and LaTeX, then review them to commit them to memory.</p>
             <div class="d-grid gap-2 d-sm-flex justify-content-sm-center">
-                <a href="/review" class="btn btn-primary btn-lg px-4 gap-3">Start Reviewing</a>
-                <a href="/new" class="btn btn-outline-secondary btn-lg px-4">Create a New Card</a>
+                <a href="/review" class="btn btn-primary btn-lg px-4 gap-3 text-nowrap">Start Reviewing</a>
+                <a href="/new" class="btn btn-outline-secondary btn-lg px-4 text-nowrap">Create a New Card</a>
             </div>
         </div>
     </div>
@@ -62,14 +63,8 @@
         padding: 1rem;
     }
 
-    /* p-5 is desktop-scale padding; on a phone it squeezes the CTA buttons
-       until their labels wrap. Trade padding for a single-line label. */
     .home-hero .card {
         width: 100%;
-        padding: 2.5rem 1.25rem !important;
-    }
-    .home-hero .btn {
-        white-space: nowrap;
     }
 }
 </style>

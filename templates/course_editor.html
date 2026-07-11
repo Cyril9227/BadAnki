@@ -1,5 +1,10 @@
 {% extends "layout.html" %}
 
+{# True when the page opens straight onto a course (view → edit): the content
+   block renders a loading skeleton and the scripts block starts the content
+   fetch — one flag so the two can't drift. 'home' is the bare Editor entry. #}
+{% set opening_file = course_path|default('') not in ('', 'home') %}
+
 {% block title %}Course Editor{% endblock %}
 
 {# The editor is a workspace: use the full page width like Manage does. #}
@@ -96,7 +101,6 @@
                with a content fetch; flashing the "select a file" drop zone
                during it read as the course having vanished. Show a skeleton
                instead until the editor is ready. #}
-            {% set opening_file = course_path|default('') not in ('', 'home') %}
             {% if opening_file %}
             <div id="editor-loading" aria-hidden="true">
                 <span class="skeleton-line w-25"></span>
@@ -393,7 +397,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 .then(handleResponse)
                 .then(content => {
                     currentDirectory = path.substring(0, path.lastIndexOf('/'));
-                    clearEditorLoading();
                     editorContainer.style.display = 'block';
                     noFileSelected.style.display = 'none';
                     editingFilename.textContent = `Editing: ${path}`;
@@ -408,7 +411,16 @@ document.addEventListener('DOMContentLoaded', function () {
                         editorContainer.scrollIntoView({ behavior: 'smooth' });
                     }
                 })
-                .catch(handleError);
+                .catch(error => {
+                    handleError(error);
+                    // The initial load starts with "select a file" hidden
+                    // behind the skeleton — bring it back if the editor never
+                    // opened, so a failed load doesn't leave the pane blank.
+                    if (editorContainer.style.display === 'none') {
+                        noFileSelected.style.display = 'block';
+                    }
+                })
+                .finally(clearEditorLoading);
         });
     }
 
@@ -596,7 +608,6 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function handleError(error) {
-        clearEditorLoading();
         // 404s happen when a previously selected file was deleted or a new
         // user has no courses yet; match on status, not message wording.
         const isNotFound = error.status === 404 || /not found/i.test(error.message);
@@ -608,11 +619,6 @@ document.addEventListener('DOMContentLoaded', function () {
             currentFilePathInput.value = '';
             markdownEditor.value = '';
         } else {
-            // A failed initial load must not leave the pane blank now that the
-            // "select a file" state starts hidden behind the skeleton.
-            if (editorContainer.style.display === 'none') {
-                noFileSelected.style.display = 'block';
-            }
             window.toast('error', error.message || 'Something went wrong.');
         }
         console.error(error);
@@ -718,11 +724,11 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     loadFileTree();
-    const initialPath = {{ course_path|default('')|tojson }};
-    // The bare Editor entry ('home') opens nothing, so the tree and the
-    // upload box greet the user; an explicit course path still loads.
-    if (initialPath && initialPath !== 'home') {
-        loadEditorContent(initialPath);
+    // opening_file (set at the top of the template) gates both the skeleton
+    // markup and this initial fetch; the bare Editor entry opens nothing, so
+    // the tree and the upload box greet the user.
+    if ({{ opening_file|tojson }}) {
+        loadEditorContent({{ course_path|default('')|tojson }});
     }
 });
 </script>
