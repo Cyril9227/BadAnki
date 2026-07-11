@@ -3,28 +3,7 @@
 {# The auth page has no markdown/LaTeX; skip the heavy MathJax bundle. #}
 {% block mathjax %}{% endblock %}
 
-{% block head %}
-<style>
-    /* The create-account dialog, restyled to match the site's cards in both
-       themes (SweetAlert's own button styling is disabled in favor of the
-       site's Bootstrap buttons). */
-    .auth-dialog {
-        background-color: rgb(var(--card-background-rgb));
-        color: rgb(var(--foreground-rgb));
-        border: 1px solid rgba(var(--border-rgb), 0.7);
-        border-radius: var(--radius);
-        box-shadow: var(--box-shadow);
-    }
-    .auth-dialog .swal2-title {
-        color: rgb(var(--foreground-rgb));
-        font-size: 1.25rem;
-    }
-    .auth-dialog .swal2-html-container {
-        color: rgb(var(--muted-foreground-rgb));
-        font-size: 0.95rem;
-    }
-</style>
-{% endblock %}
+{# SweetAlert dialogs are themed globally in layout.html. #}
 
 {% block content %}
 <div class="container mt-5">
@@ -140,13 +119,6 @@
             // A password typo is the likeliest reason to land here — don't
             // let a stray Enter create a duplicate account.
             focusCancel: true,
-            buttonsStyling: false,
-            customClass: {
-                popup: 'auth-dialog',
-                actions: 'gap-2',
-                confirmButton: 'btn btn-primary',
-                cancelButton: 'btn btn-outline-secondary',
-            },
         });
         if (result.isConfirmed) {
             registerIntent = true;

@@ -346,8 +346,7 @@ document.addEventListener('DOMContentLoaded', function () {
             text: 'Cards you have not saved will be lost.',
             icon: 'warning',
             showCancelButton: true,
-            confirmButtonColor: '#d33',
-            cancelButtonColor: '#3085d6',
+            customClass: window.swalClasses('btn btn-danger'),
             confirmButtonText: 'Yes, discard'
         }).then(result => {
             if (result.isConfirmed) {

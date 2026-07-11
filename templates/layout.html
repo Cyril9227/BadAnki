@@ -270,6 +270,46 @@
     @keyframes toast-in { from { opacity: 0; transform: translateY(0.75rem); } }
     @keyframes toast-out { to { opacity: 0; transform: translateY(0.5rem); } }
 
+    /* --- SweetAlert2 dialogs, restyled to the site's card surface in both
+       themes. Buttons come from Bootstrap classes via the Swal mixin near
+       the bottom of this file; this styles the popup itself. --- */
+    .swal2-popup {
+        background-color: rgb(var(--card-background-rgb));
+        color: rgb(var(--foreground-rgb));
+        border: 1px solid rgba(var(--border-rgb), 0.7);
+        border-radius: var(--radius);
+        box-shadow: var(--box-shadow);
+    }
+    .swal2-title {
+        color: rgb(var(--foreground-rgb));
+        font-size: 1.25rem;
+    }
+    .swal2-html-container {
+        color: rgb(var(--muted-foreground-rgb));
+        font-size: 0.95rem;
+    }
+    .swal2-input-label {
+        color: rgb(var(--muted-foreground-rgb));
+        font-size: 0.9rem;
+    }
+    /* Prompt inputs (new file/folder, rename) follow the form-control look;
+       transparent background keeps them correct in both themes. */
+    .swal2-input {
+        background-color: transparent;
+        color: rgb(var(--foreground-rgb));
+        border: 1px solid rgba(var(--border-rgb), 1);
+        border-radius: calc(var(--radius) - 0.125rem);
+        box-shadow: none;
+    }
+    .swal2-input:focus {
+        border-color: rgba(var(--primary-rgb), 0.5);
+        box-shadow: 0 0 0 0.25rem rgba(var(--primary-rgb), 0.25);
+    }
+    .swal2-validation-message {
+        background-color: rgba(var(--border-rgb), 0.35);
+        color: rgb(var(--foreground-rgb));
+    }
+
     kbd {
         padding: 0.15rem 0.45rem;
         border-radius: 0.35rem;
@@ -628,6 +668,19 @@ window.MathJax = {
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
     <script>
+    // Every SweetAlert dialog gets the site's Bootstrap buttons instead of
+    // SweetAlert's own styling (the popup surface is themed in CSS above).
+    // Re-binding window.Swal means every call site inherits this; destructive
+    // dialogs pass window.swalClasses('btn btn-danger') as customClass.
+    window.swalClasses = function (confirmClass) {
+        return {
+            actions: 'gap-2',
+            confirmButton: confirmClass || 'btn btn-primary',
+            cancelButton: 'btn btn-outline-secondary',
+        };
+    };
+    window.Swal = Swal.mixin({ buttonsStyling: false, customClass: window.swalClasses() });
+
     // Small theme-native toast chips (SweetAlert toasts were oversized and
     // jarring). Auto-dismisses; click to dismiss early.
     window.toast = function (type, message) {

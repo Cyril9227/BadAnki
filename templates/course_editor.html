@@ -39,6 +39,12 @@
     .tree-active {
         background-color: rgba(var(--primary-rgb), 0.12);
     }
+    /* Folder row currently hovered as a valid drag & drop destination. */
+    .drop-target {
+        background-color: rgba(var(--primary-rgb), 0.15);
+        outline: 1px dashed rgba(var(--primary-rgb), 0.6);
+        outline-offset: -1px;
+    }
     /* The editor is a writing surface: monospace source on the left, live
        preview beside it on desktop (stacked below on mobile). Each pane fills
        its column and the columns stretch to the row height, so both panes
@@ -244,7 +250,7 @@ document.addEventListener('DOMContentLoaded', function () {
             if (node.type === 'directory') {
                 html += `
                     <div style="padding-left: ${padding}px;">
-                        <div class="list-group-item d-flex justify-content-between align-items-center" data-bs-toggle="collapse" href="#${collapseId}" role="button" aria-expanded="false" aria-controls="${collapseId}">
+                        <div class="list-group-item d-flex justify-content-between align-items-center" draggable="true" data-drag-path="${dataPath}" data-drag-type="folder" data-bs-toggle="collapse" href="#${collapseId}" role="button" aria-expanded="false" aria-controls="${collapseId}">
                             <span class="item-name folder-item" data-path="${dataPath}">
                                 ${ICONS.folder} ${displayName}
                             </span>
@@ -263,7 +269,7 @@ document.addEventListener('DOMContentLoaded', function () {
             } else {
                 html += `
                     <div style="padding-left: ${padding}px;">
-                        <div class="list-group-item d-flex justify-content-between align-items-center">
+                        <div class="list-group-item d-flex justify-content-between align-items-center" draggable="true" data-drag-path="${dataPath}" data-drag-type="file">
                             <span class="item-name file-item" data-path="${dataPath}">
                                 ${ICONS.file} ${displayName}
                             </span>
@@ -313,19 +319,8 @@ document.addEventListener('DOMContentLoaded', function () {
         .catch(handleError);
     }
 
-    async function renameItem(path, type) {
-        const { value } = await Swal.fire({
-            title: `Rename or move this ${type}`,
-            input: 'text',
-            inputValue: path,
-            inputLabel: 'Full path (use / to move between folders)',
-            showCancelButton: true,
-            inputValidator: (v) => !v.trim() && 'Path cannot be empty'
-        });
-        if (!value || value.trim() === path) return;
-        let newPath = value.trim();
-        if (type === 'file' && !newPath.endsWith('.md')) newPath += '.md';
-
+    // Move/rename an item — shared by the rename dialog and tree drag & drop.
+    function moveItem(path, newPath, type) {
         fetch('/api/course-item/rename', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
@@ -348,14 +343,28 @@ document.addEventListener('DOMContentLoaded', function () {
         .catch(handleError);
     }
 
+    async function renameItem(path, type) {
+        const { value } = await Swal.fire({
+            title: `Rename or move this ${type}`,
+            input: 'text',
+            inputValue: path,
+            inputLabel: 'Full path (use / to move between folders)',
+            showCancelButton: true,
+            inputValidator: (v) => !v.trim() && 'Path cannot be empty'
+        });
+        if (!value || value.trim() === path) return;
+        let newPath = value.trim();
+        if (type === 'file' && !newPath.endsWith('.md')) newPath += '.md';
+        moveItem(path, newPath, type);
+    }
+
     async function deleteItem(path, type) {
         const result = await Swal.fire({
             title: `Are you sure you want to delete this ${type}?`,
             text: `Path: ${path}. This action cannot be undone.`,
             icon: 'warning',
             showCancelButton: true,
-            confirmButtonColor: '#d33',
-            cancelButtonColor: '#3085d6',
+            customClass: window.swalClasses('btn btn-danger'),
             confirmButtonText: 'Yes, delete it!'
         });
 
@@ -399,8 +408,7 @@ document.addEventListener('DOMContentLoaded', function () {
             text: `${currentFilePathInput.value} has unsaved edits.`,
             icon: 'warning',
             showCancelButton: true,
-            confirmButtonColor: '#d33',
-            cancelButtonColor: '#3085d6',
+            customClass: window.swalClasses('btn btn-danger'),
             confirmButtonText: 'Yes, discard'
         }).then(result => {
             if (result.isConfirmed) clearDraft(currentFilePathInput.value);
@@ -488,6 +496,60 @@ document.addEventListener('DOMContentLoaded', function () {
             document.querySelectorAll('.list-group-item').forEach(item => item.classList.remove('tree-active'));
             folderTarget.closest('.list-group-item').classList.add('tree-active');
         }
+    });
+
+    // --- Tree drag & drop: drag a file or folder onto a folder row to move
+    // it there. Same /api/course-item/rename call the rename dialog makes;
+    // this is just the pointer-friendly way to trigger it. (No touch support
+    // by design — mobile keeps the rename dialog.)
+    let dragged = null; // { path, type } of the row being dragged
+
+    // The folder row under the cursor, when dropping `dragged` on it is a
+    // meaningful move (not itself, its own subtree, or its current parent).
+    function dropTargetRow(e) {
+        if (!dragged) return null;
+        const row = e.target.closest('[data-drag-path]');
+        if (!row || row.dataset.dragType !== 'folder') return null;
+        const target = row.dataset.dragPath;
+        if (target === dragged.path || target.startsWith(dragged.path + '/')) return null;
+        if (target === dragged.path.substring(0, dragged.path.lastIndexOf('/'))) return null;
+        return row;
+    }
+
+    fileTreeContainer.addEventListener('dragstart', function (e) {
+        const row = e.target.closest('[data-drag-path]');
+        if (!row) return;
+        dragged = { path: row.dataset.dragPath, type: row.dataset.dragType };
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', dragged.path); // Firefox needs data to start a drag
+    });
+
+    fileTreeContainer.addEventListener('dragover', function (e) {
+        const row = dropTargetRow(e);
+        // One highlight at a time; clearing here also covers dragleave, which
+        // fires unreliably while moving across child elements.
+        fileTreeContainer.querySelectorAll('.drop-target').forEach(el => {
+            if (el !== row) el.classList.remove('drop-target');
+        });
+        if (!row) return;
+        e.preventDefault(); // allow the drop
+        e.dataTransfer.dropEffect = 'move';
+        row.classList.add('drop-target');
+    });
+
+    fileTreeContainer.addEventListener('drop', function (e) {
+        const row = dropTargetRow(e);
+        if (!row) return;
+        e.preventDefault();
+        row.classList.remove('drop-target');
+        const name = dragged.path.split('/').pop();
+        moveItem(dragged.path, `${row.dataset.dragPath}/${name}`, dragged.type);
+        dragged = null;
+    });
+
+    fileTreeContainer.addEventListener('dragend', function () {
+        dragged = null;
+        fileTreeContainer.querySelectorAll('.drop-target').forEach(el => el.classList.remove('drop-target'));
     });
 
     let saveInFlight = false;
