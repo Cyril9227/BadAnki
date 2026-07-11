@@ -23,6 +23,11 @@
         .table th, .table td {
             vertical-align: middle;
         }
+        /* The header cell carries ps-4; without the same inset on the body
+           cells the select-all box sits right of the column it controls. */
+        .table td.select-col {
+            padding-left: 1.5rem;
+        }
         /* The two content columns absorb the available width and wrap, so the
            rigid columns (type, date, numbers, actions) can never push the
            table wider than its container. */
