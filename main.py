@@ -934,6 +934,13 @@ async def save_secrets(telegram_chat_id: str = Form(None), conn: psycopg2.extens
     return JSONResponse(content={"success": True})
 
 
+@app.get("/sentry-debug")
+async def sentry_debug(user: User = Depends(get_current_active_user)):
+    """Deliberate error to verify Sentry end-to-end. Login-gated so it
+    can't be used to spam the error quota."""
+    raise RuntimeError("Sentry verification: this error is expected.")
+
+
 # --- Auth Routes (Supabase email-based login/register) ---
 @app.get("/auth", response_class=HTMLResponse)
 async def auth_form(request: Request):
