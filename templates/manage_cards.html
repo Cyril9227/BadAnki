@@ -13,6 +13,11 @@
         -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
     }
     
+    /* Bulk-select column: as narrow as the checkbox allows, no mobile
+       data-label pseudo-heading. */
+    .select-col { width: 1%; }
+    .table td.select-col::before { display: none; }
+
     /* Desktop styles */
     @media (min-width: 769px) {
         .table th, .table td {
@@ -211,6 +216,22 @@
             <option value="cloze">Cloze</option>
         </select>
     </div>
+    {# The sortable column headers live in the thead, which the mobile card
+       layout hides — this select is the touch equivalent. #}
+    <div class="col-auto d-md-none">
+        <select id="mobile-sort" class="form-select" aria-label="Sort cards">
+            <option value="">Due date ↑</option>
+            <option value="4:desc">Due date ↓</option>
+            <option value="5:desc">Ease ↓</option>
+            <option value="5:asc">Ease ↑</option>
+            <option value="6:desc">Interval ↓</option>
+            <option value="6:asc">Interval ↑</option>
+            <option value="1:asc">Type A→Z</option>
+        </select>
+    </div>
+    <div class="col-auto">
+        <button type="button" id="delete-selected" class="btn btn-danger" style="display: none;">Delete selected</button>
+    </div>
 </div>
 <p id="card-count" class="text-muted small mb-2" aria-live="polite"></p>
 {% endif %}
@@ -220,7 +241,10 @@
         <table class="table table-striped mb-0">
             <thead>
                 <tr>
-                    <th class="ps-4" data-sort-type="text">Type</th>
+                    <th class="ps-4 select-col">
+                        <input type="checkbox" id="select-all" class="form-check-input" aria-label="Select all shown cards" title="Select all shown">
+                    </th>
+                    <th data-sort-type="text">Type</th>
                     <th class="question-col">Question</th>
                     <th class="answer-col">Answer</th>
                     <th data-sort-type="date">Due</th>
@@ -232,6 +256,9 @@
             <tbody>
                 {% for card in cards %}
                 <tr data-question="{{ card.question }}">
+                    <td class="select-col">
+                        <input type="checkbox" class="form-check-input row-select" aria-label="Select card">
+                    </td>
                     <td data-label="Type" class="card-type-cell"></td>
                     <td data-label="Question" class="question-col markdown-content" data-content="{{ card.question }}"></td>
                     <td data-label="Answer" class="answer-col markdown-content" data-content="{{ card.answer }}"></td>
@@ -282,6 +309,9 @@ document.addEventListener('DOMContentLoaded', function () {
     const noResults = document.getElementById('no-results');
     const cardCount = document.getElementById('card-count');
     const loadMoreBtn = document.getElementById('load-more');
+    const mobileSort = document.getElementById('mobile-sort');
+    const selectAll = document.getElementById('select-all');
+    const deleteSelectedBtn = document.getElementById('delete-selected');
     let revealLimit = PAGE_SIZE;
 
     // Cheap upfront pass: the card type feeds the filter and the Type column
@@ -367,13 +397,16 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    if (searchInput) searchInput.addEventListener('input', function () { revealLimit = PAGE_SIZE; refresh(); });
-    if (typeFilter) typeFilter.addEventListener('change', function () { revealLimit = PAGE_SIZE; refresh(); });
+    // Changing what's visible drops the selection — a "Delete selected (3)"
+    // that includes cards the filter just hid would be a trap.
+    if (searchInput) searchInput.addEventListener('input', function () { revealLimit = PAGE_SIZE; clearSelection(); refresh(); });
+    if (typeFilter) typeFilter.addEventListener('change', function () { revealLimit = PAGE_SIZE; clearSelection(); refresh(); });
 
     if (loadMoreBtn) {
         loadMoreBtn.addEventListener('click', function () {
             revealLimit += PAGE_SIZE;
             refresh();
+            updateBulkUi(); // newly revealed rows are unchecked
         });
         // Lazy loading: reveal the next batch automatically as the button
         // approaches the viewport; the button stays as a manual fallback.
@@ -504,6 +537,23 @@ document.addEventListener('DOMContentLoaded', function () {
         refresh();
     }
 
+    // Mobile sort control — the touch stand-in for the hidden column headers.
+    if (mobileSort) {
+        // Reflect a restored sort in the control (unknown combos show default).
+        const restoredKey = sortState.col !== null && sortState.dir ? sortState.col + ':' + sortState.dir : '';
+        if ([...mobileSort.options].some(o => o.value === restoredKey)) mobileSort.value = restoredKey;
+        mobileSort.addEventListener('change', function () {
+            if (this.value) {
+                const parts = this.value.split(':');
+                sortState = { col: parseInt(parts[0], 10), dir: parts[1] };
+            } else {
+                sortState = { col: null, dir: null };
+            }
+            updateSortIndicators();
+            applySort();
+        });
+    }
+
     window.addEventListener('pagehide', function () {
         try {
             sessionStorage.setItem(VIEW_KEY, JSON.stringify({
@@ -516,31 +566,124 @@ document.addEventListener('DOMContentLoaded', function () {
         } catch (e) { /* storage unavailable */ }
     });
 
-    // Delete in place: a form submit reloads /manage and wipes the current
-    // search/sort/scroll, so the row is removed via fetch instead. The plain
-    // form submit stays as the fallback (and the no-JS path).
-    function deleteCardInPlace(form) {
-        const row = form.closest('tr');
-        fetch(form.action, {
+    // Deletes happen in place: a form submit reloads /manage and wipes the
+    // current search/sort/scroll. The plain form submit stays as the
+    // fallback (and the no-JS path).
+    function deleteRequest(form) {
+        return fetch(form.action, {
             method: 'POST',
             headers: { 'X-CSRF-Token': window.getCsrfToken() || form.querySelector('input[name="csrf_token"]').value },
-        })
-        .then(function (response) {
+        }).then(function (response) {
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            // The endpoint answers with a redirect + flash cookie meant for
-            // full-page loads; clear the cookie so the flash doesn't fire on
-            // the next navigation — the toast below already says it.
-            document.cookie = 'flash=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;';
-            [allRows, originalOrder, order].forEach(function (arr) {
-                const i = arr.indexOf(row);
-                if (i !== -1) arr.splice(i, 1);
-            });
-            row.remove();
-            refresh(); // counts + reveal window catch up
-            window.toast('success', 'Card deleted');
-        })
-        .catch(function () { form.submit(); });
+        });
     }
+
+    function removeRow(row) {
+        [allRows, originalOrder, order].forEach(function (arr) {
+            const i = arr.indexOf(row);
+            if (i !== -1) arr.splice(i, 1);
+        });
+        row.remove();
+    }
+
+    // The delete endpoint answers with a redirect + flash cookie meant for
+    // full-page loads; clear the cookie so the flash doesn't fire on the
+    // next navigation — our toasts already report the outcome.
+    function clearFlashCookie() {
+        document.cookie = 'flash=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;';
+    }
+
+    function deleteCardInPlace(form) {
+        const row = form.closest('tr');
+        deleteRequest(form)
+            .then(function () {
+                clearFlashCookie();
+                removeRow(row);
+                refresh(); // counts + reveal window catch up
+                updateBulkUi();
+                window.toast('success', 'Card deleted');
+            })
+            .catch(function () { form.submit(); });
+    }
+
+    // --- Bulk selection ---
+    function selectedRows() {
+        return allRows.filter(function (row) {
+            const box = row.querySelector('.row-select');
+            return box && box.checked;
+        });
+    }
+
+    function updateBulkUi() {
+        const n = selectedRows().length;
+        if (deleteSelectedBtn) {
+            deleteSelectedBtn.style.display = n ? '' : 'none';
+            deleteSelectedBtn.textContent = `Delete selected (${n})`;
+        }
+        if (selectAll) {
+            const shown = allRows.filter(function (row) { return row.style.display !== 'none'; });
+            selectAll.checked = shown.length > 0 && shown.every(function (row) { return row.querySelector('.row-select').checked; });
+        }
+    }
+
+    function clearSelection() {
+        allRows.forEach(function (row) {
+            const box = row.querySelector('.row-select');
+            if (box) box.checked = false;
+        });
+        if (selectAll) selectAll.checked = false;
+        updateBulkUi();
+    }
+
+    if (tbody) tbody.addEventListener('change', function (e) {
+        if (e.target.matches('.row-select')) updateBulkUi();
+    });
+
+    if (selectAll) selectAll.addEventListener('change', function () {
+        const checked = selectAll.checked;
+        allRows.forEach(function (row) {
+            if (row.style.display !== 'none') row.querySelector('.row-select').checked = checked;
+        });
+        updateBulkUi();
+    });
+
+    if (deleteSelectedBtn) deleteSelectedBtn.addEventListener('click', async function () {
+        const rows = selectedRows();
+        if (rows.length === 0) return;
+        const result = await Swal.fire({
+            title: `Delete ${rows.length} card${rows.length === 1 ? '' : 's'}?`,
+            text: "You won't be able to revert this!",
+            icon: 'warning',
+            showCancelButton: true,
+            customClass: window.swalClasses('btn btn-danger'),
+            confirmButtonText: 'Yes, delete them!'
+        });
+        if (!result.isConfirmed) return;
+
+        // Sequential on purpose: dozens of parallel POSTs would fan out
+        // serverless instances (and DB connections) for no user-visible win.
+        deleteSelectedBtn.disabled = true;
+        let done = 0, failed = 0;
+        for (const row of rows) {
+            deleteSelectedBtn.textContent = `Deleting… (${done + failed + 1}/${rows.length})`;
+            try {
+                await deleteRequest(row.querySelector('.delete-form'));
+                removeRow(row);
+                done++;
+            } catch (err) {
+                console.error('Bulk delete failed for a card:', err);
+                failed++;
+            }
+        }
+        clearFlashCookie();
+        deleteSelectedBtn.disabled = false;
+        refresh();
+        updateBulkUi();
+        window.toast(
+            failed ? 'warning' : 'success',
+            failed ? `Deleted ${done} card(s), ${failed} failed` : `Deleted ${done} card${done === 1 ? '' : 's'}`
+        );
+    });
 
     // SweetAlert2 for delete confirmation using event delegation
     document.body.addEventListener('submit', function(e) {
