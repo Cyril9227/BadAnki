@@ -386,7 +386,8 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    refresh();
+    // (The initial render happens below, once the sort headers are ready —
+    // a view saved before an edit round-trip is restored first.)
 
     // --- Client-side column sort: click cycles descending -> ascending -> original ---
     // Headers opt in via data-sort-type in the template; we enhance them here so a
@@ -411,7 +412,7 @@ document.addEventListener('DOMContentLoaded', function () {
         return type === 'text' ? raw.toLowerCase() : raw; // 'date' compares ISO strings
     }
 
-    function applySort() {
+    function applySort(resetReveal = true) {
         if (!tbody) return;
         order = originalOrder; // null/null state restores the original load order
         if (sortState.col !== null && sortState.dir !== null) {
@@ -431,7 +432,9 @@ document.addEventListener('DOMContentLoaded', function () {
         // Re-append in order; appendChild moves existing nodes, preserving any
         // already-rendered markdown/MathJax.
         order.forEach(function (row) { tbody.appendChild(row); });
-        revealLimit = PAGE_SIZE; // sorting restarts the reveal window from the top
+        // Sorting restarts the reveal window from the top; a restored view
+        // (see below) keeps its saved depth instead.
+        if (resetReveal) revealLimit = PAGE_SIZE;
         refresh();
     }
 
@@ -479,6 +482,66 @@ document.addEventListener('DOMContentLoaded', function () {
         btn.addEventListener('click', function () { handleSort(th); });
     });
 
+    // --- View persistence: editing a card round-trips through /edit-card,
+    // which used to land back here with search, filter, sort, reveal depth
+    // and scroll all reset. Save the view when leaving, restore it on load.
+    // sessionStorage is per-tab and dies with it — no stale state later. ---
+    const VIEW_KEY = 'manage-view';
+    let savedView = null;
+    try { savedView = JSON.parse(sessionStorage.getItem(VIEW_KEY) || 'null'); } catch (e) { /* corrupt/unavailable */ }
+    if (savedView) {
+        if (searchInput) searchInput.value = savedView.q || '';
+        if (typeFilter && savedView.type) typeFilter.value = savedView.type;
+        const col = savedView.sort ? savedView.sort.col : null;
+        if (col !== null && savedView.sort.dir && headerCells[col] && headerCells[col].dataset.sortType) {
+            sortState = { col: col, dir: savedView.sort.dir };
+            updateSortIndicators();
+        }
+        revealLimit = Math.max(PAGE_SIZE, savedView.revealLimit || 0);
+        applySort(false); // renders with the restored view
+        window.scrollTo(0, savedView.scrollY || 0);
+    } else {
+        refresh();
+    }
+
+    window.addEventListener('pagehide', function () {
+        try {
+            sessionStorage.setItem(VIEW_KEY, JSON.stringify({
+                q: searchInput ? searchInput.value : '',
+                type: typeFilter ? typeFilter.value : 'all',
+                sort: sortState,
+                revealLimit: revealLimit,
+                scrollY: window.scrollY,
+            }));
+        } catch (e) { /* storage unavailable */ }
+    });
+
+    // Delete in place: a form submit reloads /manage and wipes the current
+    // search/sort/scroll, so the row is removed via fetch instead. The plain
+    // form submit stays as the fallback (and the no-JS path).
+    function deleteCardInPlace(form) {
+        const row = form.closest('tr');
+        fetch(form.action, {
+            method: 'POST',
+            headers: { 'X-CSRF-Token': window.getCsrfToken() || form.querySelector('input[name="csrf_token"]').value },
+        })
+        .then(function (response) {
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            // The endpoint answers with a redirect + flash cookie meant for
+            // full-page loads; clear the cookie so the flash doesn't fire on
+            // the next navigation — the toast below already says it.
+            document.cookie = 'flash=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;';
+            [allRows, originalOrder, order].forEach(function (arr) {
+                const i = arr.indexOf(row);
+                if (i !== -1) arr.splice(i, 1);
+            });
+            row.remove();
+            refresh(); // counts + reveal window catch up
+            window.toast('success', 'Card deleted');
+        })
+        .catch(function () { form.submit(); });
+    }
+
     // SweetAlert2 for delete confirmation using event delegation
     document.body.addEventListener('submit', function(e) {
         if (e.target.matches('.delete-form')) {
@@ -493,7 +556,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 confirmButtonText: 'Yes, delete it!'
             }).then((result) => {
                 if (result.isConfirmed) {
-                    form.submit();
+                    deleteCardInPlace(form);
                 }
             });
         }
