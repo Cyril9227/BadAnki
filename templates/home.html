@@ -50,17 +50,19 @@
     </div>
 
     {% if leaderboard %}
-    <div class="row justify-content-center">
-        <div class="col-md-8 col-lg-6 mb-4">
+    <div class="row">
+        {# Full row width — the leaderboard lines up with the combined span
+           of the two panels above, on desktop and stacked mobile alike. #}
+        <div class="col-12 mb-4">
             <div class="card">
                 <div class="card-body pb-2">
-                    <h5 class="card-title mb-0">🏆 Top Reviewers <span class="text-muted fw-normal fs-6">— last 30 days</span></h5>
+                    <h5 class="card-title mb-0">🏆 Top Reviewers (last 30 days)</h5>
                 </div>
                 <ul class="list-group list-group-flush">
                     {% for entry in leaderboard %}
                     <li class="list-group-item d-flex justify-content-between align-items-center{{ ' fw-bold' if entry.is_me }}">
-                        <span>{{ loop.index }}. {{ entry.name }}{{ ' (you)' if entry.is_me }}</span>
-                        <span class="text-muted small">🔥 {{ entry.streak }} · {{ entry.reviews }} review{{ 's' if entry.reviews != 1 }}</span>
+                        <span class="fs-5">{{ loop.index }}. {{ entry.name }}{{ ' (you)' if entry.is_me }}</span>
+                        <span class="text-muted">🔥 {{ entry.streak }} · {{ entry.reviews }} review{{ 's' if entry.reviews != 1 }}</span>
                     </li>
                     {% endfor %}
                 </ul>
