@@ -125,7 +125,7 @@
                     </div>
                 </form>
                 <div id="drop-zone-editor" class="border rounded p-3 mt-3 text-center text-muted" style="border-style: dashed !important;">
-                    Drag & Drop .md files here or click to upload
+                    Drag &amp; drop .md files here or click to upload — you'll choose the destination folder
                 </div>
             </div>
             {# Opening a course straight from its page (view → edit) starts
@@ -141,7 +141,8 @@
             <div id="no-file-selected" class="text-center text-muted pt-5"{% if opening_file %} style="display: none;"{% endif %}>
                 <p>Select a file to start editing or create a new one.</p>
                 <div id="drop-zone-main" class="border rounded p-5 mt-3 text-center text-muted" style="border-style: dashed !important;">
-                    Drag & Drop .md files here or click to upload
+                    Drag &amp; drop .md files here or click to upload — you'll choose the destination folder.<br>
+                    Tip: dropping files straight onto a folder in the tree uploads them there.
                 </div>
             </div>
         </div>
@@ -498,22 +499,27 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     });
 
-    // --- Tree drag & drop: drag a file or folder onto a folder row to move
-    // it there. Same /api/course-item/rename call the rename dialog makes;
-    // this is just the pointer-friendly way to trigger it. (No touch support
-    // by design — mobile keeps the rename dialog.)
-    let dragged = null; // { path, type } of the row being dragged
+    // --- Tree drag & drop. Folder rows accept two kinds of drags: another
+    // tree row (move — the same /api/course-item/rename call the rename
+    // dialog makes) and files from the OS (upload straight into that folder,
+    // no destination dialog: the gesture already names it). No touch support
+    // by design — mobile keeps the rename dialog and the upload box.
+    let dragged = null; // { path, type } of the tree row being dragged, if any
 
-    // The folder row under the cursor, when dropping `dragged` on it is a
-    // meaningful move (not itself, its own subtree, or its current parent).
+    // The folder row under the cursor, when dropping on it means something:
+    // a moved item can't target itself, its own subtree, or its current
+    // parent; an OS file drag can target any folder.
     function dropTargetRow(e) {
-        if (!dragged) return null;
         const row = e.target.closest('[data-drag-path]');
         if (!row || row.dataset.dragType !== 'folder') return null;
-        const target = row.dataset.dragPath;
-        if (target === dragged.path || target.startsWith(dragged.path + '/')) return null;
-        if (target === dragged.path.substring(0, dragged.path.lastIndexOf('/'))) return null;
-        return row;
+        if (dragged) {
+            const target = row.dataset.dragPath;
+            if (target === dragged.path || target.startsWith(dragged.path + '/')) return null;
+            if (target === dragged.path.substring(0, dragged.path.lastIndexOf('/'))) return null;
+            return row;
+        }
+        if (e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files')) return row;
+        return null;
     }
 
     fileTreeContainer.addEventListener('dragstart', function (e) {
@@ -542,9 +548,13 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!row) return;
         e.preventDefault();
         row.classList.remove('drop-target');
-        const name = dragged.path.split('/').pop();
-        moveItem(dragged.path, `${row.dataset.dragPath}/${name}`, dragged.type);
-        dragged = null;
+        if (dragged) {
+            const name = dragged.path.split('/').pop();
+            moveItem(dragged.path, `${row.dataset.dragPath}/${name}`, dragged.type);
+            dragged = null;
+        } else if (e.dataTransfer.files.length > 0) {
+            handleFileUpload(e.dataTransfer.files, row.dataset.dragPath);
+        }
     });
 
     fileTreeContainer.addEventListener('dragend', function () {
@@ -593,6 +603,33 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     });
 
+    // The upload box and the file picker don't name a destination, so ask —
+    // uploading into whatever folder happened to be selected last was
+    // surprising. Defaults to the folder being worked in; dropping files
+    // directly onto a folder row in the tree skips the question entirely.
+    async function uploadWithPrompt(files) {
+        const mdFiles = Array.from(files).filter(file => /\.md$/i.test(file.name));
+        if (mdFiles.length === 0) {
+            window.toast('error', 'No Markdown (.md) files found.');
+            return;
+        }
+        const options = { '': 'Top level (no folder)' };
+        fileTreeContainer.querySelectorAll('.folder-item').forEach(el => {
+            options[el.dataset.path] = el.dataset.path;
+        });
+        const { value, isConfirmed } = await Swal.fire({
+            title: mdFiles.length === 1 ? `Upload ${mdFiles[0].name}` : `Upload ${mdFiles.length} files`,
+            input: 'select',
+            inputOptions: options,
+            inputValue: Object.prototype.hasOwnProperty.call(options, currentDirectory) ? currentDirectory : '',
+            inputLabel: 'Destination folder',
+            showCancelButton: true,
+            confirmButtonText: 'Upload'
+        });
+        if (!isConfirmed) return; // '' is a real choice (top level) — only cancel aborts
+        handleFileUpload(mdFiles, value);
+    }
+
     function setupDropZone(dropZone) {
         if (!dropZone) return;
         dropZone.addEventListener('click', () => fileInput.click());
@@ -613,17 +650,15 @@ document.addEventListener('DOMContentLoaded', function () {
             e.preventDefault();
             dropZone.classList.remove('border-primary');
             dropZone.classList.add('text-muted');
-            const files = e.dataTransfer.files;
-            if (files.length > 0) {
-                handleFileUpload(files, currentDirectory);
+            if (e.dataTransfer.files.length > 0) {
+                uploadWithPrompt(e.dataTransfer.files);
             }
         });
     }
 
     fileInput.addEventListener('change', (e) => {
-        const files = e.target.files;
-        if (files.length > 0) {
-            handleFileUpload(files, currentDirectory);
+        if (e.target.files.length > 0) {
+            uploadWithPrompt(e.target.files);
         }
         // Reset so picking the same file again still fires 'change'.
         e.target.value = '';
