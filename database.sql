@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS cards (
     id SERIAL PRIMARY KEY,
     question TEXT NOT NULL,
     answer TEXT NOT NULL,
+    card_type VARCHAR DEFAULT 'basic',
     due_date TIMESTAMP NOT NULL,
     interval INT NOT NULL DEFAULT 0,
     ease_factor FLOAT4 NOT NULL DEFAULT 2.5,
