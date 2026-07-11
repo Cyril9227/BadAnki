@@ -58,44 +58,13 @@
         border-color: rgba(var(--primary-rgb), 0.4);
     }
 
-    /* Segmented Q&A / Cloze control */
-    .card-type-toggle {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.2rem;
-        padding: 0.2rem;
-        background-color: rgba(var(--border-rgb), 0.35);
-        border: 1px solid rgba(var(--border-rgb), 0.9);
-        border-radius: calc(var(--radius) - 0.125rem);
-    }
-    .card-type-toggle .seg-btn {
-        border: 0;
-        padding: 0.3rem 0.8rem;
-        font-size: 0.8125rem;
-        font-weight: 500;
-        color: rgb(var(--muted-foreground-rgb));
-        background-color: transparent;
-        border-radius: calc(var(--radius) - 0.25rem);
-    }
-    .card-type-toggle .btn-check:checked + .seg-btn {
-        color: rgb(var(--foreground-rgb));
-        background-color: rgb(var(--card-background-rgb));
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
-        font-weight: 600;
-    }
+    /* The Q&A / Cloze control itself is the shared .seg-toggle (layout.html);
+       only its mobile sizing below is page-specific. */
 
-    /* Dark mode: the card-background pill is darker than its track and the
-       bordered buttons blend into the page — raise the contrast. */
+    /* Dark mode: the bordered buttons blend into the page — raise the contrast. */
     [data-bs-theme="dark"] .action-btn {
         background-color: rgba(var(--foreground-rgb), 0.08);
         border-color: rgba(var(--foreground-rgb), 0.25);
-    }
-    [data-bs-theme="dark"] .card-type-toggle {
-        background-color: rgba(0, 0, 0, 0.35);
-        border-color: rgba(var(--foreground-rgb), 0.2);
-    }
-    [data-bs-theme="dark"] .card-type-toggle .btn-check:checked + .seg-btn {
-        background-color: rgba(var(--foreground-rgb), 0.18);
     }
 
     /* Generate Cards — the primary action. Rest state reuses .btn-primary
@@ -202,7 +171,7 @@
         <button type="button" id="download-btn" class="btn action-btn">
             {{ icon('download', 14) }} Download
         </button>
-        <div class="card-type-toggle" role="group" aria-label="Card type">
+        <div class="seg-toggle card-type-toggle" role="group" aria-label="Card type">
             <input type="radio" class="btn-check" name="card-type" id="card-type-basic-viewer" value="basic" autocomplete="off" checked>
             <label class="btn seg-btn" for="card-type-basic-viewer">Q&A</label>
             <input type="radio" class="btn-check" name="card-type" id="card-type-cloze-viewer" value="cloze" autocomplete="off">

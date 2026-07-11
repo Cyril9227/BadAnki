@@ -51,6 +51,20 @@
         flex: 1;
     }
     #editor-loading .skeleton-pane { height: 24rem; }
+    /* Mobile: two stacked 24rem panels made the page one long scroll, with a
+       nested scrollbox inside the preview grabbing the thumb. Show one pane
+       at a time instead (Write/Preview toggle below the header); desktop
+       always shows both side by side and never sees the toggle. */
+    .editor-pane-toggle { display: flex; }
+    .editor-pane-toggle .seg-btn { flex: 1 1 0; }
+    @media (max-width: 991.98px) {
+        #editor-container.pane-preview .editor-col,
+        #editor-container:not(.pane-preview) .preview-col { display: none !important; }
+        /* One screen of writing surface; the textarea scrolls natively. */
+        #markdown-editor { height: 58vh; height: 58dvh; min-height: 16rem; }
+        /* Reading flows with the page — no nested scroller. */
+        #live-preview { max-height: none; overflow-y: visible; }
+    }
 </style>
 {% endblock %}
 
@@ -82,13 +96,19 @@
                     <h4 id="editing-filename" class="mb-0 text-truncate"></h4>
                     <button type="submit" form="editor-form" class="btn btn-primary px-4" title="Save and view the course (Ctrl+S saves in place)">Save</button>
                 </div>
+                <div class="seg-toggle editor-pane-toggle d-lg-none mb-2" role="group" aria-label="Editor pane">
+                    <input type="radio" class="btn-check" name="editor-pane" id="pane-write" value="write" autocomplete="off" checked>
+                    <label class="btn seg-btn" for="pane-write">Write</label>
+                    <input type="radio" class="btn-check" name="editor-pane" id="pane-preview" value="preview" autocomplete="off">
+                    <label class="btn seg-btn" for="pane-preview">Preview</label>
+                </div>
                 <form id="editor-form">
                     <input type="hidden" id="current-file-path" name="path">
                     <div class="row g-3">
-                        <div class="col-lg-6 d-flex flex-column">
+                        <div class="col-lg-6 d-flex flex-column editor-col">
                             <textarea id="markdown-editor" name="content" class="form-control" rows="18"></textarea>
                         </div>
-                        <div class="col-lg-6 d-flex flex-column">
+                        <div class="col-lg-6 d-flex flex-column preview-col">
                             <div id="live-preview" class="border rounded p-3 markdown-content"></div>
                         </div>
                     </div>
@@ -691,6 +711,9 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function updatePreview() {
+        // Hidden preview (mobile Write tab): skip the markdown + MathJax work
+        // per keystroke — switching to the Preview tab re-runs this.
+        if (livePreview.offsetParent === null) return;
         // Sanitize preview output — the editor may be rendering markdown that
         // was pasted from an untrusted source (e.g. downloaded course files).
         livePreview.innerHTML = window.safeMarkdown(markdownEditor.value);
@@ -698,6 +721,17 @@ document.addEventListener('DOMContentLoaded', function () {
             MathJax.typesetPromise([livePreview]);
         }
     }
+
+    // Mobile Write/Preview toggle: one pane at a time (see the CSS above).
+    document.querySelectorAll('input[name="editor-pane"]').forEach(function (radio) {
+        radio.addEventListener('change', function () {
+            editorContainer.classList.toggle('pane-preview', radio.value === 'preview');
+            if (radio.value === 'preview') updatePreview();
+        });
+    });
+    // Crossing the desktop breakpoint reveals the preview pane — catch up on
+    // renders skipped while it was hidden.
+    window.matchMedia('(min-width: 992px)').addEventListener('change', updatePreview);
 
     window.addEventListener('pageshow', function(event) {
         if (event.persisted) {

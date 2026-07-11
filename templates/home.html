@@ -53,10 +53,12 @@
 <style>
 @media (max-width: 768px) {
     /* Keep the body's navbar offset (zeroing it slid the hero under the
-       fixed navbar) and subtract it from the hero height instead. */
+       fixed navbar) and subtract it from the hero height instead. svh, not
+       dvh: dvh tracks the collapsing URL bar, so the hero resized mid-scroll
+       and shoved the panels below it around. */
     .home-hero {
         min-height: calc(100vh - 56px);
-        min-height: calc(100dvh - 56px);
+        min-height: calc(100svh - 56px);
         display: flex;
         align-items: center;
         justify-content: center;
