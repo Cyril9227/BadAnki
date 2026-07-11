@@ -681,6 +681,45 @@ def test_generate_cards_from_topic_api_success(mock_generate_cards, mock_get_use
     assert mock_generate_cards.call_args.kwargs.get("source") == "topic"
 
 @patch("main.supabase.auth.get_user")
+@patch("main.generate_cards")
+def test_generate_cards_from_topic_caps_batch_size(mock_generate_cards, mock_get_user, client, db_conn):
+    """The prompt asks the model for at most 10 cards; the endpoint enforces
+    the cap even when the model ignores it."""
+    mock_generate_cards.return_value = [
+        {"question": f"Q{i}", "answer": "A", "card_type": "basic"} for i in range(15)
+    ]
+    auth_client, _, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="topic_cap@example.com")
+    response = auth_client.post(
+        "/api/generate-cards-from-topic",
+        json={"content": "extensive integration tricks"},
+        headers={"X-CSRF-Token": csrf_token}
+    )
+    assert response.status_code == 200
+    assert len(response.json()["cards"]) == 10
+
+@patch("main.supabase.auth.get_user")
+@patch("main.generate_cards")
+def test_generate_cards_from_topic_accepts_any_card_type(mock_generate_cards, mock_get_user, client, db_conn):
+    """card_type "any" (the topic bar's default) lets the model pick per card;
+    course-material generation still rejects it."""
+    mock_generate_cards.return_value = [{"question": "Q", "answer": "A", "card_type": "cloze"}]
+    auth_client, _, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="topic_any@example.com")
+    response = auth_client.post(
+        "/api/generate-cards-from-topic",
+        json={"content": "Ohm's law", "card_type": "any"},
+        headers={"X-CSRF-Token": csrf_token}
+    )
+    assert response.status_code == 200
+    assert mock_generate_cards.call_args.kwargs.get("card_type") == "any"
+
+    response = auth_client.post(
+        "/api/generate-cards",
+        json={"content": "some course text", "card_type": "any"},
+        headers={"X-CSRF-Token": csrf_token}
+    )
+    assert response.status_code == 422
+
+@patch("main.supabase.auth.get_user")
 def test_generate_cards_from_topic_rejects_blank_topic(mock_get_user, client, db_conn):
     auth_client, _, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="topic_blank@example.com")
     response = auth_client.post(

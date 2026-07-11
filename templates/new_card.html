@@ -12,6 +12,13 @@
         color: rgb(var(--muted-foreground-rgb));
         font-size: 0.875rem;
     }
+    /* The topic box grows with its content (script-driven, capped here) —
+       no drag handle needed, and long requests stay fully visible. */
+    #ai-topic-input {
+        resize: none;
+        overflow-y: auto;
+        max-height: 10rem;
+    }
 </style>
 {% endblock %}
 
@@ -24,11 +31,14 @@
     <div class="card-body">
         <label for="ai-topic-input" class="form-label fw-semibold">{{ icon('sparkles', 14) }} Let AI draft your cards</label>
         <div class="d-flex flex-column flex-lg-row gap-2">
-            <input type="text" id="ai-topic-input" class="form-control flex-grow-1" maxlength="500"
-                   placeholder="e.g. Integration tricks: +1/−1, partial fraction decomposition, u-substitution">
+            <textarea id="ai-topic-input" class="form-control flex-grow-1" maxlength="500" rows="2"
+                      placeholder="e.g. Integration tricks: +1/−1, partial fraction decomposition, u-substitution"></textarea>
             <div class="d-flex gap-2 justify-content-between">
                 <div class="seg-toggle" role="group" aria-label="Card type">
-                    <input type="radio" class="btn-check" name="ai-card-type" id="ai-type-basic" value="basic" autocomplete="off" checked>
+                    {# "Any" lets the model pick per card; Q&A/Cloze force it. #}
+                    <input type="radio" class="btn-check" name="ai-card-type" id="ai-type-any" value="any" autocomplete="off" checked>
+                    <label class="btn seg-btn" for="ai-type-any">Any</label>
+                    <input type="radio" class="btn-check" name="ai-card-type" id="ai-type-basic" value="basic" autocomplete="off">
                     <label class="btn seg-btn" for="ai-type-basic">Q&amp;A</label>
                     <input type="radio" class="btn-check" name="ai-card-type" id="ai-type-cloze" value="cloze" autocomplete="off">
                     <label class="btn seg-btn" for="ai-type-cloze">Cloze</label>
@@ -237,7 +247,7 @@ document.addEventListener('DOMContentLoaded', function () {
     // --- AI topic bar: the shared modal handles preview/approve/save ---
     const aiTopicInput = document.getElementById('ai-topic-input');
     const aiCsrfToken = document.querySelector('input[name="csrf_token"]').value;
-    const aiCardType = () => document.querySelector('input[name="ai-card-type"]:checked')?.value || 'basic';
+    const aiCardType = () => document.querySelector('input[name="ai-card-type"]:checked').value;
     function wireAiGenerate(id, url) {
         const el = document.getElementById(id);
         if (el) el.addEventListener('click', function (e) {
@@ -248,9 +258,18 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     const aiGeminiBtn = wireAiGenerate('ai-generate-gemini-btn', '/api/generate-cards-from-topic');
     const aiAnthropicBtn = wireAiGenerate('ai-generate-anthropic-btn', '/api/generate-cards-from-topic-anthropic');
-    // Enter in the topic field generates with the first available provider.
+    // Auto-grow the topic box with its content (capped by CSS max-height) —
+    // a fixed one-line input hid everything but the tail of longer requests.
+    // +2px absorbs the borders so the scrollbar doesn't flicker in.
+    aiTopicInput.addEventListener('input', function () {
+        this.style.height = 'auto';
+        this.style.height = (this.scrollHeight + 2) + 'px';
+    });
+    // Desktop: Enter generates (first available provider), Shift+Enter breaks
+    // the line. Touch keyboards keep Enter as newline — Generate is on screen.
+    const touchKeyboard = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
     aiTopicInput.addEventListener('keydown', function (e) {
-        if (e.key !== 'Enter') return;
+        if (e.key !== 'Enter' || e.shiftKey || touchKeyboard) return;
         e.preventDefault();
         const btn = aiGeminiBtn || aiAnthropicBtn;
         if (btn) btn.click();
