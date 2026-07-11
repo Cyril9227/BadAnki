@@ -1320,10 +1320,16 @@ async def health_check():
 
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
+    # The leaderboard is members-only content on an otherwise public page —
+    # the DB connection is only acquired when there's a user to show it to.
+    leaderboard = None
+    if request.state.user:
+        leaderboard = crud.get_leaderboard(get_request_db(request), request.state.user.auth_user_id)
     return templates.TemplateResponse(request, "home.html", {
         "telegram_bot_username": TELEGRAM_BOT_USERNAME,
         "supabase_url": SUPABASE_URL,
-        "supabase_key": SUPABASE_KEY
+        "supabase_key": SUPABASE_KEY,
+        "leaderboard": leaderboard,
     })
 
 @app.get("/courses", response_class=HTMLResponse)
@@ -1585,7 +1591,6 @@ async def review(request: Request, conn: psycopg2.extensions.connection = Depend
         return templates.TemplateResponse(request, "no_cards.html", {
             "total_cards": stats['total_cards'],
             "streak": crud.get_review_streak_for_user(conn, user.auth_user_id),
-            "leaderboard": crud.get_leaderboard(conn, user.auth_user_id),
         })
 
     csrf_token = request.state.csrf_token
@@ -1732,10 +1737,12 @@ async def edit_card_form(request: Request, card_id: int, conn: psycopg2.extensio
     return templates.TemplateResponse(request, "edit_card.html", {"card": card, "csrf_token": csrf_token})
 
 @app.post("/edit-card/{card_id}")
-async def update_existing_card(card_id: int, question: str = Form(...), answer: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
+async def update_existing_card(request: Request, card_id: int, question: str = Form(...), answer: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     question, answer, _ = _validate_card_input(question, answer)
     crud.update_card_content_for_user(conn, card_id, user.auth_user_id, question, answer)
-    return RedirectResponse(url="/manage", status_code=303)
+    response = RedirectResponse(url="/manage", status_code=303)
+    set_flash_cookie(response, request, "success:Card updated!")
+    return response
 
 @app.post("/delete/{card_id}")
 async def delete_card(request: Request, card_id: int, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):

@@ -553,6 +553,11 @@ window.MathJax = {
     window.formatClozeWithAnswer = function(text) {
         return text.replace(window.CLOZE_PATTERN_GLOBAL, '<span class="cloze-answer">$1</span>');
     };
+    // The hidden words, comma-joined — what a cloze card's answer field is
+    // derived from (card creation and the edit page's re-sync both use this).
+    window.clozeAnswers = function(text) {
+        return [...text.matchAll(window.CLOZE_PATTERN_GLOBAL)].map(function (m) { return m[1]; }).join(', ');
+    };
     window.cardTypeBadge = function(isCloze) {
         return isCloze
             ? '<span class="badge bg-info ms-2">Cloze</span>'

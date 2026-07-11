@@ -634,9 +634,9 @@ def test_next_card_respects_exclude(mock_get_user, client, db_conn):
 
 
 @patch("main.supabase.auth.get_user")
-def test_all_done_page_shows_streak_and_leaderboard(mock_get_user, client, db_conn):
-    """Once the deck is cleared, the done page shows the streak and the
-    leaderboard with the email local part only (never the full address)."""
+def test_all_done_page_shows_streak(mock_get_user, client, db_conn):
+    """Once the deck is cleared, the done page shows the streak (the
+    leaderboard moved to the home page)."""
     auth_client, user_id, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="boarduser@example.com")
     card_id = create_test_card(db_conn, user_id, "Q", "A")
 
@@ -651,9 +651,32 @@ def test_all_done_page_shows_streak_and_leaderboard(mock_get_user, client, db_co
     assert response.status_code == 200
     assert "All Done!" in response.text
     assert "day streak" in response.text
+    assert "Top Reviewers" not in response.text
+
+@patch("main.supabase.auth.get_user")
+def test_home_leaderboard_members_only_local_part(mock_get_user, client, db_conn):
+    """The home page shows the leaderboard to logged-in users only, with the
+    email local part and never the full address."""
+    auth_client, user_id, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="boarduser2@example.com")
+    card_id = create_test_card(db_conn, user_id, "Q", "A")
+    auth_client.post(
+        f"/review/{card_id}",
+        data={"status": "remembered"},
+        headers={"X-CSRF-Token": csrf_token},
+        follow_redirects=False,
+    )
+
+    response = auth_client.get("/")
+    assert response.status_code == 200
     assert "Top Reviewers" in response.text
-    assert "boarduser" in response.text
-    assert "boarduser@example.com" not in response.text
+    assert "boarduser2" in response.text
+    assert "boarduser2@example.com" not in response.text
+
+    # Anonymous visitors get the public page without the leaderboard.
+    auth_client.cookies.delete("access_token")
+    response = auth_client.get("/")
+    assert response.status_code == 200
+    assert "Top Reviewers" not in response.text
 
 # --- AI Card Generation Tests ---
 @patch("main.supabase.auth.get_user")

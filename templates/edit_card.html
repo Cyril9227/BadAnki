@@ -30,9 +30,12 @@
             </div>
             <div class="col-md-6">
                 <div class="card h-100">
-                    <div class="card-header"><h5 class="mb-0">Answer</h5></div>
+                    <div class="card-header"><h5 class="mb-0" id="answer-label">Answer</h5></div>
                     <div class="card-body">
                         <textarea class="form-control" id="answer" name="answer" rows="6" required>{{ card.answer }}</textarea>
+                        <div id="cloze-answer-note" class="form-text" style="display: none;">
+                            Follows the {{ '{{' }}c1::…{{ '}}' }} markers while you edit the text — type here to override.
+                        </div>
                     </div>
                 </div>
             </div>
@@ -64,6 +67,8 @@ document.addEventListener('DOMContentLoaded', function() {
     if (isCloze) {
         document.getElementById('cloze-hint').style.display = 'block';
         document.getElementById('question-label').textContent = 'Text (with cloze syntax)';
+        document.getElementById('answer-label').textContent = 'Answer (auto-synced)';
+        document.getElementById('cloze-answer-note').style.display = 'block';
     }
 
     function renderPreview(preview, text) {
@@ -75,9 +80,26 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    function updateQuestionPreview() {
+    // Cloze answers are derived from the {{ '{{' }}cN::…{{ '}}' }} markers at
+    // creation — so editing a marker must re-derive the answer, or the stored
+    // one goes stale (on Manage that read as "my edit didn't save"). Sync
+    // only while the text is actively edited (never on page load, which
+    // would clobber an intentionally customized answer), and stop as soon
+    // as the answer field is edited by hand — same guard as the new-card page.
+    let answerEdited = false;
+
+    function updateQuestionPreview(syncClozeAnswer) {
         let text = questionInput.value;
-        if (window.isClozeText(text)) text = window.formatClozeForDisplay(text);
+        if (window.isClozeText(text)) {
+            if (syncClozeAnswer && !answerEdited) {
+                const derived = window.clozeAnswers(text);
+                if (derived && derived !== answerInput.value) {
+                    answerInput.value = derived;
+                    renderPreview(answerPreview, derived);
+                }
+            }
+            text = window.formatClozeForDisplay(text);
+        }
         renderPreview(questionPreview, text);
     }
 
@@ -92,9 +114,10 @@ document.addEventListener('DOMContentLoaded', function() {
     let answerPreviewTimeout = null;
     questionInput.addEventListener('input', function () {
         clearTimeout(questionPreviewTimeout);
-        questionPreviewTimeout = setTimeout(updateQuestionPreview, PREVIEW_DEBOUNCE_MS);
+        questionPreviewTimeout = setTimeout(function () { updateQuestionPreview(true); }, PREVIEW_DEBOUNCE_MS);
     });
     answerInput.addEventListener('input', function () {
+        answerEdited = true;
         clearTimeout(answerPreviewTimeout);
         answerPreviewTimeout = setTimeout(updateAnswerPreview, PREVIEW_DEBOUNCE_MS);
     });

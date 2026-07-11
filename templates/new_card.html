@@ -128,11 +128,6 @@ document.addEventListener('DOMContentLoaded', function () {
     // mobile); state changes must hit both.
     const submitBtns = Array.from(document.querySelectorAll('button[type="submit"]'));
 
-    function extractClozeAnswers(text) {
-        const matches = [...text.matchAll(window.CLOZE_PATTERN_GLOBAL)];
-        return matches.map(m => m[1]).join(', ');
-    }
-
     function renderPreview(preview, text) {
         preview.innerHTML = window.safeMarkdown(text);
         // window.MathJax is a plain config object until the async bundle loads,
@@ -151,7 +146,7 @@ document.addEventListener('DOMContentLoaded', function () {
     function updateQuestionPreview() {
         let input = questionInput.value;
         if (cardTypeSelect.value === 'cloze') {
-            const extracted = extractClozeAnswers(input);
+            const extracted = window.clozeAnswers(input);
             if (extracted && !answerEdited) {
                 answerInput.value = extracted;
                 renderPreview(answerPreview, extracted);
