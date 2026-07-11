@@ -269,6 +269,27 @@
     }
     @keyframes toast-in { from { opacity: 0; transform: translateY(0.75rem); } }
     @keyframes toast-out { to { opacity: 0; transform: translateY(0.5rem); } }
+    /* Desktop: dock the chips in the bottom-right corner like system
+       notifications and slide them in from the edge — a floating pill at
+       front-and-center reads as a popup. Slightly tighter, and glassy like
+       the navbar. Mobile keeps the bottom-center snackbar exactly as is. */
+    @media (min-width: 768px) {
+        #toast-stack {
+            left: auto;
+            right: 1.5rem;
+            transform: none;
+            align-items: flex-end;
+            max-width: 24rem;
+        }
+        .toast-chip {
+            font-size: 0.85rem;
+            padding: 0.45rem 0.9rem;
+            background: rgba(var(--card-background-rgb), 0.85);
+            backdrop-filter: blur(10px);
+        }
+        @keyframes toast-in { from { opacity: 0; transform: translateX(1rem); } }
+        @keyframes toast-out { to { opacity: 0; transform: translateX(0.75rem); } }
+    }
 
     /* --- SweetAlert2 dialogs, restyled to the site's card surface in both
        themes. Buttons come from Bootstrap classes via the Swal mixin near
