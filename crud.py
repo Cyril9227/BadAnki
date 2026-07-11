@@ -534,17 +534,17 @@ def save_generated_cards_for_user(conn, cards: list, auth_user_id: str):
 
 # --- API Key and Secrets CRUD Functions ---
 
-def save_api_keys_for_user(conn, user_id: str, gemini_api_key: str, anthropic_api_key: str):
+def save_api_keys_for_user(conn, user_id: str, gemini_api_key: str, anthropic_api_key: str, openai_api_key: str = None):
     """Saves or updates the API keys for a specific user."""
     try:
         with conn.cursor() as cursor:
             cursor.execute(
                 """
                 UPDATE profiles
-                SET gemini_api_key = %s, anthropic_api_key = %s
+                SET gemini_api_key = %s, anthropic_api_key = %s, openai_api_key = %s
                 WHERE auth_user_id = %s
                 """,
-                (gemini_api_key, anthropic_api_key, user_id)
+                (gemini_api_key, anthropic_api_key, openai_api_key, user_id)
             )
         conn.commit()
     except Exception:

@@ -36,6 +36,16 @@
                            placeholder="{{ 'Enter a new key to replace, or leave blank to keep' if anthropic_key_set else 'Enter your Anthropic API key' }}">
                 </div>
 
+                <div class="mb-3">
+                    <label for="openai_api_key" class="form-label d-flex align-items-center gap-2">
+                        OpenAI API Key
+                        <span id="openai-key-badge" class="badge {{ 'bg-success' if openai_key_set else 'bg-secondary' }}">{{ 'Configured' if openai_key_set else 'Not set' }}</span>
+                    </label>
+                    <input type="password" id="openai_api_key" name="openai_api_key"
+                           class="form-control" autocomplete="new-password"
+                           placeholder="{{ 'Enter a new key to replace, or leave blank to keep' if openai_key_set else 'Enter your OpenAI API key' }}">
+                </div>
+
                 <button id="save-keys-btn" type="submit" class="btn btn-primary">Save API Keys</button>
             </form>
         </div>
@@ -96,18 +106,18 @@ document.getElementById('api-keys-form').addEventListener('submit', function(eve
     event.preventDefault();
 
     const saveBtn = document.getElementById('save-keys-btn');
-    const geminiApiKey = document.getElementById('gemini_api_key').value;
-    const anthropicApiKey = document.getElementById('anthropic_api_key').value;
     const csrfToken = window.getCsrfToken() || "{{ csrf_token }}";
 
     // Only send fields the user actually filled in — an empty field means "keep
     // whatever is stored", not "clear the key".
     const payload = {};
-    if (geminiApiKey.trim()) payload.gemini_api_key = geminiApiKey;
-    if (anthropicApiKey.trim()) payload.anthropic_api_key = anthropicApiKey;
+    ['gemini', 'anthropic', 'openai'].forEach(provider => {
+        const value = document.getElementById(provider + '_api_key').value;
+        if (value.trim()) payload[provider + '_api_key'] = value;
+    });
 
     if (Object.keys(payload).length === 0) {
-        window.toast('info', 'Nothing to save — both fields are blank.');
+        window.toast('info', 'Nothing to save — all fields are blank.');
         return;
     }
 
@@ -122,7 +132,7 @@ document.getElementById('api-keys-form').addEventListener('submit', function(eve
     })
     .then(() => {
         // Flip the badges in place — no blocking dialog, no reload.
-        ['gemini', 'anthropic'].forEach(provider => {
+        ['gemini', 'anthropic', 'openai'].forEach(provider => {
             if (payload[provider + '_api_key']) {
                 const badge = document.getElementById(provider + '-key-badge');
                 badge.className = 'badge bg-success';

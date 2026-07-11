@@ -720,6 +720,26 @@ def test_generate_cards_from_topic_accepts_any_card_type(mock_generate_cards, mo
     assert response.status_code == 422
 
 @patch("main.supabase.auth.get_user")
+@patch("main.generate_cards")
+def test_generate_cards_from_topic_openai(mock_generate_cards, mock_get_user, client, db_conn):
+    """The OpenAI endpoints route to mode="openai" with the user's OpenAI key."""
+    mock_generate_cards.return_value = [{"question": "Q", "answer": "A", "card_type": "basic"}]
+    auth_client, user_id, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="topic_openai@example.com")
+    cur = db_conn.cursor()
+    cur.execute("UPDATE profiles SET openai_api_key = 'sk-test' WHERE auth_user_id = %s", (user_id,))
+    db_conn.commit()
+    cur.close()
+
+    response = auth_client.post(
+        "/api/generate-cards-from-topic-openai",
+        json={"content": "Ohm's law"},
+        headers={"X-CSRF-Token": csrf_token}
+    )
+    assert response.status_code == 200
+    assert mock_generate_cards.call_args.kwargs.get("mode") == "openai"
+    assert mock_generate_cards.call_args.kwargs.get("api_key") == "sk-test"
+
+@patch("main.supabase.auth.get_user")
 def test_generate_cards_from_topic_rejects_blank_topic(mock_get_user, client, db_conn):
     auth_client, _, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="topic_blank@example.com")
     response = auth_client.post(
@@ -764,9 +784,9 @@ def test_save_generated_cards(mock_get_user, client, db_conn):
 @patch("main.supabase.auth.get_user")
 def test_save_api_keys(mock_get_user, client, db_conn):
     auth_client, user_id, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="api_key_user@example.com")
-    keys = {"gemini_api_key": "gemini_key", "anthropic_api_key": "anthropic_key"}
+    keys = {"gemini_api_key": "gemini_key", "anthropic_api_key": "anthropic_key", "openai_api_key": "openai_key"}
     response = auth_client.post(
-        "/api/save-api-keys", 
+        "/api/save-api-keys",
         json=keys,
         headers={"X-CSRF-Token": csrf_token}
     )
@@ -774,11 +794,12 @@ def test_save_api_keys(mock_get_user, client, db_conn):
     assert response.json()["success"] is True
 
     cur = db_conn.cursor()
-    cur.execute("SELECT gemini_api_key, anthropic_api_key FROM profiles WHERE auth_user_id = %s", (user_id,))
+    cur.execute("SELECT gemini_api_key, anthropic_api_key, openai_api_key FROM profiles WHERE auth_user_id = %s", (user_id,))
     user_keys = cur.fetchone()
     cur.close()
     assert user_keys['gemini_api_key'] == "gemini_key"
     assert user_keys['anthropic_api_key'] == "anthropic_key"
+    assert user_keys['openai_api_key'] == "openai_key"
 
 @patch("main.supabase.auth.get_user")
 def test_save_secrets(mock_get_user, client, db_conn):

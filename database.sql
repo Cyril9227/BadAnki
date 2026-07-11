@@ -4,7 +4,8 @@ CREATE TABLE IF NOT EXISTS profiles (
     username TEXT UNIQUE NOT NULL,
     telegram_chat_id TEXT,
     gemini_api_key TEXT,
-    anthropic_api_key TEXT
+    anthropic_api_key TEXT,
+    openai_api_key TEXT
 );
 
 -- Create the cards table

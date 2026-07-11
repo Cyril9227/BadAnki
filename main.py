@@ -21,6 +21,7 @@ from google import genai
 import httpx
 import psycopg2
 import anthropic
+import openai
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -309,6 +310,9 @@ class User(BaseModel):
     telegram_chat_id: Optional[str] = None
     gemini_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
+    # Optional with a None default: User(**profile) stays valid even before
+    # the openai_api_key column exists in a given database.
+    openai_api_key: Optional[str] = None
 
 class CourseContent(BaseModel):
     path: str = Field(..., min_length=1, max_length=MAX_COURSE_PATH_LEN)
@@ -346,6 +350,7 @@ class GeneratedCards(BaseModel):
 class ApiKeys(BaseModel):
     gemini_api_key: str | None = Field(default=None, max_length=MAX_SECRET_INPUT_LEN)
     anthropic_api_key: str | None = Field(default=None, max_length=MAX_SECRET_INPUT_LEN)
+    openai_api_key: str | None = Field(default=None, max_length=MAX_SECRET_INPUT_LEN)
 
 class ReviewUndo(BaseModel):
     # Echo of the `previous` scheduling values returned by the rating call.
@@ -950,6 +955,28 @@ def generate_cards(text: str, mode="gemini", api_key: str = None, card_type: str
             )
             response_text = next((b.text for b in message.content if b.type == "text"), "")
 
+        elif mode == "openai":
+            if not api_key:
+                raise ValueError("OpenAI API key is required.")
+            client = openai.OpenAI(api_key=api_key)
+            # gpt-5-mini with minimal reasoning: card generation is structured
+            # extraction, so skip the thinking spend — the same cost choice as
+            # Sonnet 5 with thinking disabled above. Strict json_schema output
+            # enforces CARDS_JSON_SCHEMA at decode time like both other
+            # providers (the schema already meets strict-mode rules: every
+            # object has additionalProperties:false and full required lists).
+            completion = client.chat.completions.create(
+                model='gpt-5-mini',
+                reasoning_effort='minimal',
+                max_completion_tokens=4096 if topic_mode else 16000,
+                response_format={
+                    'type': 'json_schema',
+                    'json_schema': {'name': 'flashcards', 'strict': True, 'schema': CARDS_JSON_SCHEMA},
+                },
+                messages=[{'role': 'user', 'content': prompt}],
+            )
+            response_text = completion.choices[0].message.content or ""
+
         # All providers enforce CARDS_JSON_SCHEMA at decode time, so this is
         # normally just json.loads; the repair fallback stays as a safety net.
         parsed = robust_json_loads(response_text)
@@ -970,6 +997,7 @@ async def settings_form(request: Request, user: User = Depends(get_current_activ
         "csrf_token": request.state.csrf_token,
         "gemini_key_set": bool(user.gemini_api_key),
         "anthropic_key_set": bool(user.anthropic_api_key),
+        "openai_key_set": bool(user.openai_api_key),
         "telegram_linked": bool(user.telegram_chat_id),
         "telegram_bot_username": TELEGRAM_BOT_USERNAME,
         "telegram_link_token": make_telegram_link_token(user.auth_user_id),
@@ -1264,6 +1292,7 @@ async def edit_course(request: Request, course_path: str, user: User = Depends(g
         "course_path": course_path,
         "gemini_api_key_exists": bool(user.gemini_api_key),
         "anthropic_api_key_exists": bool(user.anthropic_api_key),
+        "openai_api_key_exists": bool(user.openai_api_key),
         "csrf_token": request.state.csrf_token
     })
 
@@ -1308,6 +1337,7 @@ async def view_course(request: Request, course_path: str, conn: psycopg2.extensi
         "course_path": course_path,
         "gemini_api_key_exists": bool(user.gemini_api_key),
         "anthropic_api_key_exists": bool(user.anthropic_api_key),
+        "openai_api_key_exists": bool(user.openai_api_key),
         "csrf_token": request.state.csrf_token
     })
 
@@ -1411,6 +1441,10 @@ async def api_generate_cards(data: CourseContentForGeneration, user: User = Depe
 async def api_generate_cards_anthropic(data: CourseContentForGeneration, user: User = Depends(get_current_active_user)):
     return await _generate_cards_response(data, user, mode="anthropic", api_key=user.anthropic_api_key)
 
+@app.post("/api/generate-cards-openai")
+async def api_generate_cards_openai(data: CourseContentForGeneration, user: User = Depends(get_current_active_user)):
+    return await _generate_cards_response(data, user, mode="openai", api_key=user.openai_api_key)
+
 @app.post("/api/generate-cards-from-topic")
 async def api_generate_cards_from_topic(data: TopicForGeneration, user: User = Depends(get_current_active_user)):
     return await _generate_cards_response(data, user, mode="gemini", api_key=user.gemini_api_key,
@@ -1419,6 +1453,11 @@ async def api_generate_cards_from_topic(data: TopicForGeneration, user: User = D
 @app.post("/api/generate-cards-from-topic-anthropic")
 async def api_generate_cards_from_topic_anthropic(data: TopicForGeneration, user: User = Depends(get_current_active_user)):
     return await _generate_cards_response(data, user, mode="anthropic", api_key=user.anthropic_api_key,
+                                          source="topic", max_cards=MAX_TOPIC_CARDS)
+
+@app.post("/api/generate-cards-from-topic-openai")
+async def api_generate_cards_from_topic_openai(data: TopicForGeneration, user: User = Depends(get_current_active_user)):
+    return await _generate_cards_response(data, user, mode="openai", api_key=user.openai_api_key,
                                           source="topic", max_cards=MAX_TOPIC_CARDS)
 
 @app.post("/api/save-cards")
@@ -1445,7 +1484,8 @@ async def api_save_api_keys(data: ApiKeys, conn: psycopg2.extensions.connection 
 
     gemini_key = _resolve(data.gemini_api_key, user.gemini_api_key)
     anthropic_key = _resolve(data.anthropic_api_key, user.anthropic_api_key)
-    crud.save_api_keys_for_user(conn, user.auth_user_id, gemini_key, anthropic_key)
+    openai_key = _resolve(data.openai_api_key, user.openai_api_key)
+    crud.save_api_keys_for_user(conn, user.auth_user_id, gemini_key, anthropic_key, openai_key)
     return {"success": True}
 
 # --- Tag-based Views ---
@@ -1625,6 +1665,7 @@ async def new_card_form(request: Request, card_type: str = "basic", user: User =
         # Booleans only — the AI topic bar needs to know which providers to offer.
         "gemini_api_key_exists": bool(user.gemini_api_key),
         "anthropic_api_key_exists": bool(user.anthropic_api_key),
+        "openai_api_key_exists": bool(user.openai_api_key),
     })
 
 @app.post("/new")
