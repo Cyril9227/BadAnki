@@ -86,6 +86,15 @@ supabase: Client = create_client(
     SUPABASE_URL, SUPABASE_KEY, options=ClientOptions(auto_refresh_token=False)
 )
 
+# Error tracking — a no-op unless SENTRY_DSN is configured. The FastAPI
+# integration enables itself once the SDK is initialized.
+if os.environ.get("SENTRY_DSN"):
+    import sentry_sdk
+    sentry_sdk.init(
+        dsn=os.environ["SENTRY_DSN"],
+        environment=os.environ.get("ENVIRONMENT", "development"),
+    )
+
 MAX_COURSE_PATH_LEN = 512
 MAX_COURSE_CONTENT_LEN = 1_000_000
 MAX_CARD_QUESTION_LEN = 10_000
@@ -321,11 +330,6 @@ class GeneratedCards(BaseModel):
 class ApiKeys(BaseModel):
     gemini_api_key: str | None = Field(default=None, max_length=MAX_SECRET_INPUT_LEN)
     anthropic_api_key: str | None = Field(default=None, max_length=MAX_SECRET_INPUT_LEN)
-
-class Secrets(BaseModel):
-    telegram_token: str | None = Field(default=None, max_length=MAX_SECRET_INPUT_LEN)
-    telegram_chat_id: str | None = Field(default=None, max_length=MAX_SECRET_INPUT_LEN)
-    scheduler_secret: str | None = Field(default=None, max_length=MAX_SECRET_INPUT_LEN)
 
 class ReviewUndo(BaseModel):
     # Echo of the `previous` scheduling values returned by the rating call.
@@ -994,14 +998,14 @@ async def handle_auth(
             })
 
             try:
-                # Create user in Supabase
-                auth_response = supabase.auth.sign_up({"email": email, "password": password})
+                # Create user in Supabase (sync client — keep it off the event loop)
+                auth_response = await run_in_threadpool(supabase.auth.sign_up, {"email": email, "password": password})
                 if not auth_response.user:
                     return error_response("Could not create account. The email may be invalid.")
 
                 # Create local profile and auto-login
                 crud.create_profile(conn, username=email, auth_user_id=auth_response.user.id)
-                auto_login_response = supabase.auth.sign_in_with_password({"email": email, "password": password})
+                auto_login_response = await run_in_threadpool(supabase.auth.sign_in_with_password, {"email": email, "password": password})
 
                 if not auto_login_response.session:
                     return confirm_email_response
@@ -1022,7 +1026,7 @@ async def handle_auth(
         else:
             # --- LOGIN FLOW ---
             try:
-                auth_response = supabase.auth.sign_in_with_password({"email": email, "password": password})
+                auth_response = await run_in_threadpool(supabase.auth.sign_in_with_password, {"email": email, "password": password})
                 if auth_response.session:
                     return success_response(auth_response.session, "Welcome back!")
                 else:
@@ -1052,7 +1056,7 @@ async def auth_callback(
     and sets a session cookie.
     """
     try:
-        user_response = supabase.auth.get_user(data.access_token)
+        user_response = await run_in_threadpool(supabase.auth.get_user, data.access_token)
         auth_user = user_response.user
 
         if not auth_user:

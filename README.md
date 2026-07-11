@@ -83,7 +83,7 @@ The same set is used locally (`.env`) and in the Vercel project settings:
 `SUPABASE_ANON_KEY` must be the public anon/publishable key, never the
 service-role or `sb_secret_...` key (`SUPABASE_KEY` is still accepted as a
 legacy fallback). Optional: `GEMINI_API_KEY` seeds new user profiles with a
-default Gemini key.
+default Gemini key; `SENTRY_DSN` enables Sentry error tracking.
 
 ## Deployment
 
