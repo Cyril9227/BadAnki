@@ -2,84 +2,35 @@
 
 {% block title %}Courses{% endblock %}
 
+{# A plain server-rendered list — no markdown/LaTeX here, so skip MathJax. #}
+{% block mathjax %}{% endblock %}
+
 {% block content %}
 <div class="container">
     <div class="row">
         <div class="col-md-12">
             <h2 class="mb-3">Tags</h2>
-            <div id="tags-list" class="d-flex flex-wrap gap-2 mb-4" aria-live="polite">
-                <div class="d-flex align-items-center text-muted">
-                    <div class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></div>
-                    <span>Loading tags…</span>
-                </div>
+            <div class="d-flex flex-wrap gap-2 mb-4">
+                {% for tag in tags %}
+                <a href="/tags/{{ tag | urlencode }}" class="btn btn-sm btn-outline-primary">{{ tag }}</a>
+                {% else %}
+                <p class="text-muted mb-0">No tags found.</p>
+                {% endfor %}
             </div>
 
             <h2 class="mb-4">All Courses</h2>
-            <div id="course-list" class="list-group" aria-live="polite">
-                <div class="d-flex align-items-center text-muted p-3">
-                    <div class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></div>
-                    <span>Loading courses…</span>
-                </div>
+            <div class="list-group">
+                {% for course in courses %}
+                <a href="/courses/{{ course.path | urlencode }}" class="list-group-item list-group-item-action">
+                    <strong>{{ course.display }}</strong>
+                    <br>
+                    <small class="text-muted">{{ course.path }}</small>
+                </a>
+                {% else %}
+                <p class="p-3 mb-0">No courses found. You can create one in the editor.</p>
+                {% endfor %}
             </div>
         </div>
     </div>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    const courseList = document.getElementById('course-list');
-    const tagsList = document.getElementById('tags-list');
-    const esc = window.escapeHtml;
-
-    window.fetchJson('/api/tags')
-        .then(tags => {
-            if (Array.isArray(tags) && tags.length > 0) {
-                tagsList.innerHTML = tags.map(tag => {
-                    const safe = esc(tag);
-                    return `<a href="/tags/${encodeURIComponent(tag)}" class="btn btn-sm btn-outline-primary">${safe}</a>`;
-                }).join('');
-            } else {
-                tagsList.innerHTML = '<p class="text-muted mb-0">No tags found.</p>';
-            }
-        })
-        .catch(error => {
-            tagsList.innerHTML = `<p class="text-danger mb-0">Error loading tags: ${esc(error.message)}</p>`;
-            console.error('Error fetching tags:', error);
-        });
-
-    window.fetchJson('/api/courses-tree')
-        .then(data => {
-            function findFiles(nodes) {
-                let files = [];
-                for (const node of nodes || []) {
-                    if (node.type === 'file') files.push(node);
-                    if (node.children) files = files.concat(findFiles(node.children));
-                }
-                return files;
-            }
-
-            const files = findFiles(data);
-            if (files.length === 0) {
-                courseList.innerHTML = '<p class="p-3 mb-0">No courses found. You can create one in the editor.</p>';
-                return;
-            }
-
-            courseList.innerHTML = files.map(item => {
-                const displayName = esc(item.title || item.name.replace(/\.md$/i, ''));
-                const safePath = esc(item.path);
-                return `<a href="/courses/${encodeURIComponent(item.path)}" class="list-group-item list-group-item-action">
-                            <strong>${displayName}</strong>
-                            <br>
-                            <small class="text-muted">${safePath}</small>
-                        </a>`;
-            }).join('');
-        })
-        .catch(error => {
-            courseList.innerHTML = `<p class="text-danger p-3 mb-0">Error loading courses: ${esc(error.message)}</p>`;
-            console.error('Error fetching course tree:', error);
-        });
-});
-</script>
 {% endblock %}

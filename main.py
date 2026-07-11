@@ -1279,9 +1279,27 @@ async def root(request: Request):
         "supabase_key": SUPABASE_KEY
     })
 
+def _flatten_course_files(nodes) -> list[dict]:
+    """The course tree's files as a flat display list, in tree (path) order."""
+    files = []
+    for node in nodes:
+        if node.get("type") == "file":
+            name = node.get("name") or ""
+            if name.lower().endswith(".md"):
+                name = name[:-3]
+            files.append({"path": node["path"], "display": node.get("title") or name})
+        files.extend(_flatten_course_files(node.get("children") or []))
+    return files
+
 @app.get("/courses", response_class=HTMLResponse)
-async def list_courses(request: Request, user: User = Depends(get_current_active_user)):
-    return templates.TemplateResponse(request, "courses_list.html")
+async def list_courses(request: Request, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
+    # Server-rendered: the page is a plain list, so fetching tags + tree here
+    # replaces two client round-trips and their spinners — and hover prefetch
+    # now caches the finished page instead of an empty shell.
+    return templates.TemplateResponse(request, "courses_list.html", {
+        "courses": _flatten_course_files(crud.get_courses_tree_for_user(conn, auth_user_id=user.auth_user_id)),
+        "tags": crud.get_all_tags_for_user(conn, auth_user_id=user.auth_user_id),
+    })
 
 @app.get("/edit-course/{course_path:path}", response_class=HTMLResponse)
 async def edit_course(request: Request, course_path: str, user: User = Depends(get_current_active_user)):

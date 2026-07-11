@@ -293,6 +293,21 @@ def test_get_courses_page_authenticated(mock_get_user, client, db_conn):
     assert response.status_code == 200
     assert "All Courses" in response.text
 
+@patch("main.supabase.auth.get_user")
+def test_courses_page_is_server_rendered(mock_get_user, client, db_conn):
+    """Courses and tags arrive in the HTML itself — no client fetch needed."""
+    auth_client, _, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="ssr_courses@example.com")
+    auth_client.post(
+        "/api/course-content",
+        json={"path": "maths/integrals.md", "content": "---\ntitle: Integration Tricks\ntags: [calculus]\n---\n# Body"},
+        headers={"X-CSRF-Token": csrf_token},
+    )
+    response = auth_client.get("/courses")
+    assert response.status_code == 200
+    assert "Integration Tricks" in response.text   # frontmatter title
+    assert "maths/integrals.md" in response.text   # path subtitle
+    assert "calculus" in response.text             # tag chip
+
 def test_get_courses_page_unauthenticated(client):
     response = client.get("/courses", follow_redirects=False)
     assert response.status_code == 303
