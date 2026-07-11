@@ -20,7 +20,7 @@
 <div class="row g-4">
     <!-- The form -->
     <div class="col-lg-6">
-        <form action="/new" method="post">
+        <form action="/new" method="post" id="new-card-form">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="card">
                 <div class="card-body">
@@ -43,7 +43,10 @@
                         <textarea name="answer" id="answer-input" class="form-control" rows="4" required></textarea>
                         <div id="cloze-answer-note" class="form-text" style="display: none;">Auto-filled from the cloze syntax — edit if needed.</div>
                     </div>
-                    <div class="d-grid">
+                    {# Desktop only — on mobile Save renders after the preview,
+                       so the flow reads type → check → save without the
+                       preview being pushed below the fold. #}
+                    <div class="d-none d-lg-grid">
                         <button type="submit" class="btn btn-primary">Save Card</button>
                     </div>
                 </div>
@@ -64,6 +67,13 @@
             </div>
         </div>
     </div>
+
+    <!-- Mobile-only Save: the stacked layout goes inputs → preview → save. -->
+    <div class="col-12 d-lg-none">
+        <div class="d-grid">
+            <button type="submit" form="new-card-form" class="btn btn-primary">Save Card</button>
+        </div>
+    </div>
 </div>
 {% endblock %}
 
@@ -79,8 +89,10 @@ document.addEventListener('DOMContentLoaded', function () {
     const questionLabel = document.getElementById('question-label');
     const answerLabel = document.getElementById('answer-label');
     const clozeAnswerNote = document.getElementById('cloze-answer-note');
-    const form = document.querySelector('form');
-    const submitBtn = form.querySelector('button[type="submit"]');
+    const form = document.getElementById('new-card-form');
+    // Two Save buttons exist (in-card on desktop, below the preview on
+    // mobile); state changes must hit both.
+    const submitBtns = Array.from(document.querySelectorAll('button[type="submit"]'));
 
     function extractClozeAnswers(text) {
         const matches = [...text.matchAll(window.CLOZE_PATTERN_GLOBAL)];
@@ -166,15 +178,19 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         // Browsers replay POST submissions on back/forward — disabling the
         // button prevents a double-submit from a fast double-click.
-        submitBtn.disabled = true;
-        submitBtn.textContent = 'Saving...';
+        submitBtns.forEach(function (btn) {
+            btn.disabled = true;
+            btn.textContent = 'Saving...';
+        });
     });
 
-    // Re-arm the submit button on bfcache restores (back navigation would
-    // otherwise revive the page with it stuck on "Saving...").
+    // Re-arm the submit buttons on bfcache restores (back navigation would
+    // otherwise revive the page with them stuck on "Saving...").
     window.addEventListener('pageshow', function () {
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Save Card';
+        submitBtns.forEach(function (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Save Card';
+        });
     });
 
     toggleCardType(); // honor a preselected card type (e.g. ?card_type=cloze)

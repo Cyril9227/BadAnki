@@ -160,6 +160,20 @@
         --bs-btn-focus-shadow-rgb: var(--primary-rgb);
     }
 
+    /* Dark mode: Bootstrap's gray-on-gray outline-secondary all but vanishes
+       against the dark background. Lift the text to the foreground color and
+       soften the border/hover with low-alpha whites — visible, not neon. */
+    [data-bs-theme="dark"] .btn-outline-secondary {
+        --bs-btn-color: rgb(var(--foreground-rgb));
+        --bs-btn-border-color: rgba(var(--foreground-rgb), 0.35);
+        --bs-btn-hover-color: rgb(var(--foreground-rgb));
+        --bs-btn-hover-bg: rgba(var(--foreground-rgb), 0.08);
+        --bs-btn-hover-border-color: rgba(var(--foreground-rgb), 0.5);
+        --bs-btn-active-color: rgb(var(--foreground-rgb));
+        --bs-btn-active-bg: rgba(var(--foreground-rgb), 0.12);
+        --bs-btn-active-border-color: rgba(var(--foreground-rgb), 0.5);
+    }
+
     .form-control:focus, .form-select:focus {
         border-color: rgba(var(--primary-rgb), 0.5);
         box-shadow: 0 0 0 0.25rem rgba(var(--primary-rgb), 0.25);

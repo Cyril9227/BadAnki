@@ -62,8 +62,14 @@
         padding: 1rem;
     }
 
+    /* p-5 is desktop-scale padding; on a phone it squeezes the CTA buttons
+       until their labels wrap. Trade padding for a single-line label. */
     .home-hero .card {
         width: 100%;
+        padding: 2.5rem 1.25rem !important;
+    }
+    .home-hero .btn {
+        white-space: nowrap;
     }
 }
 </style>

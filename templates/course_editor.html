@@ -30,17 +30,22 @@
         background-color: rgba(var(--primary-rgb), 0.12);
     }
     /* The editor is a writing surface: monospace source on the left, live
-       preview beside it on desktop (stacked below on mobile). */
+       preview beside it on desktop (stacked below on mobile). Each pane fills
+       its column and the columns stretch to the row height, so both panes
+       always share one height (the preview stays capped at 75vh). */
     #markdown-editor {
         font-family: var(--bs-font-monospace);
         font-size: 0.875rem;
         min-height: 24rem;
+        flex: 1;
     }
     #live-preview {
         min-height: 24rem;
         max-height: 75vh;
         overflow-y: auto;
+        flex: 1;
     }
+    #editor-loading .skeleton-pane { height: 24rem; }
 </style>
 {% endblock %}
 
@@ -75,10 +80,10 @@
                 <form id="editor-form">
                     <input type="hidden" id="current-file-path" name="path">
                     <div class="row g-3">
-                        <div class="col-lg-6">
+                        <div class="col-lg-6 d-flex flex-column">
                             <textarea id="markdown-editor" name="content" class="form-control" rows="18"></textarea>
                         </div>
-                        <div class="col-lg-6">
+                        <div class="col-lg-6 d-flex flex-column">
                             <div id="live-preview" class="border rounded p-3 markdown-content"></div>
                         </div>
                     </div>
@@ -87,7 +92,18 @@
                     Drag & Drop .md files here or click to upload
                 </div>
             </div>
-            <div id="no-file-selected" class="text-center text-muted pt-5">
+            {# Opening a course straight from its page (view → edit) starts
+               with a content fetch; flashing the "select a file" drop zone
+               during it read as the course having vanished. Show a skeleton
+               instead until the editor is ready. #}
+            {% set opening_file = course_path|default('') not in ('', 'home') %}
+            {% if opening_file %}
+            <div id="editor-loading" aria-hidden="true">
+                <span class="skeleton-line w-25"></span>
+                <span class="skeleton-line skeleton-pane"></span>
+            </div>
+            {% endif %}
+            <div id="no-file-selected" class="text-center text-muted pt-5"{% if opening_file %} style="display: none;"{% endif %}>
                 <p>Select a file to start editing or create a new one.</p>
                 <div id="drop-zone-main" class="border rounded p-5 mt-3 text-center text-muted" style="border-style: dashed !important;">
                     Drag & Drop .md files here or click to upload
@@ -363,6 +379,13 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
+    // The initial-load skeleton (rendered when the page opens straight onto a
+    // course) is one-shot: gone once the editor shows or the load fails.
+    function clearEditorLoading() {
+        const skeleton = document.getElementById('editor-loading');
+        if (skeleton) skeleton.remove();
+    }
+
     function loadEditorContent(path) {
         confirmDiscardEdits().then(confirmed => {
             if (!confirmed) return;
@@ -370,6 +393,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 .then(handleResponse)
                 .then(content => {
                     currentDirectory = path.substring(0, path.lastIndexOf('/'));
+                    clearEditorLoading();
                     editorContainer.style.display = 'block';
                     noFileSelected.style.display = 'none';
                     editingFilename.textContent = `Editing: ${path}`;
@@ -572,6 +596,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function handleError(error) {
+        clearEditorLoading();
         // 404s happen when a previously selected file was deleted or a new
         // user has no courses yet; match on status, not message wording.
         const isNotFound = error.status === 404 || /not found/i.test(error.message);
@@ -583,6 +608,11 @@ document.addEventListener('DOMContentLoaded', function () {
             currentFilePathInput.value = '';
             markdownEditor.value = '';
         } else {
+            // A failed initial load must not leave the pane blank now that the
+            // "select a file" state starts hidden behind the skeleton.
+            if (editorContainer.style.display === 'none') {
+                noFileSelected.style.display = 'block';
+            }
             window.toast('error', error.message || 'Something went wrong.');
         }
         console.error(error);
