@@ -29,13 +29,14 @@ from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from supabase import create_client, Client, ClientOptions
 from jose import jwt
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from telegram import Update
 from supabase_auth.errors import AuthApiError
 
 # Local application
 import crud
 from bot import get_bot_application
+from key_encryption import decrypt_secret
 from render_auth import make_telegram_link_token, verify_render_request
 from database import get_db_connection, release_db_connection
 from scheduler import run_scheduler
@@ -313,6 +314,13 @@ class User(BaseModel):
     # Optional with a None default: User(**profile) stays valid even before
     # the openai_api_key column exists in a given database.
     openai_api_key: Optional[str] = None
+
+    # Keys are encrypted at rest (key_encryption.py); everything downstream
+    # of the User model sees plaintext. Legacy plaintext rows pass through.
+    @field_validator("gemini_api_key", "anthropic_api_key", "openai_api_key", mode="before")
+    @classmethod
+    def _decrypt_api_key(cls, value):
+        return decrypt_secret(value)
 
 class CourseContent(BaseModel):
     path: str = Field(..., min_length=1, max_length=MAX_COURSE_PATH_LEN)
@@ -1002,6 +1010,31 @@ async def settings_form(request: Request, user: User = Depends(get_current_activ
         "telegram_bot_username": TELEGRAM_BOT_USERNAME,
         "telegram_link_token": make_telegram_link_token(user.auth_user_id),
     })
+
+@app.post("/api/delete-account")
+async def api_delete_account(user: User = Depends(get_current_active_user)):
+    """Permanently deletes the account. Removing the Supabase auth user via
+    the admin API takes every app row with it — profiles, cards and courses
+    all cascade from auth.users. The shared client stays anon-scoped (see
+    the startup guards); the service-role key is read here, used for this
+    single call, and never attached to a client."""
+    service_key = _clean_env_value("SUPABASE_SERVICE_ROLE_KEY")
+    if not service_key:
+        raise HTTPException(status_code=503, detail="Account deletion is not configured on this server.")
+
+    def _admin_delete():
+        return httpx.delete(
+            f"{SUPABASE_URL}/auth/v1/admin/users/{user.auth_user_id}",
+            headers={"apikey": service_key, "Authorization": f"Bearer {service_key}"},
+            timeout=10.0,
+        )
+
+    response = await run_in_threadpool(_admin_delete)
+    if response.status_code >= 400:
+        logger.error("Account deletion failed for %s: HTTP %s %s", user.auth_user_id, response.status_code, response.text)
+        raise HTTPException(status_code=500, detail="Could not delete the account. Please try again.")
+    logger.info("Account deleted: %s", user.auth_user_id)
+    return {"success": True}
 
 @app.get("/api-keys")
 @app.get("/secrets")

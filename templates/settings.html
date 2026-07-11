@@ -12,7 +12,11 @@
     <div class="card mb-4">
         <div class="card-header">{{ icon('key') }} AI Provider Keys</div>
         <div class="card-body">
-            <p class="text-muted small mb-3">For your security, saved keys are never shown back.</p>
+            <p class="text-muted small mb-3">
+                Saved keys are encrypted at rest and never shown back. When you generate cards,
+                the course text or topic you provide is sent to the provider you pick
+                (Google, Anthropic or OpenAI) — nothing else leaves the app.
+            </p>
             <form id="api-keys-form" autocomplete="off">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
@@ -97,6 +101,19 @@
                     <button type="button" class="btn btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#password-form">Cancel</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <div class="card mt-4">
+        <div class="card-header">{{ icon('user') }} Account</div>
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center gap-3 flex-wrap">
+                <span class="text-muted small">
+                    Deleting your account permanently removes your login, courses,
+                    cards and Telegram link. There is no undo.
+                </span>
+                <button id="delete-account-btn" type="button" class="btn btn-outline-danger text-nowrap">Delete account</button>
+            </div>
         </div>
     </div>
 </div>
@@ -186,6 +203,36 @@ document.getElementById('password-form').addEventListener('submit', function(eve
         submitBtn.textContent = originalLabel;
     });
 });
+
+const deleteAccountBtn = document.getElementById('delete-account-btn');
+if (deleteAccountBtn) {
+    deleteAccountBtn.addEventListener('click', async function () {
+        const result = await Swal.fire({
+            title: 'Delete your account?',
+            text: 'Your login, courses and cards are removed permanently. Type "delete" to confirm.',
+            icon: 'warning',
+            input: 'text',
+            inputPlaceholder: 'delete',
+            inputValidator: (v) => v.trim().toLowerCase() !== 'delete' && 'Type "delete" to confirm.',
+            showCancelButton: true,
+            customClass: window.swalClasses('btn btn-danger'),
+            confirmButtonText: 'Delete my account'
+        });
+        if (!result.isConfirmed) return;
+        deleteAccountBtn.disabled = true;
+        window.fetchJson('/api/delete-account', { method: 'POST' })
+        .then(() => {
+            // /logout clears the session cookies (its token-revoke call fails
+            // harmlessly for a deleted user) and lands on the login page.
+            window.location.href = '/logout';
+        })
+        .catch(error => {
+            deleteAccountBtn.disabled = false;
+            console.error('Account deletion failed:', error);
+            window.toast('error', error.message || 'Could not delete the account.');
+        });
+    });
+}
 
 const telegramDisconnectBtn = document.getElementById('telegram-disconnect-btn');
 if (telegramDisconnectBtn) {

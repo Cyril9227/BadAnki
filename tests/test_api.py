@@ -795,6 +795,36 @@ def test_save_generated_cards(mock_get_user, client, db_conn):
     assert card is not None
     assert card['answer'] == "GenA1"
 
+# --- Account Deletion Tests ---
+@patch("main.supabase.auth.get_user")
+def test_delete_account_requires_service_key(mock_get_user, client, db_conn, monkeypatch):
+    monkeypatch.delenv("SUPABASE_SERVICE_ROLE_KEY", raising=False)
+    auth_client, _, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="deleter_unconf@example.com")
+    response = auth_client.post("/api/delete-account", headers={"X-CSRF-Token": csrf_token})
+    assert response.status_code == 503
+
+@patch("main.supabase.auth.get_user")
+@patch("main.httpx.delete")
+def test_delete_account_calls_supabase_admin(mock_delete, mock_get_user, client, db_conn, monkeypatch):
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "service-key")
+    mock_delete.return_value = MagicMock(status_code=200)
+    auth_client, user_id, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="deleter@example.com")
+    response = auth_client.post("/api/delete-account", headers={"X-CSRF-Token": csrf_token})
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    called_url = mock_delete.call_args.args[0]
+    assert called_url.endswith(f"/auth/v1/admin/users/{user_id}")
+    assert mock_delete.call_args.kwargs["headers"]["apikey"] == "service-key"
+
+@patch("main.supabase.auth.get_user")
+@patch("main.httpx.delete")
+def test_delete_account_surfaces_admin_failure(mock_delete, mock_get_user, client, db_conn, monkeypatch):
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "service-key")
+    mock_delete.return_value = MagicMock(status_code=403, text="nope")
+    auth_client, _, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="deleter_fail@example.com")
+    response = auth_client.post("/api/delete-account", headers={"X-CSRF-Token": csrf_token})
+    assert response.status_code == 500
+
 # --- Secrets & API Keys Tests ---
 @patch("main.supabase.auth.get_user")
 def test_save_api_keys(mock_get_user, client, db_conn):
@@ -812,9 +842,14 @@ def test_save_api_keys(mock_get_user, client, db_conn):
     cur.execute("SELECT gemini_api_key, anthropic_api_key, openai_api_key FROM profiles WHERE auth_user_id = %s", (user_id,))
     user_keys = cur.fetchone()
     cur.close()
-    assert user_keys['gemini_api_key'] == "gemini_key"
-    assert user_keys['anthropic_api_key'] == "anthropic_key"
-    assert user_keys['openai_api_key'] == "openai_key"
+    # Stored encrypted at rest; plaintext only ever exists on the User model.
+    from key_encryption import decrypt_secret
+    for column, plaintext in (("gemini_api_key", "gemini_key"),
+                              ("anthropic_api_key", "anthropic_key"),
+                              ("openai_api_key", "openai_key")):
+        assert user_keys[column].startswith("enc:")
+        assert plaintext not in user_keys[column]
+        assert decrypt_secret(user_keys[column]) == plaintext
 
 @patch("main.supabase.auth.get_user")
 def test_save_secrets(mock_get_user, client, db_conn):

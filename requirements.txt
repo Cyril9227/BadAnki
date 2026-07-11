@@ -7,9 +7,10 @@ python-multipart>=0.0.6
 # Database
 psycopg2-binary>=2.9.0
 
-# Authentication
+# Authentication & secrets
 supabase>=2.0.0
 python-jose>=3.3.0
+cryptography>=42.0.0
 
 # Telegram Bot
 python-telegram-bot>=20.0

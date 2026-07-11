@@ -10,6 +10,7 @@ import frontmatter
 import psycopg2
 from datetime import date, datetime, timedelta
 from psycopg2 import extras
+from key_encryption import encrypt_secret
 from parsing import sanitize_tags
 
 logger = logging.getLogger(__name__)
@@ -52,7 +53,7 @@ def create_profile(conn, username: str, auth_user_id: str) -> bool:
                     VALUES (%s, %s, %s)
                     ON CONFLICT (auth_user_id) DO NOTHING
                     """,
-                    (name, auth_user_id, os.environ.get("GEMINI_API_KEY"))
+                    (name, auth_user_id, encrypt_secret(os.environ.get("GEMINI_API_KEY")))
                 )
                 # rowcount is 1 if a row was inserted, 0 if ON CONFLICT happened.
                 is_new_user = cursor.rowcount > 0
@@ -537,7 +538,9 @@ def save_generated_cards_for_user(conn, cards: list, auth_user_id: str):
 # --- API Key and Secrets CRUD Functions ---
 
 def save_api_keys_for_user(conn, user_id: str, gemini_api_key: str, anthropic_api_key: str, openai_api_key: str = None):
-    """Saves or updates the API keys for a specific user."""
+    """Saves or updates the API keys for a specific user, encrypted at rest.
+    Callers pass plaintext (kept-as-is values arrive decrypted from the User
+    model), so legacy plaintext rows get encrypted on their next save."""
     try:
         with conn.cursor() as cursor:
             cursor.execute(
@@ -546,7 +549,7 @@ def save_api_keys_for_user(conn, user_id: str, gemini_api_key: str, anthropic_ap
                 SET gemini_api_key = %s, anthropic_api_key = %s, openai_api_key = %s
                 WHERE auth_user_id = %s
                 """,
-                (gemini_api_key, anthropic_api_key, openai_api_key, user_id)
+                (encrypt_secret(gemini_api_key), encrypt_secret(anthropic_api_key), encrypt_secret(openai_api_key), user_id)
             )
         conn.commit()
     except Exception:
