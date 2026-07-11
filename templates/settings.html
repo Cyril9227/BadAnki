@@ -10,9 +10,9 @@
     <h2 class="mb-4">Settings</h2>
 
     <div class="card mb-4">
-        <div class="card-header">AI Provider Keys</div>
+        <div class="card-header"><i class="fas fa-key" aria-hidden="true"></i> AI Provider Keys</div>
         <div class="card-body">
-            <p class="text-muted small mb-3">Used for AI card generation. For your security, saved keys are never shown back — leave a field blank to keep the existing value, or enter a new one to replace it.</p>
+            <p class="text-muted small mb-3">For your security, saved keys are never shown back.</p>
             <form id="api-keys-form" autocomplete="off">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
@@ -42,18 +42,16 @@
     </div>
 
     <div class="card">
-        <div class="card-header">Telegram Notifications</div>
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span><i class="fab fa-telegram-plane" aria-hidden="true"></i> Telegram Notifications</span>
+            {% if telegram_linked %}
+                <span class="badge bg-success">Connected</span>
+            {% else %}
+                <span class="badge bg-secondary">Not connected</span>
+            {% endif %}
+        </div>
         <div class="card-body">
-            <p class="text-muted small mb-2">Connect your Telegram account to receive daily review reminders and pull cards with /random. Connecting happens through the bot itself, so a chat can only be claimed by its owner.</p>
-            <p class="mb-3">Status:
-                {% if telegram_linked %}
-                    <span class="badge bg-success">Connected</span>
-                {% else %}
-                    <span class="badge bg-secondary">Not connected</span>
-                {% endif %}
-            </p>
-            {# Same responsive idiom as the review page's rating buttons:
-               stacked full-width on phones, inline row from sm up. #}
+            {# Stacked full-width on phones, inline row from sm up. #}
             <div class="d-grid gap-2 d-sm-flex">
                 {% if telegram_bot_username %}
                 <a class="btn btn-primary" target="_blank" rel="noopener"
@@ -69,22 +67,25 @@
     </div>
 
     <div class="card mt-4">
-        <div class="card-header">Change Password</div>
+        <div class="card-header"><i class="fas fa-lock" aria-hidden="true"></i> Security</div>
         <div class="card-body">
-            <form id="password-form" autocomplete="off">
+            <div class="d-flex justify-content-between align-items-center">
+                <span>Password</span>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#password-form" aria-expanded="false" aria-controls="password-form">Change</button>
+            </div>
+            <form id="password-form" class="collapse mt-3" autocomplete="off">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <div class="mb-3">
-                    <label for="current_password" class="form-label">Current password</label>
-                    <input type="password" class="form-control" id="current_password" name="current_password" required autocomplete="current-password">
+                <div class="mb-2">
+                    <input type="password" class="form-control" name="current_password" placeholder="Current password" required autocomplete="current-password" aria-label="Current password">
                 </div>
-                <div class="mb-3">
-                    <label for="new_password" class="form-label">New password</label>
-                    <input type="password" class="form-control" id="new_password" name="new_password" required minlength="8" autocomplete="new-password" aria-describedby="new_password_help">
-                    <div class="form-text" id="new_password_help">
-                        At least 8 characters, containing a number. Signed up with Google/GitHub and never set a password? Use the "Forgot password?" link on the login page to create one.
-                    </div>
+                <div class="mb-1">
+                    <input type="password" class="form-control" name="new_password" placeholder="New password" required minlength="8" autocomplete="new-password" aria-label="New password" aria-describedby="new_password_help">
                 </div>
-                <button type="submit" class="btn btn-primary">Change Password</button>
+                <div class="form-text mb-3" id="new_password_help">At least 8 characters, including a number.</div>
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn btn-primary">Update Password</button>
+                    <button type="button" class="btn btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#password-form">Cancel</button>
+                </div>
             </form>
         </div>
     </div>
@@ -175,6 +176,7 @@ document.getElementById('password-form').addEventListener('submit', function(eve
         // password) as { success: false, error } with a 200 status.
         if (data && data.success) {
             form.reset();
+            bootstrap.Collapse.getOrCreateInstance(form).hide();
             Swal.fire({
                 toast: true,
                 position: 'top-end',
