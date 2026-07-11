@@ -57,31 +57,10 @@
                     <div class="form-group mb-2">
                         <textarea id="markdown-editor" name="content" class="form-control" rows="15"></textarea>
                     </div>
-                    <div class="d-flex flex-wrap gap-2 d-grid d-md-flex align-items-center">
-                        <button type="submit" class="btn btn-primary" title="Save and view the course (Ctrl+S saves in place)">Save</button>
-                        <div class="btn-group btn-group-sm" role="group" aria-label="Card type">
-                            <input type="radio" class="btn-check" name="card-type" id="card-type-basic-editor" value="basic" autocomplete="off" checked>
-                            <label class="btn btn-outline-secondary" for="card-type-basic-editor">Q&A</label>
-                            <input type="radio" class="btn-check" name="card-type" id="card-type-cloze-editor" value="cloze" autocomplete="off">
-                            <label class="btn btn-outline-secondary" for="card-type-cloze-editor">Cloze</label>
-                        </div>
-                        <div class="btn-group" {% if not gemini_api_key_exists and not anthropic_api_key_exists %}title="Add a Gemini or Anthropic API key in Settings to enable card generation."{% endif %}>
-                            <button type="button" id="generate-cards-btn" class="btn {{ 'btn-success' if gemini_api_key_exists or anthropic_api_key_exists else 'btn-secondary' }} dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" {% if not gemini_api_key_exists and not anthropic_api_key_exists %}disabled aria-describedby="generate-cards-help"{% endif %}>
-                                Generate Cards
-                            </button>
-                            {% if not gemini_api_key_exists and not anthropic_api_key_exists %}
-                            <span id="generate-cards-help" class="visually-hidden">Add a Gemini or Anthropic API key in Settings to enable card generation.</span>
-                            {% endif %}
-                            <ul class="dropdown-menu">
-                                {% if gemini_api_key_exists %}
-                                    <li><a class="dropdown-item" href="#" id="generate-cards-gemini-btn">Using Gemini</a></li>
-                                {% endif %}
-                                {% if anthropic_api_key_exists %}
-                                    <li><a class="dropdown-item" href="#" id="generate-cards-anthropic-btn">Using Anthropic</a></li>
-                                {% endif %}
-                            </ul>
-                        </div>
-                        <button type="button" id="download-btn" class="btn btn-info">Download File</button>
+                    {# Writing surface only — download and card generation
+                       live on the rendered course page, where Save lands. #}
+                    <div class="d-grid d-sm-flex">
+                        <button type="submit" class="btn btn-primary px-4" title="Save and view the course (Ctrl+S saves in place)">Save</button>
                     </div>
                 </form>
                 <hr>
@@ -101,7 +80,6 @@
     </div>
 </div>
 
-{% include 'partials/card_generation_modal.html' %}
 <input type="hidden" id="csrf-token" value="{{ csrf_token }}">
 <input type="file" id="file-input" multiple accept=".md" style="display: none;">
 {% endblock %}
@@ -117,7 +95,6 @@ document.addEventListener('DOMContentLoaded', function () {
     const editorForm = document.getElementById('editor-form');
     const editingFilename = document.getElementById('editing-filename');
     const currentFilePathInput = document.getElementById('current-file-path');
-    const downloadBtn = document.getElementById('download-btn');
     const saveBtn = document.querySelector('button[type="submit"]'); // Re-target the save button
     const dropZoneMain = document.getElementById('drop-zone-main');
     const dropZoneEditor = document.getElementById('drop-zone-editor');
@@ -471,23 +448,6 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     });
 
-    downloadBtn.addEventListener('click', function() {
-        const path = currentFilePathInput.value;
-        if (path) {
-            window.location.href = `/api/download-course/${encodeURIComponent(path)}`;
-        } else {
-            Swal.fire({
-                toast: true,
-                position: 'top-end',
-                icon: 'error',
-                title: 'Please select a file to download.',
-                showConfirmButton: false,
-                timer: 3000,
-                timerProgressBar: true
-            });
-        }
-    });
-
     function setupDropZone(dropZone) {
         if (!dropZone) return;
         dropZone.addEventListener('click', () => fileInput.click());
@@ -581,23 +541,6 @@ document.addEventListener('DOMContentLoaded', function () {
 
     setupDropZone(dropZoneMain);
     setupDropZone(dropZoneEditor);
-
-    function getSelectedCardType() {
-        return document.querySelector('input[name="card-type"]:checked')?.value || 'basic';
-    }
-
-    document.addEventListener('click', function(e) {
-        const contentProvider = () => markdownEditor.value;
-        const cardType = getSelectedCardType();
-        if (e.target.matches('#generate-cards-gemini-btn')) {
-            e.preventDefault();
-            window.handleGenerateCards('/api/generate-cards', contentProvider, csrfToken, cardType);
-        }
-        if (e.target.matches('#generate-cards-anthropic-btn')) {
-            e.preventDefault();
-            window.handleGenerateCards('/api/generate-cards-anthropic', contentProvider, csrfToken, cardType);
-        }
-    });
 
     function handleResponse(response) {
         if (response.redirected) {
