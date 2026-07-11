@@ -16,15 +16,20 @@
     .item-name {
         cursor: pointer;
     }
+    /* The action cluster never shrinks or wraps: a long file name may break
+       across lines, but the icons stay on one row beside it. (gap replaces
+       the inter-tag whitespace that inline-block relied on.) */
     .item-actions {
         display: none;
+        flex-shrink: 0;
+        gap: 0.25rem;
     }
     .list-group-item:hover .item-actions {
-        display: inline-block;
+        display: inline-flex;
     }
     /* No hover on touch devices — the actions must simply be there. */
     @media (hover: none) {
-        .item-actions { display: inline-block; }
+        .item-actions { display: inline-flex; }
     }
     .item-actions .btn {
         padding: 0.1rem 0.4rem;

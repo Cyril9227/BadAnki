@@ -74,6 +74,13 @@ def is_cloze(text: str) -> bool:
     return bool(_CLOZE.search(text))
 
 
+def cloze_preview(text: str) -> str:
+    """Cloze markers replaced by their answers — for one-line previews where
+    printing the raw {{cN::...}} markup would be noise (nothing is hidden;
+    previews are not a review surface)."""
+    return _CLOZE.sub(lambda m: m.group(1), text)
+
+
 def cloze_plain_markdown_v2(text: str, reveal: bool = False) -> str:
     """Escape-everything cloze rendering: blanks become ||spoilers|| (or plain
     text when reveal=True), everything else is escaped literally. Always

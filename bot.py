@@ -11,7 +11,7 @@ import logging
 import time
 
 import httpx
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, LinkPreviewOptions
 from telegram.helpers import escape_markdown
 from telegram.constants import ChatAction, ParseMode
 from telegram.error import BadRequest
@@ -19,6 +19,7 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 from database import get_db_connection, release_db_connection
 from crud import (
     cache_photo_file_id,
+    get_all_cards_for_user,
     get_cached_photo_file_id,
     get_card_for_user,
     get_random_card_for_user,
@@ -28,6 +29,7 @@ from crud import (
 from render_auth import sign_render_request, verify_telegram_link_token
 from telegram_format import (
     cloze_plain_markdown_v2,
+    cloze_preview,
     is_cloze,
     needs_screenshot,
     render_cloze_markdown_v2,
@@ -59,6 +61,10 @@ def _redact_identifier(value) -> str:
 
 TELEGRAM_MESSAGE_LIMIT = 4096
 TELEGRAM_CAPTION_LIMIT = 1024
+NOT_LINKED_MESSAGE = (
+    "Your Telegram account is not linked. "
+    "Please log in to the web application and link your account in the settings."
+)
 RENDER_TIMEOUT_SECONDS = 15.0
 RENDER_TOKEN_TTL_SECONDS = 300
 # Bump to invalidate all cached renders (e.g. after changing the render page
@@ -272,6 +278,23 @@ async def _reply_card(send, card, reveal: bool):
     )
 
 
+async def _deliver_card(message, card, conn):
+    """Question-first card delivery shared by /random and /card.
+
+    Math-heavy answers are unreadable as Unicode text, so those (and only
+    those) go through the screenshot pipeline; any failure there falls back
+    to the regular text flow. Cloze cards always stay text — their in-place
+    spoiler blanks ARE the interaction, and their answer field is just the
+    hidden word, so an answer screenshot would be meaningless."""
+    sent_as_photo = (
+        not is_cloze(card['question'])
+        and needs_screenshot(card['answer'])
+        and await _send_answer_photo(message, card, conn)
+    )
+    if not sent_as_photo:
+        await _reply_card(message.reply_text, card, reveal=False)
+
+
 # --- Command Handlers ---
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -298,7 +321,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         await update.message.reply_text(
-            "Welcome to the Anki Clone bot! Use /review to get a link to your next review session or /random to get a random card."
+            "Welcome to the Anki Clone bot! Use /review to get a link to your next review session, "
+            "/random for a random card, /list to browse your cards, or /card <id> for a specific one."
         )
     except Exception as e:
         logger.error(f"Error in /start command: {e}", exc_info=True)
@@ -330,32 +354,105 @@ async def random_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info("User found for chat_id %s.", redacted_chat_id)
             card = get_random_card_for_user(conn, user['auth_user_id'])
             if card:
-                # Math-heavy answers are unreadable as Unicode text, so those
-                # (and only those) go through the screenshot pipeline; any
-                # failure there falls back to the regular text flow. Cloze
-                # cards always stay text — their in-place spoiler blanks ARE
-                # the interaction, and their answer field is just the hidden
-                # word, so an answer screenshot would be meaningless.
-                sent_as_photo = (
-                    not is_cloze(card['question'])
-                    and needs_screenshot(card['answer'])
-                    and await _send_answer_photo(update.message, card, conn)
-                )
-                if not sent_as_photo:
-                    await _reply_card(update.message.reply_text, card, reveal=False)
+                await _deliver_card(update.message, card, conn)
                 logger.info("Sent random card %s to chat_id %s.", card['id'], redacted_chat_id)
             else:
                 await update.message.reply_text("You have no cards in your deck.")
                 logger.info("No cards found for chat_id %s.", redacted_chat_id)
         else:
-            await update.message.reply_text(
-                "Your Telegram account is not linked. "
-                "Please log in to the web application and link your account in the settings."
-            )
+            await update.message.reply_text(NOT_LINKED_MESSAGE)
             logger.warning("User not found for chat_id %s.", redacted_chat_id)
     except Exception as e:
         logger.error(f"Error in /random command: {e}", exc_info=True)
         await update.message.reply_text("Sorry, something went wrong while fetching a card.")
+    finally:
+        if conn:
+            release_db_connection(conn)
+
+
+# One-line question previews in /list stay short enough that several dozen
+# cards fit in a single Telegram message.
+LIST_PREVIEW_LEN = 64
+
+
+def _card_preview(question: str) -> str:
+    """One plain-text line summarizing a card's question."""
+    text = " ".join(cloze_preview(question).split())
+    if len(text) > LIST_PREVIEW_LEN:
+        text = text[:LIST_PREVIEW_LEN - 1].rstrip() + "…"
+    return text
+
+
+async def list_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Lists every card as "card <id>: <preview>", each line linking to the
+    card's web page. IDs are the ones /card takes."""
+    logger.info("Received /list command from chat_id: %s", _redact_identifier(update.message.chat_id))
+    conn = None
+    try:
+        conn = get_db_connection()
+        user = get_user_by_telegram_chat_id(conn, update.message.chat_id)
+        if not user:
+            await update.message.reply_text(NOT_LINKED_MESSAGE)
+            return
+        # ID order (not the review queue's due-date order): a list keyed by
+        # "card <id>" should read in id order.
+        cards = sorted(get_all_cards_for_user(conn, user['auth_user_id']), key=lambda c: c['id'])
+        if not cards:
+            await update.message.reply_text("You have no cards in your deck.")
+            return
+
+        lines = []
+        for card in cards:
+            label = escape_markdown(f"card {card['id']}: {_card_preview(card['question'])}", version=2)
+            lines.append(f"[{label}]({APP_URL}/card/{card['id']})")
+
+        # Send in as few messages as the 4096-char limit allows.
+        chunk = ""
+        for line in lines:
+            candidate = f"{chunk}\n{line}" if chunk else line
+            if len(candidate) > TELEGRAM_MESSAGE_LIMIT:
+                await update.message.reply_text(
+                    chunk, parse_mode=ParseMode.MARKDOWN_V2,
+                    link_preview_options=LinkPreviewOptions(is_disabled=True),
+                )
+                candidate = line
+            chunk = candidate
+        await update.message.reply_text(
+            chunk, parse_mode=ParseMode.MARKDOWN_V2,
+            link_preview_options=LinkPreviewOptions(is_disabled=True),
+        )
+    except Exception as e:
+        logger.error(f"Error in /list command: {e}", exc_info=True)
+        await update.message.reply_text("Sorry, something went wrong while listing your cards.")
+    finally:
+        if conn:
+            release_db_connection(conn)
+
+
+async def card_by_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Sends one specific card, /random-style: /card 51 fetches the card
+    /list shows as "card 51"."""
+    logger.info("Received /card command from chat_id: %s", _redact_identifier(update.message.chat_id))
+    conn = None
+    try:
+        if not context.args or not context.args[0].isdigit():
+            await update.message.reply_text("Usage: /card <id> — for example /card 51. Get the ids from /list.")
+            return
+        card_id = int(context.args[0])
+        conn = get_db_connection()
+        user = get_user_by_telegram_chat_id(conn, update.message.chat_id)
+        if not user:
+            await update.message.reply_text(NOT_LINKED_MESSAGE)
+            return
+        card = get_card_for_user(conn, card_id, user['auth_user_id'])
+        if not card:
+            await update.message.reply_text(f"Card {card_id} not found. Use /list to see your cards.")
+            return
+        await _deliver_card(update.message, card, conn)
+        logger.info("Sent card %s to chat_id %s.", card_id, _redact_identifier(update.message.chat_id))
+    except Exception as e:
+        logger.error(f"Error in /card command: {e}", exc_info=True)
+        await update.message.reply_text("Sorry, something went wrong while fetching the card.")
     finally:
         if conn:
             release_db_connection(conn)
@@ -420,6 +517,8 @@ def get_bot_application():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("review", review))
     application.add_handler(CommandHandler("random", random_card))
+    application.add_handler(CommandHandler("list", list_cards))
+    application.add_handler(CommandHandler("card", card_by_id))
     application.add_handler(CallbackQueryHandler(show_answer, pattern=r"^ans:\d+$"))
 
     return application

@@ -3,6 +3,7 @@
 import telegram_format
 from telegram_format import (
     cloze_plain_markdown_v2,
+    cloze_preview,
     is_cloze,
     needs_screenshot,
     render_cloze_markdown_v2,
@@ -11,6 +12,7 @@ from telegram_format import (
 )
 from bot import (
     _answer_cache_key,
+    _card_preview,
     _get_cached_file_id,
     _store_cached_file_id,
     build_card_message,
@@ -247,3 +249,17 @@ def test_cache_store_degrades_gracefully_and_rolls_back():
     conn = _BrokenConn()
     _store_cached_file_id(conn, "some-key", "file-id", 1)  # must not raise
     assert conn.rolled_back
+
+
+# --- /list previews ---
+
+def test_cloze_preview_inlines_answers():
+    assert cloze_preview("The {{c1::mitochondria}} is the {{c2::powerhouse}}.") == "The mitochondria is the powerhouse."
+
+
+def test_card_preview_collapses_whitespace_and_truncates():
+    assert _card_preview("What\nis  the\tanswer?") == "What is the answer?"
+    long_question = "word " * 40
+    preview = _card_preview(long_question)
+    assert len(preview) <= 65
+    assert preview.endswith("…")
