@@ -2,85 +2,69 @@
 
 {% block title %}Create Card - Bad Anki{% endblock %}
 
+{% block head %}
+{{ super() }}
+<style>
+    /* Placeholder inside the live card preview before anything is typed. */
+    #question-preview:empty::before,
+    #answer-preview:empty::before {
+        content: "Type to preview…";
+        color: rgb(var(--muted-foreground-rgb));
+        font-size: 0.875rem;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <h1 class="mb-4 text-center">Create a New Card</h1>
-<form action="/new" method="post">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-
-    <!-- Card Type Selector -->
-    <div class="row mb-4">
-        <div class="col-md-6 mx-auto">
+<div class="row g-4">
+    <!-- The form -->
+    <div class="col-lg-6">
+        <form action="/new" method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="card">
                 <div class="card-body">
-                    <label for="card-type-select" class="form-label"><strong>Card Type</strong></label>
-                    <select id="card-type-select" name="card_type" class="form-select">
-                        <option value="basic">Basic Q&A</option>
-                        <option value="cloze" {{ 'selected' if card_type == 'cloze' }}>Cloze (Fill-in-the-blank)</option>
-                    </select>
-                    <div id="cloze-hint" class="alert alert-info mt-3" style="display: none;">
-                        <strong>Cloze format:</strong> Use <code>{{ '{{' }}c1::answer{{ '}}' }}</code> to mark the hidden text.
-                        <br>Example: <code>The {{ '{{' }}c1::mitochondria{{ '}}' }} is the powerhouse of the cell.</code>
+                    <div class="mb-3">
+                        <label for="card-type-select" class="form-label fw-semibold">Card Type</label>
+                        <select id="card-type-select" name="card_type" class="form-select">
+                            <option value="basic">Basic Q&A</option>
+                            <option value="cloze" {{ 'selected' if card_type == 'cloze' }}>Cloze (Fill-in-the-blank)</option>
+                        </select>
+                        <div id="cloze-hint" class="form-text" style="display: none;">
+                            Wrap the hidden text: <code>The {{ '{{' }}c1::mitochondria{{ '}}' }} is the powerhouse of the cell.</code>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="question-input" class="form-label fw-semibold" id="question-label">Question</label>
+                        <textarea name="question" id="question-input" class="form-control" rows="6" required></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label for="answer-input" class="form-label fw-semibold" id="answer-label">Answer</label>
+                        <textarea name="answer" id="answer-input" class="form-control" rows="4" required></textarea>
+                        <div id="cloze-answer-note" class="form-text" style="display: none;">Auto-filled from the cloze syntax — edit if needed.</div>
+                    </div>
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary">Save Card</button>
                     </div>
                 </div>
             </div>
-        </div>
+        </form>
     </div>
 
-    <div class="row g-4">
-        <!-- Question Editor -->
-        <div class="col-md-6">
-            <div class="card h-100">
-                <div class="card-header">
-                    <h3 id="question-label">Question</h3>
-                </div>
-                <div class="card-body">
-                    <textarea name="question" id="question-input" class="form-control" style="height: 200px;" required></textarea>
-                </div>
-            </div>
-        </div>
-        <!-- Question Preview -->
-        <div class="col-md-6">
-            <div class="card h-100">
-                <div class="card-header">
-                    <h3>Question Preview</h3>
-                </div>
-                <div class="card-body markdown-content" id="question-preview">
-                    <!-- Preview will be rendered here -->
-                </div>
-            </div>
-        </div>
-
-        <!-- Answer Editor -->
-        <div class="col-md-6" id="answer-editor-section">
-            <div class="card h-100">
-                <div class="card-header">
-                    <h3 id="answer-label">Answer</h3>
-                </div>
-                <div class="card-body">
-                    <div id="cloze-answer-note" class="alert alert-success mb-2 py-2" style="display: none;">
-                        <small>Auto-filled from cloze syntax. You can edit if needed.</small>
-                    </div>
-                    <textarea name="answer" id="answer-input" class="form-control" style="height: 200px;" required></textarea>
-                </div>
-            </div>
-        </div>
-        <!-- Answer Preview -->
-        <div class="col-md-6">
-            <div class="card h-100">
-                <div class="card-header">
-                    <h3>Answer Preview</h3>
-                </div>
-                <div class="card-body markdown-content" id="answer-preview">
-                    <!-- Preview will be rendered here -->
-                </div>
+    <!-- One live preview, styled like the real review card -->
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header">Preview</div>
+            <div class="card-body">
+                <h5 class="card-title">Question</h5>
+                <div class="markdown-content review-card-content" id="question-preview"></div>
+                <hr>
+                <h5 class="card-title">Answer</h5>
+                <div class="markdown-content review-card-content" id="answer-preview"></div>
             </div>
         </div>
     </div>
-
-    <div class="d-grid gap-2 col-6 mx-auto mt-4">
-        <button type="submit" class="btn btn-primary btn-lg">Save Card</button>
-    </div>
-</form>
+</div>
 {% endblock %}
 
 {% block scripts %}
