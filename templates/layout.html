@@ -306,10 +306,16 @@
         box-shadow: 0 0 0 0.25rem rgba(var(--primary-rgb), 0.25);
     }
     .swal2-select {
-        background-color: rgb(var(--card-background-rgb));
-        color: rgb(var(--foreground-rgb));
         border: 1px solid rgba(var(--border-rgb), 1);
         border-radius: calc(var(--radius) - 0.125rem);
+    }
+    /* The select AND its native option list — options don't inherit CSS, so
+       without the explicit rule the opened dropdown stays white-on-white in
+       dark mode. */
+    .swal2-select,
+    .swal2-select option {
+        background-color: rgb(var(--card-background-rgb));
+        color: rgb(var(--foreground-rgb));
     }
     .swal2-validation-message {
         background-color: rgba(var(--border-rgb), 0.35);
