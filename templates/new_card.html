@@ -17,6 +17,44 @@
 
 {% block content %}
 <h1 class="mb-4 text-center">Create a New Card</h1>
+
+{# The lazy path: describe a topic, review the generated batch in the shared
+   generation modal (same flow as course pages), save the keepers. #}
+<div class="card mb-4">
+    <div class="card-body">
+        <label for="ai-topic-input" class="form-label fw-semibold">{{ icon('sparkles', 14) }} Let AI draft your cards</label>
+        <div class="d-flex flex-column flex-lg-row gap-2">
+            <input type="text" id="ai-topic-input" class="form-control flex-grow-1" maxlength="500"
+                   placeholder="e.g. Integration tricks: +1/−1, partial fraction decomposition, u-substitution">
+            <div class="d-flex gap-2 justify-content-between">
+                <div class="seg-toggle" role="group" aria-label="Card type">
+                    <input type="radio" class="btn-check" name="ai-card-type" id="ai-type-basic" value="basic" autocomplete="off" checked>
+                    <label class="btn seg-btn" for="ai-type-basic">Q&amp;A</label>
+                    <input type="radio" class="btn-check" name="ai-card-type" id="ai-type-cloze" value="cloze" autocomplete="off">
+                    <label class="btn seg-btn" for="ai-type-cloze">Cloze</label>
+                </div>
+                <div class="btn-group" role="group" {% if not gemini_api_key_exists and not anthropic_api_key_exists %}title="Add a Gemini or Anthropic API key in Settings to enable card generation."{% endif %}>
+                    <button type="button" class="btn btn-primary dropdown-toggle text-nowrap" data-bs-toggle="dropdown" aria-expanded="false" {% if not gemini_api_key_exists and not anthropic_api_key_exists %}disabled aria-describedby="ai-generate-help"{% endif %}>
+                        Generate
+                    </button>
+                    {% if not gemini_api_key_exists and not anthropic_api_key_exists %}
+                    <span id="ai-generate-help" class="visually-hidden">Add a Gemini or Anthropic API key in Settings to enable card generation.</span>
+                    {% endif %}
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        {% if gemini_api_key_exists %}
+                        <li><a class="dropdown-item" href="#" id="ai-generate-gemini-btn">Using Gemini</a></li>
+                        {% endif %}
+                        {% if anthropic_api_key_exists %}
+                        <li><a class="dropdown-item" href="#" id="ai-generate-anthropic-btn">Using Anthropic</a></li>
+                        {% endif %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+        <div class="form-text">Describe what you want to learn — you review every generated card before anything is saved.</div>
+    </div>
+</div>
+
 <div class="row g-4">
     <!-- The form -->
     <div class="col-lg-6">
@@ -73,6 +111,8 @@
         <button type="submit" form="new-card-form" class="btn btn-primary">Save Card</button>
     </div>
 </div>
+
+{% include 'partials/card_generation_modal.html' %}
 {% endblock %}
 
 {% block scripts %}
@@ -193,6 +233,28 @@ document.addEventListener('DOMContentLoaded', function () {
 
     toggleCardType(); // honor a preselected card type (e.g. ?card_type=cloze)
     updateAnswerPreview();
+
+    // --- AI topic bar: the shared modal handles preview/approve/save ---
+    const aiTopicInput = document.getElementById('ai-topic-input');
+    const aiCsrfToken = document.querySelector('input[name="csrf_token"]').value;
+    const aiCardType = () => document.querySelector('input[name="ai-card-type"]:checked')?.value || 'basic';
+    function wireAiGenerate(id, url) {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('click', function (e) {
+            e.preventDefault();
+            window.handleGenerateCards(url, () => aiTopicInput.value, aiCsrfToken, aiCardType());
+        });
+        return el;
+    }
+    const aiGeminiBtn = wireAiGenerate('ai-generate-gemini-btn', '/api/generate-cards-from-topic');
+    const aiAnthropicBtn = wireAiGenerate('ai-generate-anthropic-btn', '/api/generate-cards-from-topic-anthropic');
+    // Enter in the topic field generates with the first available provider.
+    aiTopicInput.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        const btn = aiGeminiBtn || aiAnthropicBtn;
+        if (btn) btn.click();
+    });
 });
 </script>
 {% endblock %}

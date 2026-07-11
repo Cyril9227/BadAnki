@@ -659,11 +659,48 @@ def test_generate_cards_api_success(mock_generate_cards, mock_get_user, client, 
 def test_generate_cards_api_empty_content(mock_get_user, client, db_conn):
     auth_client, _, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="ai_user_empty@example.com")
     response = auth_client.post(
-        "/api/generate-cards", 
+        "/api/generate-cards",
         json={"content": " "},
         headers={"X-CSRF-Token": csrf_token}
     )
     assert response.status_code == 400
+
+@patch("main.supabase.auth.get_user")
+@patch("main.generate_cards")
+def test_generate_cards_from_topic_api_success(mock_generate_cards, mock_get_user, client, db_conn):
+    mock_generate_cards.return_value = [{"question": "Q", "answer": "A", "card_type": "basic"}]
+    auth_client, _, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="topic_user@example.com")
+    response = auth_client.post(
+        "/api/generate-cards-from-topic",
+        json={"content": "Integration tricks like +1/-1 and partial fraction decomposition"},
+        headers={"X-CSRF-Token": csrf_token}
+    )
+    assert response.status_code == 200
+    assert response.json() == {"cards": [{"question": "Q", "answer": "A", "card_type": "basic"}]}
+    # The topic prompt (not the course-material prompt) must be used.
+    assert mock_generate_cards.call_args.kwargs.get("source") == "topic"
+
+@patch("main.supabase.auth.get_user")
+def test_generate_cards_from_topic_rejects_blank_topic(mock_get_user, client, db_conn):
+    auth_client, _, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="topic_blank@example.com")
+    response = auth_client.post(
+        "/api/generate-cards-from-topic",
+        json={"content": "  "},
+        headers={"X-CSRF-Token": csrf_token}
+    )
+    assert response.status_code == 400
+
+@patch("main.supabase.auth.get_user")
+def test_generate_cards_from_topic_rejects_oversized_topic(mock_get_user, client, db_conn):
+    """Topic requests are capped far below course content — the field is a
+    prompt, and an unbounded one is an abuse vector on shared API keys."""
+    auth_client, _, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="topic_long@example.com")
+    response = auth_client.post(
+        "/api/generate-cards-from-topic",
+        json={"content": "x" * 501},
+        headers={"X-CSRF-Token": csrf_token}
+    )
+    assert response.status_code == 422
 
 @patch("main.supabase.auth.get_user")
 def test_save_generated_cards(mock_get_user, client, db_conn):
