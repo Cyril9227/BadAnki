@@ -662,7 +662,7 @@ def test_generate_cards_api_success(mock_generate_cards, mock_get_user, client, 
     mock_generate_cards.return_value = [{"question": "Q", "answer": "A"}]
     auth_client, _, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="ai_user@example.com")
     response = auth_client.post(
-        "/api/generate-cards", 
+        "/api/generate-cards/gemini",
         json={"content": "Some text"},
         headers={"X-CSRF-Token": csrf_token}
     )
@@ -674,7 +674,7 @@ def test_generate_cards_api_success(mock_generate_cards, mock_get_user, client, 
 def test_generate_cards_api_empty_content(mock_get_user, client, db_conn):
     auth_client, _, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="ai_user_empty@example.com")
     response = auth_client.post(
-        "/api/generate-cards",
+        "/api/generate-cards/gemini",
         json={"content": " "},
         headers={"X-CSRF-Token": csrf_token}
     )
@@ -686,7 +686,7 @@ def test_generate_cards_from_topic_api_success(mock_generate_cards, mock_get_use
     mock_generate_cards.return_value = [{"question": "Q", "answer": "A", "card_type": "basic"}]
     auth_client, _, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="topic_user@example.com")
     response = auth_client.post(
-        "/api/generate-cards-from-topic",
+        "/api/generate-cards-from-topic/gemini",
         json={"content": "Integration tricks like +1/-1 and partial fraction decomposition"},
         headers={"X-CSRF-Token": csrf_token}
     )
@@ -705,7 +705,7 @@ def test_generate_cards_from_topic_caps_batch_size(mock_generate_cards, mock_get
     ]
     auth_client, _, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="topic_cap@example.com")
     response = auth_client.post(
-        "/api/generate-cards-from-topic",
+        "/api/generate-cards-from-topic/gemini",
         json={"content": "extensive integration tricks"},
         headers={"X-CSRF-Token": csrf_token}
     )
@@ -720,7 +720,7 @@ def test_generate_cards_from_topic_accepts_any_card_type(mock_generate_cards, mo
     mock_generate_cards.return_value = [{"question": "Q", "answer": "A", "card_type": "cloze"}]
     auth_client, _, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="topic_any@example.com")
     response = auth_client.post(
-        "/api/generate-cards-from-topic",
+        "/api/generate-cards-from-topic/gemini",
         json={"content": "Ohm's law", "card_type": "any"},
         headers={"X-CSRF-Token": csrf_token}
     )
@@ -728,7 +728,7 @@ def test_generate_cards_from_topic_accepts_any_card_type(mock_generate_cards, mo
     assert mock_generate_cards.call_args.kwargs.get("card_type") == "any"
 
     response = auth_client.post(
-        "/api/generate-cards",
+        "/api/generate-cards/gemini",
         json={"content": "some course text", "card_type": "any"},
         headers={"X-CSRF-Token": csrf_token}
     )
@@ -746,7 +746,7 @@ def test_generate_cards_from_topic_openai(mock_generate_cards, mock_get_user, cl
     cur.close()
 
     response = auth_client.post(
-        "/api/generate-cards-from-topic-openai",
+        "/api/generate-cards-from-topic/openai",
         json={"content": "Ohm's law"},
         headers={"X-CSRF-Token": csrf_token}
     )
@@ -758,7 +758,7 @@ def test_generate_cards_from_topic_openai(mock_generate_cards, mock_get_user, cl
 def test_generate_cards_from_topic_rejects_blank_topic(mock_get_user, client, db_conn):
     auth_client, _, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="topic_blank@example.com")
     response = auth_client.post(
-        "/api/generate-cards-from-topic",
+        "/api/generate-cards-from-topic/gemini",
         json={"content": "  "},
         headers={"X-CSRF-Token": csrf_token}
     )
@@ -770,7 +770,7 @@ def test_generate_cards_from_topic_rejects_oversized_topic(mock_get_user, client
     prompt, and an unbounded one is an abuse vector on shared API keys."""
     auth_client, _, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="topic_long@example.com")
     response = auth_client.post(
-        "/api/generate-cards-from-topic",
+        "/api/generate-cards-from-topic/gemini",
         json={"content": "x" * 501},
         headers={"X-CSRF-Token": csrf_token}
     )
@@ -794,6 +794,31 @@ def test_save_generated_cards(mock_get_user, client, db_conn):
     cur.close()
     assert card is not None
     assert card['answer'] == "GenA1"
+
+@patch("main.supabase.auth.get_user")
+def test_bulk_delete_cards_scoped_to_owner(mock_get_user, client, db_conn):
+    """One request deletes many owned cards; foreign and unknown ids are
+    silently skipped and never touched."""
+    auth_client, user_id, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="bulk_deleter@example.com")
+    other_id = str(create_test_user(db_conn, email="bulk_victim@example.com"))
+    own_a = create_test_card(db_conn, user_id, "Q1", "A1")
+    own_b = create_test_card(db_conn, user_id, "Q2", "A2")
+    keep = create_test_card(db_conn, user_id, "Q3", "A3")
+    foreign = create_test_card(db_conn, other_id, "QF", "AF")
+
+    response = auth_client.post(
+        "/api/cards/delete",
+        json={"ids": [own_a, own_b, foreign, 999999]},
+        headers={"X-CSRF-Token": csrf_token},
+    )
+    assert response.status_code == 200
+    assert response.json()["deleted"] == 2
+
+    cur = db_conn.cursor()
+    cur.execute("SELECT id FROM cards WHERE id = ANY(%s)", ([own_a, own_b, keep, foreign],))
+    remaining = {row["id"] for row in cur.fetchall()}
+    cur.close()
+    assert remaining == {keep, foreign}
 
 # --- Account Deletion Tests ---
 @patch("main.supabase.auth.get_user")

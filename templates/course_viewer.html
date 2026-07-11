@@ -177,26 +177,10 @@
             <input type="radio" class="btn-check" name="card-type" id="card-type-cloze-viewer" value="cloze" autocomplete="off">
             <label class="btn seg-btn" for="card-type-cloze-viewer">Cloze</label>
         </div>
-        {% set no_llm_key = not gemini_api_key_exists and not anthropic_api_key_exists and not openai_api_key_exists %}
-        <div class="btn-group generate-group" role="group" {% if no_llm_key %}title="Add a Gemini, Anthropic or OpenAI API key in Settings to enable card generation."{% endif %}>
-            <button type="button" id="generate-cards-btn" class="btn btn-primary generate-btn dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" {% if no_llm_key %}disabled aria-describedby="generate-cards-help"{% endif %}>
-                {{ icon('sparkles', 14) }} Generate Cards
-            </button>
-            {% if no_llm_key %}
-            <span id="generate-cards-help" class="visually-hidden">Add a Gemini, Anthropic or OpenAI API key in Settings to enable card generation.</span>
-            {% endif %}
-            <ul class="dropdown-menu dropdown-menu-end">
-                {% if gemini_api_key_exists %}
-                    <li><a class="dropdown-item" href="#" id="generate-cards-gemini-btn">Using Gemini</a></li>
-                {% endif %}
-                {% if anthropic_api_key_exists %}
-                    <li><a class="dropdown-item" href="#" id="generate-cards-anthropic-btn">Using Anthropic</a></li>
-                {% endif %}
-                {% if openai_api_key_exists %}
-                    <li><a class="dropdown-item" href="#" id="generate-cards-openai-btn">Using OpenAI</a></li>
-                {% endif %}
-            </ul>
-        </div>
+        {% from 'partials/provider_dropdown.html' import provider_dropdown %}
+        {{ provider_dropdown(available_providers, 'generate-cards', 'Generate Cards',
+                             btn_class='btn btn-primary generate-btn',
+                             group_class='generate-group', icon_html=icon('sparkles', 14)) }}
     </div>
 </div>
 
@@ -262,20 +246,15 @@
         }
 
         document.addEventListener('click', function(e) {
-            const contentProvider = () => document.getElementById('raw-content').textContent;
-            const cardType = getSelectedCardType();
-            if (e.target.matches('#generate-cards-gemini-btn')) {
-                e.preventDefault();
-                window.handleGenerateCards('/api/generate-cards', contentProvider, csrfToken, cardType);
-            }
-            if (e.target.matches('#generate-cards-anthropic-btn')) {
-                e.preventDefault();
-                window.handleGenerateCards('/api/generate-cards-anthropic', contentProvider, csrfToken, cardType);
-            }
-            if (e.target.matches('#generate-cards-openai-btn')) {
-                e.preventDefault();
-                window.handleGenerateCards('/api/generate-cards-openai', contentProvider, csrfToken, cardType);
-            }
+            const item = e.target.closest('#generate-cards-menu .generate-provider');
+            if (!item) return;
+            e.preventDefault();
+            window.handleGenerateCards(
+                `/api/generate-cards/${item.dataset.provider}`,
+                () => document.getElementById('raw-content').textContent,
+                csrfToken,
+                getSelectedCardType()
+            );
         });
     });
 </script>

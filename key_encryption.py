@@ -8,9 +8,10 @@
 import base64
 import hashlib
 import logging
-import os
 
 from cryptography.fernet import Fernet, InvalidToken
+
+from env_utils import clean_env_value
 
 logger = logging.getLogger(__name__)
 
@@ -21,10 +22,7 @@ _fernet = None
 def _get_fernet() -> Fernet:
     global _fernet
     if _fernet is None:
-        secret = (os.environ.get("SECRET_KEY") or "").strip()
-        # Mirror main._clean_env_value: tolerate accidentally quoted env values.
-        if len(secret) >= 2 and secret[0] == secret[-1] and secret[0] in {"'", '"'}:
-            secret = secret[1:-1].strip()
+        secret = clean_env_value("SECRET_KEY")
         if not secret:
             raise RuntimeError("SECRET_KEY is required to encrypt/decrypt stored API keys.")
         _fernet = Fernet(base64.urlsafe_b64encode(hashlib.sha256(secret.encode()).digest()))

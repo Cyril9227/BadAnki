@@ -10,7 +10,7 @@ import time
 from collections import deque
 from datetime import datetime
 from threading import Lock
-from typing import Optional
+from typing import Literal, Optional
 import uuid
 from urllib.parse import quote
 import posixpath
@@ -29,14 +29,14 @@ from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from supabase import create_client, Client, ClientOptions
 from jose import jwt
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 from telegram import Update
 from supabase_auth.errors import AuthApiError
 
 # Local application
 import crud
 from bot import get_bot_application
-from key_encryption import decrypt_secret
+from env_utils import clean_env_value
 from render_auth import make_telegram_link_token, verify_render_request
 from database import get_db_connection, release_db_connection
 from scheduler import run_scheduler
@@ -45,14 +45,7 @@ from middleware import CSRFMiddleware, SecurityHeadersMiddleware
 
 
 # --- Supabase & JWT Configuration ---
-def _clean_env_value(name: str) -> str | None:
-    value = os.environ.get(name)
-    if value is None:
-        return None
-    value = value.strip()
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
-        value = value[1:-1].strip()
-    return value or None
+_clean_env_value = clean_env_value  # shared helper; historical local name
 
 SECRET_KEY = _clean_env_value("SECRET_KEY")
 SCHEDULER_SECRET = _clean_env_value("SCHEDULER_SECRET")
@@ -309,18 +302,19 @@ class User(BaseModel):
     auth_user_id: uuid.UUID
     username: str
     telegram_chat_id: Optional[str] = None
+    # Keys arrive decrypted: crud's profile fetchers own the encryption
+    # boundary, so ciphertext never leaves the data layer. Optional with a
+    # None default keeps User(**profile) valid even before a key column
+    # exists in a given database.
     gemini_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
-    # Optional with a None default: User(**profile) stays valid even before
-    # the openai_api_key column exists in a given database.
     openai_api_key: Optional[str] = None
 
-    # Keys are encrypted at rest (key_encryption.py); everything downstream
-    # of the User model sees plaintext. Legacy plaintext rows pass through.
-    @field_validator("gemini_api_key", "anthropic_api_key", "openai_api_key", mode="before")
-    @classmethod
-    def _decrypt_api_key(cls, value):
-        return decrypt_secret(value)
+    @property
+    def email(self) -> str:
+        # Usernames are emails, except create_profile de-dupes collisions as
+        # "email#authid8" — this property owns undoing that convention.
+        return self.username.split("#")[0]
 
 class CourseContent(BaseModel):
     path: str = Field(..., min_length=1, max_length=MAX_COURSE_PATH_LEN)
@@ -354,6 +348,9 @@ class TopicForGeneration(BaseModel):
 
 class GeneratedCards(BaseModel):
     cards: list[GeneratedCard] = Field(..., min_length=1, max_length=MAX_GENERATED_CARDS_PER_REQUEST)
+
+class CardIds(BaseModel):
+    ids: list[int] = Field(..., min_length=1, max_length=1000)
 
 class ApiKeys(BaseModel):
     gemini_api_key: str | None = Field(default=None, max_length=MAX_SECRET_INPUT_LEN)
@@ -1009,9 +1006,7 @@ async def settings_form(request: Request, user: User = Depends(get_current_activ
         "telegram_linked": bool(user.telegram_chat_id),
         "telegram_bot_username": TELEGRAM_BOT_USERNAME,
         "telegram_link_token": make_telegram_link_token(user.auth_user_id),
-        # For the set-a-password email. Usernames are emails; strip the
-        # uniqueness suffix create_profile adds in the duplicate-email edge.
-        "account_email": user.username.split("#")[0],
+        "account_email": user.email,  # for the set-a-password email
     })
 
 @app.post("/api/delete-account")
@@ -1331,27 +1326,14 @@ async def root(request: Request):
         "supabase_key": SUPABASE_KEY
     })
 
-def _flatten_course_files(nodes) -> list[dict]:
-    """The course tree's files as a flat display list, in tree (path) order."""
-    files = []
-    for node in nodes:
-        if node.get("type") == "file":
-            name = node.get("name") or ""
-            if name.lower().endswith(".md"):
-                name = name[:-3]
-            files.append({"path": node["path"], "display": node.get("title") or name})
-        files.extend(_flatten_course_files(node.get("children") or []))
-    return files
-
 @app.get("/courses", response_class=HTMLResponse)
 async def list_courses(request: Request, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    # Server-rendered: the page is a plain list, so fetching tags + tree here
-    # replaces two client round-trips and their spinners — and hover prefetch
-    # now caches the finished page instead of an empty shell.
-    return templates.TemplateResponse(request, "courses_list.html", {
-        "courses": _flatten_course_files(crud.get_courses_tree_for_user(conn, auth_user_id=user.auth_user_id)),
-        "tags": crud.get_all_tags_for_user(conn, auth_user_id=user.auth_user_id),
-    })
+    # Server-rendered: the page is a plain list, so building it here replaces
+    # two client round-trips and their spinners — and hover prefetch caches
+    # the finished page instead of an empty shell. One head scan produces
+    # both the course list and the tags.
+    courses, tags = crud.get_courses_overview_for_user(conn, auth_user_id=user.auth_user_id)
+    return templates.TemplateResponse(request, "courses_list.html", {"courses": courses, "tags": tags})
 
 @app.get("/edit-course/{course_path:path}", response_class=HTMLResponse)
 async def edit_course(request: Request, course_path: str, user: User = Depends(get_current_active_user)):
@@ -1360,9 +1342,6 @@ async def edit_course(request: Request, course_path: str, user: User = Depends(g
     course_path = _validate_course_path(course_path)
     return templates.TemplateResponse(request, "course_editor.html", {
         "course_path": course_path,
-        "gemini_api_key_exists": bool(user.gemini_api_key),
-        "anthropic_api_key_exists": bool(user.anthropic_api_key),
-        "openai_api_key_exists": bool(user.openai_api_key),
         "csrf_token": request.state.csrf_token
     })
 
@@ -1405,9 +1384,7 @@ async def view_course(request: Request, course_path: str, conn: psycopg2.extensi
         "metadata": metadata,
         "content": body,
         "course_path": course_path,
-        "gemini_api_key_exists": bool(user.gemini_api_key),
-        "anthropic_api_key_exists": bool(user.anthropic_api_key),
-        "openai_api_key_exists": bool(user.openai_api_key),
+        "available_providers": _available_providers(user),
         "csrf_token": request.state.csrf_token
     })
 
@@ -1503,37 +1480,39 @@ async def _generate_cards_response(data: CourseContentForGeneration | TopicForGe
         raise HTTPException(status_code=500, detail=detail)
     return {"cards": generated_cards[:max_cards]}
 
-@app.post("/api/generate-cards")
-async def api_generate_cards(data: CourseContentForGeneration, user: User = Depends(get_current_active_user)):
-    return await _generate_cards_response(data, user, mode="gemini", api_key=user.gemini_api_key)
+# One endpoint per source; the provider is a validated path segment. Adding
+# a provider means one entry here + a branch in generate_cards, nothing else.
+LLM_PROVIDERS = ("gemini", "anthropic", "openai")
+LLMProvider = Literal["gemini", "anthropic", "openai"]
 
-@app.post("/api/generate-cards-anthropic")
-async def api_generate_cards_anthropic(data: CourseContentForGeneration, user: User = Depends(get_current_active_user)):
-    return await _generate_cards_response(data, user, mode="anthropic", api_key=user.anthropic_api_key)
+def _provider_key(user: User, provider: str) -> Optional[str]:
+    return getattr(user, f"{provider}_api_key")
 
-@app.post("/api/generate-cards-openai")
-async def api_generate_cards_openai(data: CourseContentForGeneration, user: User = Depends(get_current_active_user)):
-    return await _generate_cards_response(data, user, mode="openai", api_key=user.openai_api_key)
+def _available_providers(user: User) -> list[str]:
+    """Providers the user holds a key for — drives the generate dropdowns."""
+    return [p for p in LLM_PROVIDERS if _provider_key(user, p)]
 
-@app.post("/api/generate-cards-from-topic")
-async def api_generate_cards_from_topic(data: TopicForGeneration, user: User = Depends(get_current_active_user)):
-    return await _generate_cards_response(data, user, mode="gemini", api_key=user.gemini_api_key,
-                                          source="topic", max_cards=MAX_TOPIC_CARDS)
+@app.post("/api/generate-cards/{provider}")
+async def api_generate_cards(provider: LLMProvider, data: CourseContentForGeneration, user: User = Depends(get_current_active_user)):
+    return await _generate_cards_response(data, user, mode=provider, api_key=_provider_key(user, provider))
 
-@app.post("/api/generate-cards-from-topic-anthropic")
-async def api_generate_cards_from_topic_anthropic(data: TopicForGeneration, user: User = Depends(get_current_active_user)):
-    return await _generate_cards_response(data, user, mode="anthropic", api_key=user.anthropic_api_key,
-                                          source="topic", max_cards=MAX_TOPIC_CARDS)
-
-@app.post("/api/generate-cards-from-topic-openai")
-async def api_generate_cards_from_topic_openai(data: TopicForGeneration, user: User = Depends(get_current_active_user)):
-    return await _generate_cards_response(data, user, mode="openai", api_key=user.openai_api_key,
+@app.post("/api/generate-cards-from-topic/{provider}")
+async def api_generate_cards_from_topic(provider: LLMProvider, data: TopicForGeneration, user: User = Depends(get_current_active_user)):
+    return await _generate_cards_response(data, user, mode=provider, api_key=_provider_key(user, provider),
                                           source="topic", max_cards=MAX_TOPIC_CARDS)
 
 @app.post("/api/save-cards")
 async def api_save_cards(data: GeneratedCards, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     crud.save_generated_cards_for_user(conn, data.cards, user.auth_user_id)
     return {"success": True, "message": f"{len(data.cards)} cards saved successfully."}
+
+@app.post("/api/cards/delete")
+async def api_delete_cards(data: CardIds, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
+    """One statement deletes any number of the user's cards — the Manage
+    page's single and bulk deletes both come here (the POST /delete/{id}
+    form endpoint remains as the no-JS path)."""
+    deleted = crud.delete_cards_for_user(conn, data.ids, user.auth_user_id)
+    return {"success": True, "deleted": deleted}
 
 @app.get("/api/tags")
 async def api_get_tags(conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
@@ -1732,10 +1711,7 @@ async def new_card_form(request: Request, card_type: str = "basic", user: User =
     return templates.TemplateResponse(request, "new_card.html", {
         "csrf_token": csrf_token,
         "card_type": card_type if card_type in ("basic", "cloze") else "basic",
-        # Booleans only — the AI topic bar needs to know which providers to offer.
-        "gemini_api_key_exists": bool(user.gemini_api_key),
-        "anthropic_api_key_exists": bool(user.anthropic_api_key),
-        "openai_api_key_exists": bool(user.openai_api_key),
+        "available_providers": _available_providers(user),
     })
 
 @app.post("/new")

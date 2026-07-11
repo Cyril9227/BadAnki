@@ -529,24 +529,31 @@ document.addEventListener('DOMContentLoaded', function () {
         e.dataTransfer.setData('text/plain', dragged.path); // Firefox needs data to start a drag
     });
 
+    // The row currently highlighted as a drop target — tracked so dragover
+    // (which fires continuously while dragging) only touches the DOM when
+    // the target actually changes. Also covers dragleave, which fires
+    // unreliably while moving across child elements.
+    let highlightedDropRow = null;
+    function setDropRow(row) {
+        if (row === highlightedDropRow) return;
+        if (highlightedDropRow) highlightedDropRow.classList.remove('drop-target');
+        if (row) row.classList.add('drop-target');
+        highlightedDropRow = row;
+    }
+
     fileTreeContainer.addEventListener('dragover', function (e) {
         const row = dropTargetRow(e);
-        // One highlight at a time; clearing here also covers dragleave, which
-        // fires unreliably while moving across child elements.
-        fileTreeContainer.querySelectorAll('.drop-target').forEach(el => {
-            if (el !== row) el.classList.remove('drop-target');
-        });
+        setDropRow(row);
         if (!row) return;
         e.preventDefault(); // allow the drop
         e.dataTransfer.dropEffect = 'move';
-        row.classList.add('drop-target');
     });
 
     fileTreeContainer.addEventListener('drop', function (e) {
         const row = dropTargetRow(e);
         if (!row) return;
         e.preventDefault();
-        row.classList.remove('drop-target');
+        setDropRow(null);
         if (dragged) {
             const name = dragged.path.split('/').pop();
             moveItem(dragged.path, `${row.dataset.dragPath}/${name}`, dragged.type);
@@ -558,7 +565,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     fileTreeContainer.addEventListener('dragend', function () {
         dragged = null;
-        fileTreeContainer.querySelectorAll('.drop-target').forEach(el => el.classList.remove('drop-target'));
+        setDropRow(null);
     });
 
     let saveInFlight = false;

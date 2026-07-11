@@ -225,13 +225,14 @@
        layout hides — this select is the touch equivalent. #}
     <div class="col-auto d-md-none">
         <select id="mobile-sort" class="form-select" aria-label="Sort cards">
+            {# Values reference the thead's data-sort-key — never positions. #}
             <option value="">Due date ↑</option>
-            <option value="4:desc">Due date ↓</option>
-            <option value="5:desc">Ease ↓</option>
-            <option value="5:asc">Ease ↑</option>
-            <option value="6:desc">Interval ↓</option>
-            <option value="6:asc">Interval ↑</option>
-            <option value="1:asc">Type A→Z</option>
+            <option value="due:desc">Due date ↓</option>
+            <option value="ease:desc">Ease ↓</option>
+            <option value="ease:asc">Ease ↑</option>
+            <option value="interval:desc">Interval ↓</option>
+            <option value="interval:asc">Interval ↑</option>
+            <option value="type:asc">Type A→Z</option>
         </select>
     </div>
     <div class="col-auto">
@@ -249,18 +250,18 @@
                     <th class="ps-4 select-col">
                         <input type="checkbox" id="select-all" class="form-check-input" aria-label="Select all shown cards" title="Select all shown">
                     </th>
-                    <th data-sort-type="text">Type</th>
+                    <th data-sort-type="text" data-sort-key="type">Type</th>
                     <th class="question-col">Question</th>
                     <th class="answer-col">Answer</th>
-                    <th data-sort-type="date">Due</th>
-                    <th data-sort-type="number">Ease</th>
-                    <th data-sort-type="number">Interval</th>
+                    <th data-sort-type="date" data-sort-key="due">Due</th>
+                    <th data-sort-type="number" data-sort-key="ease">Ease</th>
+                    <th data-sort-type="number" data-sort-key="interval">Interval</th>
                     <th class="pe-4 actions-col">Actions</th>
                 </tr>
             </thead>
             <tbody>
                 {% for card in cards %}
-                <tr data-question="{{ card.question }}">
+                <tr data-question="{{ card.question }}" data-card-id="{{ card.id }}">
                     <td class="select-col">
                         <input type="checkbox" class="form-check-input row-select" aria-label="Select card">
                     </td>
@@ -434,6 +435,11 @@ document.addEventListener('DOMContentLoaded', function () {
     // two features compose independently.
     const sortHeaders = Array.from(document.querySelectorAll('thead th[data-sort-type]'));
     const headerCells = sortHeaders.length ? Array.from(sortHeaders[0].parentElement.children) : [];
+    // Stable column identity for the mobile select and view restore: option
+    // values reference data-sort-key, never positions (inserting the select
+    // column once silently shifted every hardcoded index).
+    const sortKeyToCol = {};
+    headerCells.forEach(function (th, i) { if (th.dataset.sortKey) sortKeyToCol[th.dataset.sortKey] = i; });
     const originalOrder = allRows.slice(); // load order = due-date ascending (crud.get_all_cards)
     let sortState = { col: null, dir: null }; // dir: 'desc' | 'asc' | null
 
@@ -545,15 +551,13 @@ document.addEventListener('DOMContentLoaded', function () {
     // Mobile sort control — the touch stand-in for the hidden column headers.
     if (mobileSort) {
         // Reflect a restored sort in the control (unknown combos show default).
-        const restoredKey = sortState.col !== null && sortState.dir ? sortState.col + ':' + sortState.dir : '';
+        const restoredKey = sortState.col !== null && sortState.dir && headerCells[sortState.col]
+            ? headerCells[sortState.col].dataset.sortKey + ':' + sortState.dir : '';
         if ([...mobileSort.options].some(o => o.value === restoredKey)) mobileSort.value = restoredKey;
         mobileSort.addEventListener('change', function () {
-            if (this.value) {
-                const parts = this.value.split(':');
-                sortState = { col: parseInt(parts[0], 10), dir: parts[1] };
-            } else {
-                sortState = { col: null, dir: null };
-            }
+            const parts = this.value ? this.value.split(':') : [];
+            const col = parts.length ? sortKeyToCol[parts[0]] : undefined;
+            sortState = col === undefined ? { col: null, dir: null } : { col: col, dir: parts[1] };
             updateSortIndicators();
             applySort();
         });
@@ -571,18 +575,10 @@ document.addEventListener('DOMContentLoaded', function () {
         } catch (e) { /* storage unavailable */ }
     });
 
-    // Deletes happen in place: a form submit reloads /manage and wipes the
-    // current search/sort/scroll. The plain form submit stays as the
-    // fallback (and the no-JS path).
-    function deleteRequest(form) {
-        return fetch(form.action, {
-            method: 'POST',
-            headers: { 'X-CSRF-Token': window.getCsrfToken() || form.querySelector('input[name="csrf_token"]').value },
-        }).then(function (response) {
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        });
-    }
-
+    // Deletes go through one JSON endpoint for any number of cards — a form
+    // submit would reload /manage and wipe the current search/sort/scroll.
+    // The per-row form POST remains the single-delete fallback (and no-JS
+    // path): a JSON endpoint means no redirect and no flash cookie to undo.
     function removeRow(row) {
         [allRows, originalOrder, order].forEach(function (arr) {
             const i = arr.indexOf(row);
@@ -591,28 +587,54 @@ document.addEventListener('DOMContentLoaded', function () {
         row.remove();
     }
 
-    // The delete endpoint answers with a redirect + flash cookie meant for
-    // full-page loads; clear the cookie so the flash doesn't fire on the
-    // next navigation — our toasts already report the outcome.
-    function clearFlashCookie() {
-        document.cookie = 'flash=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;';
-    }
-
-    function deleteCardInPlace(form) {
-        const row = form.closest('tr');
-        deleteRequest(form)
-            .then(function () {
-                clearFlashCookie();
+    function deleteRows(rows) {
+        const ids = rows.map(function (row) { return parseInt(row.dataset.cardId, 10); });
+        return window.fetchJson('/api/cards/delete', {
+            method: 'POST',
+            body: JSON.stringify({ ids: ids })
+        }).then(function (data) {
+            rows.forEach(function (row) {
+                const box = row.querySelector('.row-select');
+                if (box && box.checked) selectedCount--;
                 removeRow(row);
-                refresh(); // counts + reveal window catch up
-                updateBulkUi();
-                window.toast('success', 'Card deleted');
-            })
-            .catch(function () { form.submit(); });
+            });
+            refresh(); // counts + reveal window catch up
+            updateBulkUi();
+            const n = (data && data.deleted != null) ? data.deleted : rows.length;
+            window.toast('success', `Deleted ${n} card${n === 1 ? '' : 's'}`);
+        });
     }
 
-    // --- Bulk selection ---
+    async function confirmAndDelete(rows, fallbackForm) {
+        const n = rows.length;
+        const result = await Swal.fire({
+            title: `Delete ${n} card${n === 1 ? '' : 's'}?`,
+            text: "You won't be able to revert this!",
+            icon: 'warning',
+            showCancelButton: true,
+            customClass: window.swalClasses('btn btn-danger'),
+            confirmButtonText: n === 1 ? 'Yes, delete it!' : 'Yes, delete them!'
+        });
+        if (!result.isConfirmed) return;
+        if (deleteSelectedBtn) deleteSelectedBtn.disabled = true;
+        try {
+            await deleteRows(rows);
+        } catch (err) {
+            console.error('Delete failed:', err);
+            if (fallbackForm) { fallbackForm.submit(); return; } // full-reload path
+            window.toast('error', err.message || 'Could not delete the cards.');
+        } finally {
+            if (deleteSelectedBtn) deleteSelectedBtn.disabled = false;
+        }
+    }
+
+    // --- Bulk selection. selectedCount keeps the common case (nothing
+    // selected) free of full-table scans — clearSelection runs per keystroke
+    // from the search handler. ---
+    let selectedCount = 0;
+
     function selectedRows() {
+        if (!selectedCount) return [];
         return allRows.filter(function (row) {
             const box = row.querySelector('.row-select');
             return box && box.checked;
@@ -620,94 +642,56 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function updateBulkUi() {
-        const n = selectedRows().length;
         if (deleteSelectedBtn) {
-            deleteSelectedBtn.style.display = n ? '' : 'none';
-            deleteSelectedBtn.textContent = `Delete selected (${n})`;
+            deleteSelectedBtn.style.display = selectedCount ? '' : 'none';
+            deleteSelectedBtn.textContent = `Delete selected (${selectedCount})`;
         }
         if (selectAll) {
+            if (!selectedCount) { selectAll.checked = false; return; }
             const shown = allRows.filter(function (row) { return row.style.display !== 'none'; });
             selectAll.checked = shown.length > 0 && shown.every(function (row) { return row.querySelector('.row-select').checked; });
         }
     }
 
     function clearSelection() {
+        if (!selectedCount) return; // the per-keystroke common case
         allRows.forEach(function (row) {
             const box = row.querySelector('.row-select');
             if (box) box.checked = false;
         });
-        if (selectAll) selectAll.checked = false;
+        selectedCount = 0;
         updateBulkUi();
     }
 
     if (tbody) tbody.addEventListener('change', function (e) {
-        if (e.target.matches('.row-select')) updateBulkUi();
+        if (!e.target.matches('.row-select')) return;
+        selectedCount += e.target.checked ? 1 : -1;
+        updateBulkUi();
     });
 
     if (selectAll) selectAll.addEventListener('change', function () {
         const checked = selectAll.checked;
         allRows.forEach(function (row) {
-            if (row.style.display !== 'none') row.querySelector('.row-select').checked = checked;
-        });
-        updateBulkUi();
-    });
-
-    if (deleteSelectedBtn) deleteSelectedBtn.addEventListener('click', async function () {
-        const rows = selectedRows();
-        if (rows.length === 0) return;
-        const result = await Swal.fire({
-            title: `Delete ${rows.length} card${rows.length === 1 ? '' : 's'}?`,
-            text: "You won't be able to revert this!",
-            icon: 'warning',
-            showCancelButton: true,
-            customClass: window.swalClasses('btn btn-danger'),
-            confirmButtonText: 'Yes, delete them!'
-        });
-        if (!result.isConfirmed) return;
-
-        // Sequential on purpose: dozens of parallel POSTs would fan out
-        // serverless instances (and DB connections) for no user-visible win.
-        deleteSelectedBtn.disabled = true;
-        let done = 0, failed = 0;
-        for (const row of rows) {
-            deleteSelectedBtn.textContent = `Deleting… (${done + failed + 1}/${rows.length})`;
-            try {
-                await deleteRequest(row.querySelector('.delete-form'));
-                removeRow(row);
-                done++;
-            } catch (err) {
-                console.error('Bulk delete failed for a card:', err);
-                failed++;
+            if (row.style.display === 'none') return;
+            const box = row.querySelector('.row-select');
+            if (box.checked !== checked) {
+                box.checked = checked;
+                selectedCount += checked ? 1 : -1;
             }
-        }
-        clearFlashCookie();
-        deleteSelectedBtn.disabled = false;
-        refresh();
+        });
         updateBulkUi();
-        window.toast(
-            failed ? 'warning' : 'success',
-            failed ? `Deleted ${done} card(s), ${failed} failed` : `Deleted ${done} card${done === 1 ? '' : 's'}`
-        );
     });
 
-    // SweetAlert2 for delete confirmation using event delegation
-    document.body.addEventListener('submit', function(e) {
-        if (e.target.matches('.delete-form')) {
-            e.preventDefault();
-            const form = e.target;
-            Swal.fire({
-                title: 'Are you sure?',
-                text: "You won't be able to revert this!",
-                icon: 'warning',
-                showCancelButton: true,
-                customClass: window.swalClasses('btn btn-danger'),
-                confirmButtonText: 'Yes, delete it!'
-            }).then((result) => {
-                if (result.isConfirmed) {
-                    deleteCardInPlace(form);
-                }
-            });
-        }
+    if (deleteSelectedBtn) deleteSelectedBtn.addEventListener('click', function () {
+        const rows = selectedRows();
+        if (rows.length) confirmAndDelete(rows);
+    });
+
+    // Per-row delete forms (also the no-JS path) share the same confirm+flow.
+    document.body.addEventListener('submit', function (e) {
+        if (!e.target.matches('.delete-form')) return;
+        e.preventDefault();
+        confirmAndDelete([e.target.closest('tr')], e.target);
     });
 });
 </script>

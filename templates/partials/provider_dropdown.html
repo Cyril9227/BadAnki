@@ -1,0 +1,27 @@
+{# Provider dropdown for card generation, shared by the course page and the
+   new-card topic bar. The including page wires clicks with one delegated
+   listener on "#<id_prefix>-menu .generate-provider", reading
+   data-provider — no per-provider ids or handlers anywhere.
+
+   Usage:
+     {% from 'partials/provider_dropdown.html' import provider_dropdown %}
+     {{ provider_dropdown(available_providers, 'generate-cards', 'Generate Cards',
+                          btn_class='btn btn-primary generate-btn',
+                          group_class='generate-group', icon_html=icon('sparkles', 14)) }}
+#}
+{% macro provider_dropdown(available_providers, id_prefix, btn_label, btn_class='btn btn-primary', group_class='', icon_html='') %}
+{% set display_names = {'gemini': 'Gemini', 'anthropic': 'Anthropic', 'openai': 'OpenAI'} %}
+<div class="btn-group {{ group_class }}" role="group" {% if not available_providers %}title="Add a Gemini, Anthropic or OpenAI API key in Settings to enable card generation."{% endif %}>
+    <button type="button" id="{{ id_prefix }}-btn" class="{{ btn_class }} dropdown-toggle text-nowrap" data-bs-toggle="dropdown" aria-expanded="false" {% if not available_providers %}disabled aria-describedby="{{ id_prefix }}-help"{% endif %}>
+        {{ icon_html }} {{ btn_label }}
+    </button>
+    {% if not available_providers %}
+    <span id="{{ id_prefix }}-help" class="visually-hidden">Add a Gemini, Anthropic or OpenAI API key in Settings to enable card generation.</span>
+    {% endif %}
+    <ul class="dropdown-menu dropdown-menu-end" id="{{ id_prefix }}-menu">
+        {% for provider in available_providers %}
+        <li><a class="dropdown-item generate-provider" href="#" data-provider="{{ provider }}">Using {{ display_names[provider] }}</a></li>
+        {% endfor %}
+    </ul>
+</div>
+{% endmacro %}

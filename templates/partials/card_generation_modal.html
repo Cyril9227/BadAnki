@@ -103,16 +103,17 @@ document.addEventListener('DOMContentLoaded', function () {
             if (loadingElapsed) loadingElapsed.textContent = Math.round((Date.now() - startedAt) / 1000) + 's';
         }, 1000);
 
-        // The Cancel button aborts this fetch; the finally below closes up.
-        generateController = new AbortController();
-        let cancelled = false;
-        generateController.signal.addEventListener('abort', () => { cancelled = true; });
+        // The Cancel button aborts this fetch through the module-level
+        // handle; the closure-scoped controller keeps its aborted state
+        // readable in catch/finally after the handle is cleared.
+        const controller = new AbortController();
+        generateController = controller;
 
         fetch(apiUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': effectiveToken },
             body: JSON.stringify({ content: content, card_type: cardType }),
-            signal: generateController.signal
+            signal: controller.signal
         })
         .then(response => {
             if (response.redirected) {
@@ -138,7 +139,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         })
         .catch(error => {
-            if (cancelled) return; // user aborted — nothing to report
+            if (controller.signal.aborted) return; // user cancelled — nothing to report
             showGenerationError(error);
             console.error('Error generating cards:', error);
         })
@@ -148,7 +149,7 @@ document.addEventListener('DOMContentLoaded', function () {
             loadingSpinner.style.display = 'none';
             generateInFlight = false;
             generateController = null;
-            if (cancelled) {
+            if (controller.signal.aborted) {
                 cardsModal.hide(); // empty batch, so the discard guard lets it close
                 return;
             }

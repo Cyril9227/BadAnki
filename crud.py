@@ -10,7 +10,7 @@ import frontmatter
 import psycopg2
 from datetime import date, datetime, timedelta
 from psycopg2 import extras
-from key_encryption import encrypt_secret
+from key_encryption import decrypt_secret, encrypt_secret
 from parsing import sanitize_tags
 
 logger = logging.getLogger(__name__)
@@ -30,11 +30,26 @@ FRONTMATTER_HEAD_LEN = 2048
 
 # --- User CRUD Functions ---
 
+_PROFILE_KEY_COLUMNS = ("gemini_api_key", "anthropic_api_key", "openai_api_key")
+
+
+def _decrypt_profile_row(row):
+    """API keys are encrypted at rest; ciphertext must never leave the data
+    layer, so every profile fetcher decrypts before returning."""
+    if row is None:
+        return None
+    row = dict(row)
+    for column in _PROFILE_KEY_COLUMNS:
+        if column in row:
+            row[column] = decrypt_secret(row[column])
+    return row
+
+
 def get_profile_by_auth_id(conn, auth_user_id: str):
     """Fetches a profile using the Supabase auth user ID."""
     with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
         cursor.execute("SELECT * FROM profiles WHERE auth_user_id = %s", (auth_user_id,))
-        return cursor.fetchone()
+        return _decrypt_profile_row(cursor.fetchone())
 
 def create_profile(conn, username: str, auth_user_id: str) -> bool:
     """
@@ -72,7 +87,7 @@ def get_user_by_telegram_chat_id(conn, chat_id: int):
     """Fetches a user by their Telegram chat ID."""
     with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
         cursor.execute("SELECT * FROM profiles WHERE telegram_chat_id = %s", (str(chat_id),))
-        return cursor.fetchone()
+        return _decrypt_profile_row(cursor.fetchone())
 
 def link_telegram_chat(conn, auth_user_id: str, chat_id: int):
     """Points a Telegram chat at exactly one profile: the verified owner's.
@@ -205,6 +220,30 @@ def get_courses_tree_for_user(conn, auth_user_id: str):
     # used (and still use, until the folders migration runs).
     entries += [{"path": f"{p}/.placeholder", "head": ""} for p in _get_folder_paths(conn, auth_user_id)]
     return _build_course_tree(entries)
+
+def get_courses_overview_for_user(conn, auth_user_id: str):
+    """Flat course list ({path, display}) plus sorted tags, from a single
+    head scan — the server-rendered /courses page needs both, and fetching
+    them separately would scan the same rows twice."""
+    with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
+        cursor.execute(
+            "SELECT path, LEFT(content, %s) AS head FROM courses WHERE user_id = %s ORDER BY path",
+            (FRONTMATTER_HEAD_LEN, auth_user_id),
+        )
+        rows = cursor.fetchall()
+
+    courses, tags = [], set()
+    for row in rows:
+        name = posixpath.basename(row["path"])
+        if name.lower().endswith(".md"):
+            name = name[:-3]
+        courses.append({"path": row["path"], "display": _course_title(row["head"], name)})
+        try:
+            tags.update(sanitize_tags(frontmatter.loads(row["head"]).metadata.get("tags")))
+        except Exception:
+            continue
+    return courses, sorted(tags)
+
 
 def get_course_content_for_user(conn, course_path: str, auth_user_id: str):
     with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
@@ -478,6 +517,35 @@ def delete_card_for_user(conn, card_id: int, auth_user_id: str):
     with conn.cursor() as cursor:
         cursor.execute("DELETE FROM cards WHERE id = %s AND user_id = %s", (card_id, auth_user_id))
     conn.commit()
+
+def delete_cards_for_user(conn, card_ids: list, auth_user_id: str) -> int:
+    """Deletes the user's cards among card_ids in one statement; ids that
+    don't exist or belong to someone else are silently skipped. Returns how
+    many were deleted."""
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM cards WHERE id = ANY(%s) AND user_id = %s",
+                (list(card_ids), auth_user_id),
+            )
+            deleted = cursor.rowcount
+        conn.commit()
+        return deleted
+    except Exception:
+        conn.rollback()
+        raise
+
+def get_card_list_for_user(conn, auth_user_id: str):
+    """id + question head for every card, in id order — the shape the
+    Telegram /list command renders. Answers (up to 50KB each) are never
+    fetched; 500 chars of question is ample for a 64-char preview even with
+    cloze markup inflating the raw text."""
+    with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
+        cursor.execute(
+            "SELECT id, LEFT(question, 500) AS question FROM cards WHERE user_id = %s ORDER BY id",
+            (auth_user_id,),
+        )
+        return cursor.fetchall()
 
 def get_random_card_for_user(conn, auth_user_id: str):
     """Fetches a random card from the database for a specific user.

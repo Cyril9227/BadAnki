@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import functools
 import hashlib
 import os
 import logging
@@ -19,9 +20,9 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 from database import get_db_connection, release_db_connection
 from crud import (
     cache_photo_file_id,
-    get_all_cards_for_user,
     get_cached_photo_file_id,
     get_card_for_user,
+    get_card_list_for_user,
     get_random_card_for_user,
     get_user_by_telegram_chat_id,
     link_telegram_chat,
@@ -72,8 +73,12 @@ RENDER_TOKEN_TTL_SECONDS = 300
 RENDER_CACHE_VERSION = "v1"
 
 
+def _card_url(card_id) -> str:
+    return f"{APP_URL}/card/{card_id}"
+
+
 def _web_button(card_id) -> InlineKeyboardButton:
-    return InlineKeyboardButton("View on Web", url=f"{APP_URL}/card/{card_id}")
+    return InlineKeyboardButton("View on Web", url=_card_url(card_id))
 
 
 def build_card_message(card, reveal: bool = False):
@@ -340,34 +345,39 @@ async def review(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Sorry, something went wrong.")
 
 
-async def random_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Sends a random card to a registered user."""
-    logger.info("Received /random command from chat_id: %s", _redact_identifier(update.message.chat_id))
-    conn = None
-    try:
-        conn = get_db_connection()
-        chat_id = update.message.chat_id
-        redacted_chat_id = _redact_identifier(chat_id)
-        user = get_user_by_telegram_chat_id(conn, chat_id)
+def linked_command(handler):
+    """Scaffold shared by commands that need a linked account: resolves the
+    user and a DB connection, handles the not-linked reply, and owns the
+    log/try/except/finally that each handler used to copy-paste."""
+    @functools.wraps(handler)
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        logger.info("Handling %s for chat_id %s", handler.__name__, _redact_identifier(update.message.chat_id))
+        conn = None
+        try:
+            conn = get_db_connection()
+            user = get_user_by_telegram_chat_id(conn, update.message.chat_id)
+            if not user:
+                await update.message.reply_text(NOT_LINKED_MESSAGE)
+                return
+            await handler(update, context, user, conn)
+        except Exception as e:
+            logger.error(f"Error in {handler.__name__}: {e}", exc_info=True)
+            await update.message.reply_text("Sorry, something went wrong.")
+        finally:
+            if conn:
+                release_db_connection(conn)
+    return wrapper
 
-        if user:
-            logger.info("User found for chat_id %s.", redacted_chat_id)
-            card = get_random_card_for_user(conn, user['auth_user_id'])
-            if card:
-                await _deliver_card(update.message, card, conn)
-                logger.info("Sent random card %s to chat_id %s.", card['id'], redacted_chat_id)
-            else:
-                await update.message.reply_text("You have no cards in your deck.")
-                logger.info("No cards found for chat_id %s.", redacted_chat_id)
-        else:
-            await update.message.reply_text(NOT_LINKED_MESSAGE)
-            logger.warning("User not found for chat_id %s.", redacted_chat_id)
-    except Exception as e:
-        logger.error(f"Error in /random command: {e}", exc_info=True)
-        await update.message.reply_text("Sorry, something went wrong while fetching a card.")
-    finally:
-        if conn:
-            release_db_connection(conn)
+
+@linked_command
+async def random_card(update: Update, context: ContextTypes.DEFAULT_TYPE, user, conn):
+    """Sends a random card to a registered user."""
+    card = get_random_card_for_user(conn, user['auth_user_id'])
+    if not card:
+        await update.message.reply_text("You have no cards in your deck.")
+        return
+    await _deliver_card(update.message, card, conn)
+    logger.info("Sent random card %s to chat_id %s.", card['id'], _redact_identifier(update.message.chat_id))
 
 
 # One-line question previews in /list stay short enough that several dozen
@@ -383,79 +393,51 @@ def _card_preview(question: str) -> str:
     return text
 
 
-async def list_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
+@linked_command
+async def list_cards(update: Update, context: ContextTypes.DEFAULT_TYPE, user, conn):
     """Lists every card as "card <id>: <preview>", each line linking to the
-    card's web page. IDs are the ones /card takes."""
-    logger.info("Received /list command from chat_id: %s", _redact_identifier(update.message.chat_id))
-    conn = None
-    try:
-        conn = get_db_connection()
-        user = get_user_by_telegram_chat_id(conn, update.message.chat_id)
-        if not user:
-            await update.message.reply_text(NOT_LINKED_MESSAGE)
-            return
-        # ID order (not the review queue's due-date order): a list keyed by
-        # "card <id>" should read in id order.
-        cards = sorted(get_all_cards_for_user(conn, user['auth_user_id']), key=lambda c: c['id'])
-        if not cards:
-            await update.message.reply_text("You have no cards in your deck.")
-            return
+    card's web page. IDs are the ones /card takes, in id order."""
+    cards = get_card_list_for_user(conn, user['auth_user_id'])
+    if not cards:
+        await update.message.reply_text("You have no cards in your deck.")
+        return
 
-        lines = []
-        for card in cards:
-            label = escape_markdown(f"card {card['id']}: {_card_preview(card['question'])}", version=2)
-            lines.append(f"[{label}]({APP_URL}/card/{card['id']})")
+    lines = []
+    for card in cards:
+        label = escape_markdown(f"card {card['id']}: {_card_preview(card['question'])}", version=2)
+        lines.append(f"[{label}]({_card_url(card['id'])})")
 
-        # Send in as few messages as the 4096-char limit allows.
-        chunk = ""
-        for line in lines:
-            candidate = f"{chunk}\n{line}" if chunk else line
-            if len(candidate) > TELEGRAM_MESSAGE_LIMIT:
-                await update.message.reply_text(
-                    chunk, parse_mode=ParseMode.MARKDOWN_V2,
-                    link_preview_options=LinkPreviewOptions(is_disabled=True),
-                )
-                candidate = line
-            chunk = candidate
-        await update.message.reply_text(
-            chunk, parse_mode=ParseMode.MARKDOWN_V2,
-            link_preview_options=LinkPreviewOptions(is_disabled=True),
-        )
-    except Exception as e:
-        logger.error(f"Error in /list command: {e}", exc_info=True)
-        await update.message.reply_text("Sorry, something went wrong while listing your cards.")
-    finally:
-        if conn:
-            release_db_connection(conn)
+    # Send in as few messages as the 4096-char limit allows.
+    chunk = ""
+    for line in lines:
+        candidate = f"{chunk}\n{line}" if chunk else line
+        if len(candidate) > TELEGRAM_MESSAGE_LIMIT:
+            await update.message.reply_text(
+                chunk, parse_mode=ParseMode.MARKDOWN_V2,
+                link_preview_options=LinkPreviewOptions(is_disabled=True),
+            )
+            candidate = line
+        chunk = candidate
+    await update.message.reply_text(
+        chunk, parse_mode=ParseMode.MARKDOWN_V2,
+        link_preview_options=LinkPreviewOptions(is_disabled=True),
+    )
 
 
-async def card_by_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+@linked_command
+async def card_by_id(update: Update, context: ContextTypes.DEFAULT_TYPE, user, conn):
     """Sends one specific card, /random-style: /card 51 fetches the card
     /list shows as "card 51"."""
-    logger.info("Received /card command from chat_id: %s", _redact_identifier(update.message.chat_id))
-    conn = None
-    try:
-        if not context.args or not context.args[0].isdigit():
-            await update.message.reply_text("Usage: /card <id> — for example /card 51. Get the ids from /list.")
-            return
-        card_id = int(context.args[0])
-        conn = get_db_connection()
-        user = get_user_by_telegram_chat_id(conn, update.message.chat_id)
-        if not user:
-            await update.message.reply_text(NOT_LINKED_MESSAGE)
-            return
-        card = get_card_for_user(conn, card_id, user['auth_user_id'])
-        if not card:
-            await update.message.reply_text(f"Card {card_id} not found. Use /list to see your cards.")
-            return
-        await _deliver_card(update.message, card, conn)
-        logger.info("Sent card %s to chat_id %s.", card_id, _redact_identifier(update.message.chat_id))
-    except Exception as e:
-        logger.error(f"Error in /card command: {e}", exc_info=True)
-        await update.message.reply_text("Sorry, something went wrong while fetching the card.")
-    finally:
-        if conn:
-            release_db_connection(conn)
+    if not context.args or not context.args[0].isdigit():
+        await update.message.reply_text("Usage: /card <id> — for example /card 51. Get the ids from /list.")
+        return
+    card_id = int(context.args[0])
+    card = get_card_for_user(conn, card_id, user['auth_user_id'])
+    if not card:
+        await update.message.reply_text(f"Card {card_id} not found. Use /list to see your cards.")
+        return
+    await _deliver_card(update.message, card, conn)
+    logger.info("Sent card %s to chat_id %s.", card_id, _redact_identifier(update.message.chat_id))
 
 async def show_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Reveals a card's answer when its "Show answer" button is tapped."""
