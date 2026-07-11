@@ -1009,6 +1009,9 @@ async def settings_form(request: Request, user: User = Depends(get_current_activ
         "telegram_linked": bool(user.telegram_chat_id),
         "telegram_bot_username": TELEGRAM_BOT_USERNAME,
         "telegram_link_token": make_telegram_link_token(user.auth_user_id),
+        # For the set-a-password email. Usernames are emails; strip the
+        # uniqueness suffix create_profile adds in the duplicate-email edge.
+        "account_email": user.username.split("#")[0],
     })
 
 @app.post("/api/delete-account")

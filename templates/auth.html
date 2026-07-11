@@ -111,7 +111,9 @@
     async function offerRegistration(errorMessage) {
         const result = await Swal.fire({
             title: 'Create a new account?',
-            text: `We couldn't sign you in — either the password is wrong, or ${emailInput.value} isn't registered yet.`,
+            text: `We couldn't sign you in. If you signed up with Google or GitHub, use those buttons — ` +
+                  `or set a password via "Forgot password?" to enable email login too. ` +
+                  `Otherwise, ${emailInput.value} may not be registered yet.`,
             showCancelButton: true,
             confirmButtonText: 'Create account',
             cancelButtonText: 'Try again',

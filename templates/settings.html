@@ -87,6 +87,11 @@
                 <span>Password</span>
                 <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#password-form" aria-expanded="false" aria-controls="password-form">Change</button>
             </div>
+            <div class="form-text mt-2 mb-0">
+                Signed up with Google or GitHub and have no password?
+                <a href="#" id="send-set-password-link">Email me a link to set one</a>
+                — afterwards both sign-in methods work.
+            </div>
             <form id="password-form" class="collapse mt-3" autocomplete="off">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <div class="mb-2">
@@ -203,6 +208,29 @@ document.getElementById('password-form').addEventListener('submit', function(eve
         submitBtn.textContent = originalLabel;
     });
 });
+
+// The set-a-password bridge for OAuth-only accounts: the recovery email's
+// "set new password" step adds an email+password identity, after which both
+// Google/GitHub and email login work. Same enumeration-safe endpoint as the
+// login page's "Forgot password?".
+const setPasswordLink = document.getElementById('send-set-password-link');
+if (setPasswordLink) {
+    setPasswordLink.addEventListener('click', function (e) {
+        e.preventDefault();
+        window.fetchJson('/auth/reset', {
+            method: 'POST',
+            body: new URLSearchParams({ email: {{ account_email | tojson }} })
+        })
+        .then(data => {
+            if (data && data.success) window.toast('success', data.message || 'Check your inbox.');
+            else window.toast('error', (data && data.error) || 'Could not send the email.');
+        })
+        .catch(error => {
+            console.error('Set-password email failed:', error);
+            window.toast('error', error.message || 'Could not send the email.');
+        });
+    });
+}
 
 const deleteAccountBtn = document.getElementById('delete-account-btn');
 if (deleteAccountBtn) {
