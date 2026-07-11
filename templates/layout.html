@@ -774,6 +774,13 @@ window.MathJax = {
             });
         });
 
+        // Signing out waits on a Supabase token-revoke round trip before the
+        // page changes — acknowledge the click so the wait doesn't read as a
+        // freeze.
+        document.querySelectorAll('a[href="/logout"]').forEach(link => {
+            link.addEventListener('click', () => window.toast('info', 'Signing out…'));
+        });
+
         // Highlight the nav entry for the current section, including sub-pages
         // (e.g. /courses/foo highlights Courses, /edit-course/foo highlights
         // Editor) — exact matching left every deep link without an active state.
@@ -803,6 +810,9 @@ window.MathJax = {
     // Only pull in the Supabase SDK when there is actually an OAuth redirect to
     // complete (token in the URL hash). Normal navigations skip the download.
     } else if (supabaseUrl && supabaseKey && window.location.hash.includes('access_token')) {
+        // The exchange below (SDK download + token validation + reload) takes
+        // a couple of seconds during which the page looks logged out — say so.
+        if (window.toast) window.toast('info', 'Signing you in…');
         import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm').then(({ createClient }) => {
             const supabase = createClient(supabaseUrl, supabaseKey);
 

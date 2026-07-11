@@ -1035,7 +1035,10 @@ async def api_delete_account(user: User = Depends(get_current_active_user)):
     response = await run_in_threadpool(_admin_delete)
     if response.status_code >= 400:
         logger.error("Account deletion failed for %s: HTTP %s %s", user.auth_user_id, response.status_code, response.text)
-        raise HTTPException(status_code=500, detail="Could not delete the account. Please try again.")
+        # Surface the upstream status: 401/403 here almost always means the
+        # configured key isn't the service-role key (e.g. anon key, or a key
+        # format GoTrue doesn't accept as a bearer token).
+        raise HTTPException(status_code=500, detail=f"Could not delete the account (auth service returned {response.status_code}).")
     logger.info("Account deleted: %s", user.auth_user_id)
     return {"success": True}
 
@@ -1105,6 +1108,11 @@ async def handle_auth(
 
     def success_response(session, flash_message: str):
         """Helper to return successful auth response with session cookies."""
+        # Prime the token cache: the very next page load would otherwise pay
+        # a Supabase get_user round trip for this brand-new token — a big
+        # slice of the perceived login lag.
+        if getattr(session, "user", None):
+            _auth_cache_put(session.access_token, str(session.user.id), session.user.email)
         response = JSONResponse(content={
             "success": True,
             "redirect_url": "/"
@@ -1199,6 +1207,10 @@ async def auth_callback(
         crud.create_profile(conn, username=auth_user.email, auth_user_id=auth_user.id)
         if not crud.get_profile_by_auth_id(conn, auth_user.id):
             raise HTTPException(status_code=500, detail="Could not initialize your profile. Please try again.")
+
+        # Prime the token cache — the redirect that follows would otherwise
+        # re-validate this token against Supabase on its first request.
+        _auth_cache_put(data.access_token, str(auth_user.id), auth_user.email)
 
         # Set the session cookies to log the user in. The refresh token keeps
         # the session alive after the ~1h access token expires.
