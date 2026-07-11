@@ -1015,7 +1015,7 @@ async def settings_form(request: Request, user: User = Depends(get_current_activ
     })
 
 @app.post("/api/delete-account")
-async def api_delete_account(user: User = Depends(get_current_active_user)):
+async def api_delete_account(request: Request, user: User = Depends(get_current_active_user)):
     """Permanently deletes the account. Removing the Supabase auth user via
     the admin API takes every app row with it — profiles, cards and courses
     all cascade from auth.users. The shared client stays anon-scoped (see
@@ -1040,7 +1040,11 @@ async def api_delete_account(user: User = Depends(get_current_active_user)):
         # format GoTrue doesn't accept as a bearer token).
         raise HTTPException(status_code=500, detail=f"Could not delete the account (auth service returned {response.status_code}).")
     logger.info("Account deleted: %s", user.auth_user_id)
-    return {"success": True}
+    # The client follows up with /logout → / ; the flash cookie survives that
+    # redirect chain and surfaces as a toast on the landing page.
+    json_response = JSONResponse(content={"success": True})
+    set_flash_cookie(json_response, request, "success:Your account and all its data have been deleted.")
+    return json_response
 
 @app.get("/api-keys")
 @app.get("/secrets")
