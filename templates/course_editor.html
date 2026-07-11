@@ -49,14 +49,14 @@
             <div class="align-items-center mb-2">
                 <h4>Courses</h4>
                 <button class="btn btn-sm btn-outline-success new-folder-btn d-none d-lg-inline-block" data-path="">
-                    <i class="fas fa-plus"></i> New Folder
+                    {{ icon('plus', 14) }} New Folder
                 </button>
             </div>
             <div id="file-tree">
                 <!-- File tree will be loaded here by JavaScript -->
             </div>
             <button class="btn btn-sm btn-outline-success new-folder-btn d-lg-none mt-2" data-path="">
-                <i class="fas fa-plus"></i> New Folder
+                {{ icon('plus', 14) }} New Folder
             </button>
         </div>
 
@@ -119,6 +119,16 @@ document.addEventListener('DOMContentLoaded', function () {
     let currentDirectory = ''; // Tracks the currently selected directory
     let previewUpdateTimeout = null;
     let isDirty = false; // Whether the editor has unsaved changes.
+
+    // Rendered once by Jinja; reused when building tree rows in JS.
+    const ICONS = {
+        folder: `{{ icon('folder', 14) }}`,
+        file: `{{ icon('file', 14) }}`,
+        plus: `{{ icon('plus', 12) }}`,
+        folderPlus: `{{ icon('folder-plus', 12) }}`,
+        pen: `{{ icon('pen', 12) }}`,
+        trash: `{{ icon('trash', 12) }}`
+    };
 
     function loadFileTree() {
         const expandedPaths = getExpandedFolders();
@@ -188,13 +198,13 @@ document.addEventListener('DOMContentLoaded', function () {
                     <div style="padding-left: ${padding}px;">
                         <div class="list-group-item d-flex justify-content-between align-items-center" data-bs-toggle="collapse" href="#${collapseId}" role="button" aria-expanded="false" aria-controls="${collapseId}">
                             <span class="item-name folder-item" data-path="${dataPath}">
-                                <i class="fas fa-folder" aria-hidden="true"></i> ${displayName}
+                                ${ICONS.folder} ${displayName}
                             </span>
                             <span class="item-actions">
-                                <button class="btn btn-outline-success new-file-btn" data-path="${dataPath}" title="New File" aria-label="New file in folder"><i class="fas fa-plus" aria-hidden="true"></i></button>
-                                <button class="btn btn-outline-success new-folder-btn" data-path="${dataPath}" title="New Subfolder" aria-label="New subfolder"><i class="fas fa-folder-plus" aria-hidden="true"></i></button>
-                                <button class="btn btn-outline-secondary rename-item-btn" data-path="${dataPath}" data-type="folder" title="Rename / Move Folder" aria-label="Rename folder"><i class="fas fa-pen" aria-hidden="true"></i></button>
-                                <button class="btn btn-outline-danger delete-item-btn" data-path="${dataPath}" data-type="folder" title="Delete Folder" aria-label="Delete folder"><i class="fas fa-trash-alt" aria-hidden="true"></i></button>
+                                <button class="btn btn-outline-success new-file-btn" data-path="${dataPath}" title="New File" aria-label="New file in folder">${ICONS.plus}</button>
+                                <button class="btn btn-outline-success new-folder-btn" data-path="${dataPath}" title="New Subfolder" aria-label="New subfolder">${ICONS.folderPlus}</button>
+                                <button class="btn btn-outline-secondary rename-item-btn" data-path="${dataPath}" data-type="folder" title="Rename / Move Folder" aria-label="Rename folder">${ICONS.pen}</button>
+                                <button class="btn btn-outline-danger delete-item-btn" data-path="${dataPath}" data-type="folder" title="Delete Folder" aria-label="Delete folder">${ICONS.trash}</button>
                             </span>
                         </div>
                         <div class="collapse" id="${collapseId}">
@@ -207,11 +217,11 @@ document.addEventListener('DOMContentLoaded', function () {
                     <div style="padding-left: ${padding}px;">
                         <div class="list-group-item d-flex justify-content-between align-items-center">
                             <span class="item-name file-item" data-path="${dataPath}">
-                                <i class="fas fa-file-alt" aria-hidden="true"></i> ${displayName}
+                                ${ICONS.file} ${displayName}
                             </span>
                             <span class="item-actions">
-                                <button class="btn btn-outline-secondary rename-item-btn" data-path="${dataPath}" data-type="file" title="Rename / Move File" aria-label="Rename file"><i class="fas fa-pen" aria-hidden="true"></i></button>
-                                <button class="btn btn-outline-danger delete-item-btn" data-path="${dataPath}" data-type="file" title="Delete File" aria-label="Delete file"><i class="fas fa-trash-alt" aria-hidden="true"></i></button>
+                                <button class="btn btn-outline-secondary rename-item-btn" data-path="${dataPath}" data-type="file" title="Rename / Move File" aria-label="Rename file">${ICONS.pen}</button>
+                                <button class="btn btn-outline-danger delete-item-btn" data-path="${dataPath}" data-type="file" title="Delete File" aria-label="Delete file">${ICONS.trash}</button>
                             </span>
                         </div>
                     </div>
@@ -448,15 +458,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 window.location.href = '/courses/' + path.split('/').map(encodeURIComponent).join('/');
                 return;
             }
-            Swal.fire({
-                toast: true,
-                position: 'top-end',
-                icon: 'success',
-                title: 'File saved successfully!',
-                showConfirmButton: false,
-                timer: 3000,
-                timerProgressBar: true
-            });
+            window.toast('success', 'Saved');
             loadFileTree();
         })
         .catch(handleError)
@@ -525,15 +527,7 @@ document.addEventListener('DOMContentLoaded', function () {
     function handleFileUpload(files, uploadDirectory) {
         const mdFiles = Array.from(files).filter(file => /\.md$/i.test(file.name));
         if (mdFiles.length === 0) {
-            Swal.fire({
-                toast: true,
-                position: 'top-end',
-                icon: 'error',
-                title: 'No Markdown (.md) files found.',
-                showConfirmButton: false,
-                timer: 3000,
-                timerProgressBar: true
-            });
+            window.toast('error', 'No Markdown (.md) files found.');
             return;
         }
 
@@ -544,17 +538,12 @@ document.addEventListener('DOMContentLoaded', function () {
                 const failed = results.filter(r => r.status === 'rejected');
                 const succeeded = results.length - failed.length;
                 if (succeeded > 0) loadFileTree();
-                Swal.fire({
-                    toast: true,
-                    position: 'top-end',
-                    icon: failed.length === 0 ? 'success' : 'warning',
-                    title: failed.length === 0
-                        ? `Successfully uploaded ${succeeded} file(s)!`
-                        : `Uploaded ${succeeded} file(s), ${failed.length} failed.`,
-                    showConfirmButton: false,
-                    timer: 4000,
-                    timerProgressBar: true
-                });
+                window.toast(
+                    failed.length === 0 ? 'success' : 'warning',
+                    failed.length === 0
+                        ? `Uploaded ${succeeded} file(s)`
+                        : `Uploaded ${succeeded} file(s), ${failed.length} failed`
+                );
                 failed.forEach(r => console.error('Upload failed:', r.reason));
             });
     }
@@ -595,15 +584,7 @@ document.addEventListener('DOMContentLoaded', function () {
             markdownEditor.value = '';
             localStorage.removeItem('lastEditedFilePath');
         } else {
-            Swal.fire({
-                toast: true,
-                position: 'top-end',
-                icon: 'error',
-                title: `An error occurred: ${error.message}`,
-                showConfirmButton: false,
-                timer: 3000,
-                timerProgressBar: true
-            });
+            window.toast('error', error.message || 'Something went wrong.');
         }
         console.error(error);
     }

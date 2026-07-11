@@ -10,7 +10,7 @@
     <h2 class="mb-4">Settings</h2>
 
     <div class="card mb-4">
-        <div class="card-header"><i class="fas fa-key" aria-hidden="true"></i> AI Provider Keys</div>
+        <div class="card-header">{{ icon('key') }} AI Provider Keys</div>
         <div class="card-body">
             <p class="text-muted small mb-3">For your security, saved keys are never shown back.</p>
             <form id="api-keys-form" autocomplete="off">
@@ -43,7 +43,7 @@
 
     <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center">
-            <span><i class="fab fa-telegram-plane" aria-hidden="true"></i> Telegram Notifications</span>
+            <span>{{ icon('send') }} Telegram Notifications</span>
             {% if telegram_linked %}
                 <span class="badge bg-success">Connected</span>
             {% else %}
@@ -56,7 +56,7 @@
                 {% if telegram_bot_username %}
                 <a class="btn btn-primary" target="_blank" rel="noopener"
                    href="https://t.me/{{ telegram_bot_username }}?start={{ telegram_link_token }}">
-                    <i class="fab fa-telegram-plane"></i> {{ 'Reconnect' if telegram_linked else 'Connect Telegram' }}
+                    {{ icon('send') }} {{ 'Reconnect' if telegram_linked else 'Connect Telegram' }}
                 </a>
                 {% endif %}
                 {% if telegram_linked %}
@@ -67,7 +67,7 @@
     </div>
 
     <div class="card mt-4">
-        <div class="card-header"><i class="fas fa-lock" aria-hidden="true"></i> Security</div>
+        <div class="card-header">{{ icon('lock') }} Security</div>
         <div class="card-body">
             <div class="d-flex justify-content-between align-items-center">
                 <span>Password</span>
@@ -107,14 +107,7 @@ document.getElementById('api-keys-form').addEventListener('submit', function(eve
     if (anthropicApiKey.trim()) payload.anthropic_api_key = anthropicApiKey;
 
     if (Object.keys(payload).length === 0) {
-        Swal.fire({
-            toast: true,
-            position: 'top-end',
-            icon: 'info',
-            title: 'Nothing to save — both fields are blank.',
-            showConfirmButton: false,
-            timer: 2500
-        });
+        window.toast('info', 'Nothing to save — both fields are blank.');
         return;
     }
 
@@ -137,19 +130,11 @@ document.getElementById('api-keys-form').addEventListener('submit', function(eve
             }
         });
         this.reset();
-        Swal.fire({
-            toast: true,
-            position: 'top-end',
-            icon: 'success',
-            title: 'API keys saved!',
-            showConfirmButton: false,
-            timer: 2000,
-            timerProgressBar: true
-        });
+        window.toast('success', 'API keys saved!');
     })
     .catch(error => {
         console.error('Failed to save API keys:', error);
-        Swal.fire({ icon: 'error', title: 'Oops...', text: error.message || 'An unexpected error occurred.' });
+        window.toast('error', error.message || 'An unexpected error occurred.');
     })
     .finally(() => {
         saveBtn.disabled = false;
@@ -177,21 +162,14 @@ document.getElementById('password-form').addEventListener('submit', function(eve
         if (data && data.success) {
             form.reset();
             bootstrap.Collapse.getOrCreateInstance(form).hide();
-            Swal.fire({
-                toast: true,
-                position: 'top-end',
-                icon: 'success',
-                title: 'Password updated!',
-                showConfirmButton: false,
-                timer: 2000
-            });
+            window.toast('success', 'Password updated!');
         } else {
-            Swal.fire({ icon: 'error', title: 'Oops...', text: (data && data.error) || 'Could not update the password.' });
+            window.toast('error', (data && data.error) || 'Could not update the password.');
         }
     })
     .catch(error => {
         console.error('Failed to change password:', error);
-        Swal.fire({ icon: 'error', title: 'Oops...', text: error.message || 'An unexpected error occurred.' });
+        window.toast('error', error.message || 'An unexpected error occurred.');
     })
     .finally(() => {
         submitBtn.disabled = false;
@@ -209,7 +187,7 @@ if (telegramDisconnectBtn) {
         .catch(error => {
             telegramDisconnectBtn.disabled = false;
             console.error('Failed to disconnect Telegram:', error);
-            Swal.fire({ icon: 'error', title: 'Oops...', text: error.message || 'An unexpected error occurred.' });
+            window.toast('error', error.message || 'An unexpected error occurred.');
         });
     });
 }

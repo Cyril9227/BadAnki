@@ -172,20 +172,12 @@ document.addEventListener('DOMContentLoaded', function () {
         const answer = answerInput.value.trim();
         if (!question || !answer) {
             e.preventDefault();
-            Swal.fire({
-                icon: 'warning',
-                title: 'Missing content',
-                text: 'Both the question and answer are required.'
-            });
+            window.toast('warning', 'Both the question and answer are required.');
             return;
         }
         if (cardTypeSelect.value === 'cloze' && !window.isClozeText(question)) {
             e.preventDefault();
-            Swal.fire({
-                icon: 'warning',
-                title: 'Missing cloze syntax',
-                text: 'Please add at least one cloze deletion using {{ "{{" }}c1::answer{{ "}}" }} syntax.',
-            });
+            window.toast('warning', 'Add at least one {{ "{{" }}c1::answer{{ "}}" }} cloze deletion.');
             return;
         }
         // Browsers replay POST submissions on back/forward — disabling the

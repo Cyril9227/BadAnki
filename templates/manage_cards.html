@@ -199,7 +199,7 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h1 class="mb-0">Manage Cards</h1>
-    <a href="/new" class="btn btn-primary"><i class="fas fa-plus" aria-hidden="true"></i> New Card</a>
+    <a href="/new" class="btn btn-primary">{{ icon('plus', 14) }} New Card</a>
 </div>
 
 {% if cards %}
@@ -242,10 +242,10 @@
                     <td data-label="Ease Factor" data-sort="{{ card.ease_factor }}">{{ "%.2f"|format(card.ease_factor) }}</td>
                     <td data-label="Interval" data-sort="{{ card.interval }}">{{ card.interval }} days</td>
                     <td data-label="Actions" class="action-buttons actions-col">
-                        <a href="/edit-card/{{ card.id }}" class="btn btn-sm btn-outline-primary" title="Edit" aria-label="Edit card"><i class="fas fa-pen" aria-hidden="true"></i></a>
+                        <a href="/edit-card/{{ card.id }}" class="btn btn-sm btn-outline-primary" title="Edit" aria-label="Edit card">{{ icon('pen', 14) }}</a>
                         <form action="/delete/{{ card.id }}" method="post" class="d-inline delete-form">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                            <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete" aria-label="Delete card"><i class="fas fa-trash-alt" aria-hidden="true"></i></button>
+                            <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete" aria-label="Delete card">{{ icon('trash', 14) }}</button>
                         </form>
                     </td>
                 </tr>
@@ -264,7 +264,7 @@
 <!-- Add a message if no cards -->
 {% if not cards %}
 <div class="alert alert-info mt-3">
-    <i class="fas fa-info-circle"></i> No cards found. Create some cards from your courses to start reviewing!
+    {{ icon('info') }} No cards found. Create some cards from your courses to start reviewing!
 </div>
 {% endif %}
 {% endblock %}

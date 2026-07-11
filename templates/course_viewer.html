@@ -42,8 +42,7 @@
         outline-offset: 2px;
         box-shadow: none;
     }
-    .course-actions .btn i {
-        font-size: 0.8em;
+    .course-actions .btn .icon {
         opacity: 0.75;
     }
 
@@ -83,6 +82,20 @@
         background-color: rgb(var(--card-background-rgb));
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
         font-weight: 600;
+    }
+
+    /* Dark mode: the card-background pill is darker than its track and the
+       bordered buttons blend into the page — raise the contrast. */
+    [data-bs-theme="dark"] .action-btn {
+        background-color: rgba(var(--foreground-rgb), 0.08);
+        border-color: rgba(var(--foreground-rgb), 0.25);
+    }
+    [data-bs-theme="dark"] .card-type-toggle {
+        background-color: rgba(0, 0, 0, 0.35);
+        border-color: rgba(var(--foreground-rgb), 0.2);
+    }
+    [data-bs-theme="dark"] .card-type-toggle .btn-check:checked + .seg-btn {
+        background-color: rgba(var(--foreground-rgb), 0.18);
     }
 
     /* Generate Cards — the primary action. Rest state reuses .btn-primary
@@ -184,10 +197,10 @@
     <h1 class="course-title">{{ metadata.get('title', 'Untitled Course') }}</h1>
     <div class="course-actions" role="toolbar" aria-label="Course actions">
         <a href="/edit-course/{{ course_path | urlencode }}" class="btn action-btn">
-            <i class="fas fa-pen" aria-hidden="true"></i> Edit
+            {{ icon('pen', 14) }} Edit
         </a>
         <button type="button" id="download-btn" class="btn action-btn">
-            <i class="fas fa-download" aria-hidden="true"></i> Download
+            {{ icon('download', 14) }} Download
         </button>
         <div class="card-type-toggle" role="group" aria-label="Card type">
             <input type="radio" class="btn-check" name="card-type" id="card-type-basic-viewer" value="basic" autocomplete="off" checked>
@@ -197,7 +210,7 @@
         </div>
         <div class="btn-group generate-group" role="group" {% if not gemini_api_key_exists and not anthropic_api_key_exists %}title="Add a Gemini or Anthropic API key in Settings to enable card generation."{% endif %}>
             <button type="button" id="generate-cards-btn" class="btn btn-primary generate-btn dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" {% if not gemini_api_key_exists and not anthropic_api_key_exists %}disabled aria-describedby="generate-cards-help"{% endif %}>
-                <i class="fas fa-wand-magic-sparkles" aria-hidden="true"></i> Generate Cards
+                {{ icon('sparkles', 14) }} Generate Cards
             </button>
             {% if not gemini_api_key_exists and not anthropic_api_key_exists %}
             <span id="generate-cards-help" class="visually-hidden">Add a Gemini or Anthropic API key in Settings to enable card generation.</span>

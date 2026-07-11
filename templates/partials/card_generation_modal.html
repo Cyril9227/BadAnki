@@ -57,25 +57,13 @@ document.addEventListener('DOMContentLoaded', function () {
         // Cookie is more reliable than a hidden input on cached pages.
         const effectiveToken = window.getCsrfToken() || csrfToken;
         if (!effectiveToken) {
-            Swal.fire({
-                icon: 'error',
-                title: 'Missing security token',
-                text: 'Please refresh the page and try again.'
-            });
+            window.toast('error', 'Missing security token — refresh the page and try again.');
             return;
         }
 
         const content = contentProvider();
         if (!content || !content.trim()) {
-            Swal.fire({
-                toast: true,
-                position: 'top-end',
-                icon: 'warning',
-                title: 'Content is empty. Please add some text.',
-                showConfirmButton: false,
-                timer: 3000,
-                timerProgressBar: true
-            });
+            window.toast('warning', 'Content is empty. Please add some text.');
             return;
         }
 
@@ -311,25 +299,13 @@ document.addEventListener('DOMContentLoaded', function () {
         });
 
         if (approvedCards.length === 0) {
-            Swal.fire({
-                toast: true,
-                position: 'top-end',
-                icon: 'warning',
-                title: 'No approved cards to save.',
-                showConfirmButton: false,
-                timer: 3000,
-                timerProgressBar: true
-            });
+            window.toast('warning', 'No approved cards to save.');
             return;
         }
 
         const csrfToken = window.getCsrfToken() || document.getElementById('csrf-token')?.value;
         if (!csrfToken) {
-            Swal.fire({
-                icon: 'error',
-                title: 'Missing security token',
-                text: 'Please refresh the page and try again.'
-            });
+            window.toast('error', 'Missing security token — refresh the page and try again.');
             return;
         }
 
@@ -345,19 +321,11 @@ document.addEventListener('DOMContentLoaded', function () {
         })
         .then(data => {
             generatedCardsData = []; // Saved — let the discard guard release the modal.
-            Swal.fire({ icon: 'success', title: 'Success!', text: data.message });
+            window.toast('success', data.message || 'Cards saved');
             cardsModal.hide();
         })
         .catch(error => {
-            Swal.fire({
-                toast: true,
-                position: 'top-end',
-                icon: 'error',
-                title: `An error occurred: ${error.message}`,
-                showConfirmButton: false,
-                timer: 3000,
-                timerProgressBar: true
-            });
+            window.toast('error', error.message || 'Could not save the cards.');
             console.error(error);
         })
         .finally(() => {

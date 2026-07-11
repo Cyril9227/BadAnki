@@ -116,6 +116,8 @@ app.add_middleware(CSRFMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
+# Inline SVG icons callable from every template without per-file imports.
+templates.env.globals["icon"] = templates.get_template("partials/icons.html").module.icon
 
 
 def should_resolve_user_for_request(request: Request) -> bool:
