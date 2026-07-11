@@ -13,9 +13,9 @@
         <div class="card-header">{{ icon('key') }} AI Provider Keys</div>
         <div class="card-body">
             <p class="text-muted small mb-3">
-                Saved keys are encrypted at rest and never shown back. When you generate cards,
-                the course text or topic you provide is sent to the provider you pick
-                (Google, Anthropic or OpenAI) — nothing else leaves the app.
+                Saved keys are encrypted at rest and never shown back.
+                When you generate cards, the course text or topic you provide is sent to the provider you pick
+                (Google, Anthropic or OpenAI), nothing else leaves the app.
             </p>
             <form id="api-keys-form" autocomplete="off">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -89,8 +89,7 @@
             </div>
             <div class="form-text mt-2 mb-0">
                 Signed up with Google or GitHub and have no password?
-                <a href="#" id="send-set-password-link">Email me a link to set one</a>
-                — afterwards both sign-in methods work.
+                <a href="#" id="send-set-password-link">Email me a link to set one !</a>
             </div>
             <form id="password-form" class="collapse mt-3" autocomplete="off">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
