@@ -128,9 +128,11 @@
         backdrop-filter: blur(10px);
         border-bottom: 1px solid rgba(var(--border-rgb), 0.5);
         transition: background-color 0.3s ease, border-color 0.3s ease;
-        /* Its own view-transition group: visually identical on every page,
-           so it reads as static chrome while the content crossfades under it. */
-        view-transition-name: navbar;
+        /* No view-transition-name here: a named element is snapshotted in
+           isolation, which leaves backdrop-filter nothing to blur — the
+           glass would go flat during every crossfade. The navbar is pixel-
+           identical across pages, so the root crossfade already keeps it
+           looking static. */
     }
 
     .navbar-brand, .nav-link { white-space: nowrap; }

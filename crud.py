@@ -155,11 +155,18 @@ def _get_folder_paths(conn, auth_user_id: str) -> list:
         return []
 
 
-def _course_title(head: str, fallback: str) -> str:
+def _head_metadata(head: str) -> dict:
+    """Frontmatter metadata parsed from a document head — {} when the YAML is
+    invalid or parses to a non-dict, so callers can .get() unconditionally."""
     try:
-        return frontmatter.loads(head).metadata.get('title', fallback)
+        metadata = frontmatter.loads(head).metadata
+        return metadata if isinstance(metadata, dict) else {}
     except Exception:
-        return fallback
+        return {}
+
+
+def _course_title(head: str, fallback: str) -> str:
+    return _head_metadata(head).get('title', fallback)
 
 
 def _build_course_tree(entries) -> list:
@@ -238,15 +245,9 @@ def get_courses_overview_for_user(conn, auth_user_id: str):
         if name.lower().endswith(".md"):
             name = name[:-3]
         # One frontmatter parse per row covers both the title and the tags.
-        display, row_tags = name, []
-        try:
-            metadata = frontmatter.loads(row["head"]).metadata
-            display = metadata.get("title", name)
-            row_tags = sanitize_tags(metadata.get("tags"))
-        except Exception:
-            pass
-        courses.append({"path": row["path"], "display": display})
-        tags.update(row_tags)
+        metadata = _head_metadata(row["head"])
+        courses.append({"path": row["path"], "display": metadata.get("title", name)})
+        tags.update(sanitize_tags(metadata.get("tags")))
     return courses, sorted(tags)
 
 
@@ -725,9 +726,7 @@ def get_review_streak_for_user(conn, auth_user_id: str):
 
 def get_leaderboard(conn, auth_user_id: str, days: int = 30, limit: int = 10):
     """Most active reviewers over the last `days` days, or None when
-    unavailable. Usernames are emails, so only the local part is exposed.
-    Streaks for the whole board come from one activity query, not one per
-    row — this renders on every home-page load."""
+    unavailable. Usernames are emails, so only the local part is exposed."""
     try:
         with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
             cursor.execute(
@@ -743,20 +742,29 @@ def get_leaderboard(conn, auth_user_id: str, days: int = 30, limit: int = 10):
                 (days, limit),
             )
             rows = cursor.fetchall()
-            # Global DESC order keeps each user's day list DESC, as
-            # _compute_streaks expects.
-            activity = {}
-            if rows:
+    except Exception as e:
+        logger.info("Review activity tracking unavailable: %s", e)
+        _rollback_quietly(conn)
+        return None
+
+    # Streaks for the whole board from one activity query, not one per row —
+    # this renders on every home-page load. Guarded separately because the
+    # streaks are decoration: if only this query fails, the board renders
+    # with zero streaks instead of vanishing. Global DESC order keeps each
+    # user's day list DESC, as _compute_streaks expects.
+    activity = {}
+    if rows:
+        try:
+            with conn.cursor() as cursor:
                 cursor.execute(
                     "SELECT user_id, day FROM review_activity WHERE user_id = ANY(%s) ORDER BY day DESC",
                     ([row["user_id"] for row in rows],),
                 )
                 for user_id, day in cursor.fetchall():
                     activity.setdefault(user_id, []).append(day)
-    except Exception as e:
-        logger.info("Review activity tracking unavailable: %s", e)
-        _rollback_quietly(conn)
-        return None
+        except Exception as e:
+            logger.info("Streaks unavailable, rendering leaderboard without them: %s", e)
+            _rollback_quietly(conn)
     today = date.today()
     return [{
         "name": (row["username"] or "anonymous").split("@")[0],

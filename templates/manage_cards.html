@@ -404,15 +404,23 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Changing what's visible drops the selection — a "Delete selected (3)"
-    // that includes cards the filter just hid would be a trap. Debounced:
-    // refresh() renders + typesets newly matching rows, which stutters when
-    // run on every keystroke of a fast typer.
+    // that includes cards the filter just hid would be a trap. Only the
+    // render is debounced (it typesets newly matching rows, which stutters
+    // per keystroke); the state resets stay synchronous so the trap can't
+    // reopen inside the quiet window, and the deferred clearSelection drops
+    // anything selected during it — erring toward "reselect" over deleting
+    // rows the pending filter is about to hide.
     let searchDebounce = null;
     if (searchInput) searchInput.addEventListener('input', function () {
+        revealLimit = PAGE_SIZE;
+        clearSelection();
         clearTimeout(searchDebounce);
-        searchDebounce = setTimeout(function () { revealLimit = PAGE_SIZE; clearSelection(); refresh(); }, 150);
+        searchDebounce = setTimeout(function () { clearSelection(); refresh(); }, 150);
     });
-    if (typeFilter) typeFilter.addEventListener('change', function () { revealLimit = PAGE_SIZE; clearSelection(); refresh(); });
+    if (typeFilter) typeFilter.addEventListener('change', function () {
+        clearTimeout(searchDebounce); // a pending search tick would re-run this refresh
+        revealLimit = PAGE_SIZE; clearSelection(); refresh();
+    });
 
     if (loadMoreBtn) {
         loadMoreBtn.addEventListener('click', function () {
