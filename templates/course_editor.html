@@ -71,8 +71,9 @@
     @media (max-width: 991.98px) {
         #editor-container.pane-preview .editor-col,
         #editor-container:not(.pane-preview) .preview-col { display: none !important; }
-        /* One screen of writing surface; the textarea scrolls natively. */
-        #markdown-editor { height: 58vh; height: 58dvh; min-height: 16rem; }
+        /* One screen of writing surface; the textarea scrolls natively.
+           ≥16px font, or iOS Safari auto-zooms the page on focus. */
+        #markdown-editor { height: 58vh; height: 58dvh; min-height: 16rem; font-size: 1rem; }
         /* Reading flows with the page — no nested scroller. */
         #live-preview { max-height: none; overflow-y: visible; }
     }

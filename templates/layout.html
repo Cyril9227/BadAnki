@@ -101,10 +101,36 @@
         transition: background-color 0.3s ease, color 0.3s ease;
     }
 
+    /* Always show the scrollbar track: without it, navigating between a
+       short page (review) and a scrolling one shifts the layout sideways —
+       a jump the view-transition crossfade makes very visible on
+       Windows-style scrollbars. Overlay scrollbars are unaffected. */
+    html { overflow-y: scroll; }
+
+    /* Touch: no double-tap-zoom wait (rapid rating taps fire instantly) and
+       no gray tap flash — the controls' :active states are the feedback.
+       Pinch zoom is unaffected. */
+    a, button, input, select, textarea, label { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+
+    /* Subtle press-down on buttons. Bootstrap's transition list is restated
+       because transform has to join it, not replace it. */
+    @media (prefers-reduced-motion: no-preference) {
+        .btn {
+            transition: color 0.15s ease-in-out, background-color 0.15s ease-in-out,
+                        border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out,
+                        transform 0.1s ease;
+        }
+        .btn:active { transform: scale(0.97); }
+    }
+
     .navbar {
         background-color: rgba(var(--card-background-rgb), 0.8);
         backdrop-filter: blur(10px);
         border-bottom: 1px solid rgba(var(--border-rgb), 0.5);
+        transition: background-color 0.3s ease, border-color 0.3s ease;
+        /* Its own view-transition group: visually identical on every page,
+           so it reads as static chrome while the content crossfades under it. */
+        view-transition-name: navbar;
     }
 
     .navbar-brand, .nav-link { white-space: nowrap; }
@@ -145,7 +171,9 @@
         border: 1px solid rgba(var(--border-rgb), 0.7);
         box-shadow: var(--box-shadow);
         border-radius: var(--radius);
-        transition: box-shadow 0.2s ease;
+        /* background/border ride the same 0.3s as the body, so a theme
+           toggle fades as one surface instead of cards snapping. */
+        transition: box-shadow 0.2s ease, background-color 0.3s ease, border-color 0.3s ease;
     }
 
     .btn-primary {

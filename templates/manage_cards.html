@@ -404,8 +404,14 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Changing what's visible drops the selection — a "Delete selected (3)"
-    // that includes cards the filter just hid would be a trap.
-    if (searchInput) searchInput.addEventListener('input', function () { revealLimit = PAGE_SIZE; clearSelection(); refresh(); });
+    // that includes cards the filter just hid would be a trap. Debounced:
+    // refresh() renders + typesets newly matching rows, which stutters when
+    // run on every keystroke of a fast typer.
+    let searchDebounce = null;
+    if (searchInput) searchInput.addEventListener('input', function () {
+        clearTimeout(searchDebounce);
+        searchDebounce = setTimeout(function () { revealLimit = PAGE_SIZE; clearSelection(); refresh(); }, 150);
+    });
     if (typeFilter) typeFilter.addEventListener('change', function () { revealLimit = PAGE_SIZE; clearSelection(); refresh(); });
 
     if (loadMoreBtn) {
