@@ -20,6 +20,11 @@ CREATE TABLE IF NOT EXISTS cards (
     user_id UUID NOT NULL REFERENCES auth.users (id) ON DELETE CASCADE
 );
 
+-- Every review-loop query filters on user_id + due_date; without this the
+-- whole table is scanned per request. Applied to prod 2026-07-12 (with
+-- CONCURRENTLY there; plain here because this script runs in one transaction).
+CREATE INDEX IF NOT EXISTS cards_user_due_idx ON cards (user_id, due_date);
+
 -- Create the courses table
 CREATE TABLE IF NOT EXISTS courses (
     id SERIAL PRIMARY KEY,
