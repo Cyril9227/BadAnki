@@ -237,11 +237,16 @@ def get_courses_overview_for_user(conn, auth_user_id: str):
         name = posixpath.basename(row["path"])
         if name.lower().endswith(".md"):
             name = name[:-3]
-        courses.append({"path": row["path"], "display": _course_title(row["head"], name)})
+        # One frontmatter parse per row covers both the title and the tags.
+        display, row_tags = name, []
         try:
-            tags.update(sanitize_tags(frontmatter.loads(row["head"]).metadata.get("tags")))
+            metadata = frontmatter.loads(row["head"]).metadata
+            display = metadata.get("title", name)
+            row_tags = sanitize_tags(metadata.get("tags"))
         except Exception:
-            continue
+            pass
+        courses.append({"path": row["path"], "display": display})
+        tags.update(row_tags)
     return courses, sorted(tags)
 
 
@@ -398,14 +403,17 @@ def get_review_cards_for_user(conn, auth_user_id: str, exclude_ids=None):
         return cursor.fetchone()
 
 def get_review_stats_for_user(conn, auth_user_id: str):
+    """Deck counters in one pass over the user's cards — this runs on every
+    review-loop request, so three separate COUNT subqueries added up."""
     query = """
     SELECT
-        (SELECT COUNT(*) FROM cards WHERE user_id = %s AND due_date <= %s) AS due_today,
-        (SELECT COUNT(*) FROM cards WHERE user_id = %s AND interval = 0 AND ease_factor = 2.5) AS new_cards,
-        (SELECT COUNT(*) FROM cards WHERE user_id = %s) AS total_cards;
+        COUNT(*) FILTER (WHERE due_date <= %s) AS due_today,
+        COUNT(*) FILTER (WHERE interval = 0 AND ease_factor = 2.5) AS new_cards,
+        COUNT(*) AS total_cards
+    FROM cards WHERE user_id = %s;
     """
     with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
-        cursor.execute(query, (auth_user_id, datetime.now(), auth_user_id, auth_user_id))
+        cursor.execute(query, (datetime.now(), auth_user_id))
         return cursor.fetchone()
 
 
@@ -717,7 +725,9 @@ def get_review_streak_for_user(conn, auth_user_id: str):
 
 def get_leaderboard(conn, auth_user_id: str, days: int = 30, limit: int = 10):
     """Most active reviewers over the last `days` days, or None when
-    unavailable. Usernames are emails, so only the local part is exposed."""
+    unavailable. Usernames are emails, so only the local part is exposed.
+    Streaks for the whole board come from one activity query, not one per
+    row — this renders on every home-page load."""
     try:
         with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
             cursor.execute(
@@ -733,17 +743,24 @@ def get_leaderboard(conn, auth_user_id: str, days: int = 30, limit: int = 10):
                 (days, limit),
             )
             rows = cursor.fetchall()
+            # Global DESC order keeps each user's day list DESC, as
+            # _compute_streaks expects.
+            activity = {}
+            if rows:
+                cursor.execute(
+                    "SELECT user_id, day FROM review_activity WHERE user_id = ANY(%s) ORDER BY day DESC",
+                    ([row["user_id"] for row in rows],),
+                )
+                for user_id, day in cursor.fetchall():
+                    activity.setdefault(user_id, []).append(day)
     except Exception as e:
         logger.info("Review activity tracking unavailable: %s", e)
         _rollback_quietly(conn)
         return None
-    board = []
-    for row in rows:
-        streak = get_review_streak_for_user(conn, row["user_id"]) or {"current": 0}
-        board.append({
-            "name": (row["username"] or "anonymous").split("@")[0],
-            "reviews": row["reviews"],
-            "streak": streak["current"],
-            "is_me": str(row["user_id"]) == str(auth_user_id),
-        })
-    return board
+    today = date.today()
+    return [{
+        "name": (row["username"] or "anonymous").split("@")[0],
+        "reviews": row["reviews"],
+        "streak": _compute_streaks(activity.get(row["user_id"], []), today)["current"],
+        "is_me": str(row["user_id"]) == str(auth_user_id),
+    } for row in rows]
