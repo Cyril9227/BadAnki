@@ -60,13 +60,17 @@
         grid-auto-columns: var(--cell);
         gap: var(--gap);
     }
+    /* Cells are real <button>s: focusable, labelled, tap/click/Enter all
+       land on the same handler. Roving tabindex (JS) keeps the grid a
+       single Tab stop; arrows move between days. */
     .heatmap-grid .day {
         width: var(--cell);
         height: var(--cell);
+        border: 0;
+        padding: 0;
         border-radius: 2px;
         background-color: var(--cell-empty);
     }
-    .heatmap-grid .day.pad { background: transparent; }
     .heatmap-grid .day.h1 { background-color: var(--heat-1); }
     .heatmap-grid .day.h2 { background-color: var(--heat-2); }
     .heatmap-grid .day.h3 { background-color: var(--heat-3); }
@@ -79,7 +83,8 @@
         outline: 2px solid rgb(var(--primary-rgb));
         outline-offset: 1px;
     }
-    .heatmap-grid .day.selected {
+    .heatmap-grid .day.selected,
+    .heatmap-grid .day:focus-visible {
         outline: 2px solid rgb(var(--foreground-rgb));
         outline-offset: 1px;
     }
@@ -143,19 +148,23 @@
     <div class="card">
         <div class="card-header">Review Heatmap</div>
         <div class="card-body">
-            <div class="heatmap" role="img" aria-label="Daily reviews over the last year and upcoming due cards">
-                <div>
+            <div class="heatmap">
+                {# Axis labels are decorative for AT: every day button carries
+                   its full date in its aria-label. #}
+                <div aria-hidden="true">
                     <div class="heatmap-month-spacer"></div>
                     <div class="heatmap-weekdays">
                         <span>Mon</span><span></span><span>Wed</span><span></span><span>Fri</span><span></span><span></span>
                     </div>
                 </div>
                 <div class="heatmap-scroll" id="heatmap-scroll">
-                    <div class="heatmap-months" id="heatmap-months"></div>
-                    <div class="heatmap-grid" id="heatmap-grid"></div>
+                    <div class="heatmap-months" id="heatmap-months" aria-hidden="true"></div>
+                    <div class="heatmap-grid" id="heatmap-grid" role="group"
+                         aria-label="Review heatmap: one button per day, arrow keys move between days"></div>
                 </div>
             </div>
-            <p class="text-body-secondary small mt-3 mb-2" id="day-caption" aria-live="polite"></p>
+            {# No aria-live: each day button announces its own label on focus. #}
+            <p class="text-body-secondary small mt-3 mb-2" id="day-caption"></p>
             <div class="heatmap-legend heatmap">
                 <span>Less</span>
                 <span class="swatch" style="background-color: var(--cell-empty)"></span>
@@ -213,8 +222,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const spanDays = firstActive === null ? 0 : Math.round((today - firstActive) / DAY_MS) + 1;
     document.getElementById('stat-average').textContent =
         spanDays ? (totalReviews / spanDays).toFixed(1) : '0';
-    document.getElementById('stat-learned').textContent =
-        spanDays ? Math.round(activeDays / spanDays * 100) + '%' : '0%';
+    // Percentage of days with at least one review — the Anki heatmap addon's
+    // own "days learned" convention; the tooltip spells out the count.
+    const learned = document.getElementById('stat-learned');
+    learned.textContent = spanDays ? Math.round(activeDays / spanDays * 100) + '%' : '0%';
+    if (spanDays) {
+        learned.parentElement.title = activeDays + ' of the last ' + spanDays + ' days with at least one review';
+    }
     document.getElementById('stat-longest').textContent = streak ? streak.longest : '0';
     document.getElementById('stat-current').textContent = streak ? streak.current : '0';
 
@@ -230,29 +244,46 @@ document.addEventListener('DOMContentLoaded', () => {
     const grid = document.getElementById('heatmap-grid');
     const months = document.getElementById('heatmap-months');
     const cells = document.createDocumentFragment();
-    let todayCol = 0, lastLabeledCol = -3, lastMonth = -1;
+    const dayCells = [];
+    let todayCell = null, todayCol = 0, lastLabeledCol = -3, lastMonth = -1;
     const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
     for (let ts = start, col = 0; ts <= end; ts += DAY_MS) {
         const iso = toIso(ts);
-        const cell = document.createElement('div');
+        const cell = document.createElement('button');
+        cell.type = 'button';
         cell.className = 'day';
-        cell.dataset.date = iso;
+        cell.tabIndex = -1; // roving tabindex: only one cell sits in the Tab order
+        const when = fmtDay(ts);
+        let label;
         if (ts <= today) {
             const a = activity.get(iso);
             if (a) {
                 cell.classList.add('h' + level(a.reviews, maxReviews));
-                cell.dataset.reviews = a.reviews;
-                cell.dataset.remembered = a.remembered;
+                label = a.reviews + ' review' + (a.reviews !== 1 ? 's' : '') +
+                    ' · ' + a.remembered + ' remembered — ' + when;
+            } else {
+                label = 'No reviews — ' + when;
             }
         } else {
             const due = forecast.get(iso) || 0;
             if (due) {
                 cell.classList.add('d' + level(due, maxDue));
-                cell.dataset.due = due;
+                label = due + ' card' + (due !== 1 ? 's' : '') + ' due — ' + when;
+            } else {
+                label = 'Nothing due — ' + when;
             }
         }
-        if (ts === today) { cell.classList.add('today'); todayCol = col; }
+        if (ts === today) {
+            cell.classList.add('today');
+            cell.tabIndex = 0; // Tab enters the grid at today
+            todayCell = cell;
+            todayCol = col;
+            label = 'Today: ' + label;
+        }
+        cell.setAttribute('aria-label', label);
+        cell.dataset.idx = dayCells.length;
+        dayCells.push(cell);
         cells.appendChild(cell);
 
         if (mondayIndex(ts) === 6) col += 1;      // Sunday closes the column
@@ -281,26 +312,46 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let selected = null;
     function describe(cell) {
-        if (!cell || !cell.dataset.date) return;
+        if (!cell) return;
         if (selected) selected.classList.remove('selected');
         selected = cell;
         cell.classList.add('selected');
-        const when = fmtDay(toUtc(cell.dataset.date));
-        if (cell.dataset.due) {
-            caption.textContent = cell.dataset.due + ' card' + (cell.dataset.due !== '1' ? 's' : '') + ' due — ' + when;
-        } else if (cell.dataset.reviews) {
-            caption.textContent = cell.dataset.reviews + ' review' + (cell.dataset.reviews !== '1' ? 's' : '') +
-                ' · ' + cell.dataset.remembered + ' remembered — ' + when;
-        } else {
-            caption.textContent = (toUtc(cell.dataset.date) > today ? 'Nothing due — ' : 'No reviews — ') + when;
-        }
+        caption.textContent = cell.getAttribute('aria-label');
     }
-    grid.addEventListener('mouseover', e => describe(e.target.closest('.day')));
-    grid.addEventListener('click', e => describe(e.target.closest('.day')));
-    grid.addEventListener('mouseleave', () => {
+    function resetCaption() {
         if (selected) selected.classList.remove('selected');
         selected = null;
         caption.textContent = defaultCaption;
+    }
+    grid.addEventListener('mouseover', e => describe(e.target.closest('.day')));
+    // Tap support: iOS Safari doesn't focus buttons on tap, so click still
+    // drives the caption directly.
+    grid.addEventListener('click', e => describe(e.target.closest('.day')));
+    grid.addEventListener('mouseleave', () => {
+        if (!grid.contains(document.activeElement)) resetCaption();
+    });
+
+    // Keyboard: the focused cell becomes the single Tab stop, and arrows walk
+    // the calendar — ±1 day within a week column, ±7 across weeks.
+    let tabStop = todayCell || dayCells[0];
+    grid.addEventListener('focusin', e => {
+        const cell = e.target.closest('.day');
+        if (!cell) return;
+        if (tabStop && tabStop !== cell) tabStop.tabIndex = -1;
+        cell.tabIndex = 0;
+        tabStop = cell;
+        describe(cell);
+    });
+    grid.addEventListener('focusout', e => {
+        if (!grid.contains(e.relatedTarget)) resetCaption();
+    });
+    const ARROW_STEPS = { ArrowUp: -1, ArrowDown: 1, ArrowLeft: -7, ArrowRight: 7 };
+    grid.addEventListener('keydown', e => {
+        if (!(e.key in ARROW_STEPS) || !e.target.matches('.day')) return;
+        const next = dayCells[parseInt(e.target.dataset.idx, 10) + ARROW_STEPS[e.key]];
+        if (!next) return;
+        e.preventDefault();
+        next.focus(); // focusin handles the tabindex hand-off and caption
     });
 
     // Land with today in view, forecast to its right, history off to the left.

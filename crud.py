@@ -724,9 +724,12 @@ def get_review_streak_for_user(conn, auth_user_id: str):
     return _compute_streaks(days, date.today())
 
 
-def get_review_heatmap_for_user(conn, auth_user_id: str, days: int = 365):
+def get_review_heatmap_for_user(conn, auth_user_id: str, days: int = 371, forecast_days: int = 63):
     """Daily review counts for the last `days` days plus a due-load forecast
-    (cards becoming due after today), for the stats heatmap. Returns None when
+    (cards becoming due within `forecast_days` after today), for the stats
+    heatmap. Both defaults cover the grid stats.html renders — 52 weeks back
+    and 8 weeks ahead, each stretched to whole Mon-Sun weeks (+6 days) — so
+    the query never scans past what the page can show. Returns None when
     activity tracking is unavailable, like the other gamification helpers."""
     try:
         with conn.cursor() as cursor:
@@ -742,16 +745,18 @@ def get_review_heatmap_for_user(conn, auth_user_id: str, days: int = 365):
                 {"day": day.isoformat(), "reviews": reviews, "remembered": remembered}
                 for day, reviews, remembered in cursor.fetchall()
             ]
-            # `due_date >= CURRENT_DATE + 1` (not `due_date::date > CURRENT_DATE`)
+            # Plain timestamp comparisons (not `due_date::date > CURRENT_DATE`)
             # so the (user_id, due_date) index stays usable.
             cursor.execute(
                 """
                 SELECT due_date::date AS day, COUNT(*) FROM cards
-                WHERE user_id = %s AND due_date >= CURRENT_DATE + 1
+                WHERE user_id = %s
+                  AND due_date >= CURRENT_DATE + 1
+                  AND due_date < CURRENT_DATE + 1 + %s
                 GROUP BY due_date::date
                 ORDER BY day
                 """,
-                (auth_user_id,),
+                (auth_user_id, forecast_days),
             )
             forecast = [
                 {"day": day.isoformat(), "due": due}
