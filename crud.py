@@ -724,6 +724,51 @@ def get_review_streak_for_user(conn, auth_user_id: str):
     return _compute_streaks(days, date.today())
 
 
+def get_review_heatmap_for_user(conn, auth_user_id: str, days: int = 371, forecast_days: int = 63):
+    """Daily review counts for the last `days` days plus a due-load forecast
+    (cards becoming due within `forecast_days` after today), for the stats
+    heatmap. Both defaults cover the grid stats.html renders — 52 weeks back
+    and 8 weeks ahead, each stretched to whole Mon-Sun weeks (+6 days) — so
+    the query never scans past what the page can show. Returns None when
+    activity tracking is unavailable, like the other gamification helpers."""
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT day, reviews, remembered FROM review_activity
+                WHERE user_id = %s AND day >= CURRENT_DATE - %s
+                ORDER BY day
+                """,
+                (auth_user_id, days),
+            )
+            activity = [
+                {"day": day.isoformat(), "reviews": reviews, "remembered": remembered}
+                for day, reviews, remembered in cursor.fetchall()
+            ]
+            # Plain timestamp comparisons (not `due_date::date > CURRENT_DATE`)
+            # so the (user_id, due_date) index stays usable.
+            cursor.execute(
+                """
+                SELECT due_date::date AS day, COUNT(*) FROM cards
+                WHERE user_id = %s
+                  AND due_date >= CURRENT_DATE + 1
+                  AND due_date < CURRENT_DATE + 1 + %s
+                GROUP BY due_date::date
+                ORDER BY day
+                """,
+                (auth_user_id, forecast_days),
+            )
+            forecast = [
+                {"day": day.isoformat(), "due": due}
+                for day, due in cursor.fetchall()
+            ]
+    except Exception as e:
+        logger.info("Review activity tracking unavailable: %s", e)
+        _rollback_quietly(conn)
+        return None
+    return {"activity": activity, "forecast": forecast, "today": date.today().isoformat()}
+
+
 def get_leaderboard(conn, auth_user_id: str, days: int = 30, limit: int = 10):
     """Most active reviewers over the last `days` days, or None when
     unavailable. Usernames are emails, so only the local part is exposed."""

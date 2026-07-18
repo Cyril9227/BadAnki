@@ -678,6 +678,40 @@ def test_home_leaderboard_members_only_local_part(mock_get_user, client, db_conn
     assert response.status_code == 200
     assert "Top Reviewers" not in response.text
 
+@patch("main.supabase.auth.get_user")
+def test_stats_page_authenticated(mock_get_user, client, db_conn):
+    """/stats embeds the user's review activity, the due-load forecast (the
+    rated card comes back due tomorrow) and the streak for the heatmap."""
+    auth_client, user_id, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="statsuser@example.com")
+    card_id = create_test_card(db_conn, user_id, "Q", "A")
+    auth_client.post(
+        f"/review/{card_id}",
+        data={"status": "remembered"},
+        headers={"X-CSRF-Token": csrf_token},
+        follow_redirects=False,
+    )
+
+    response = auth_client.get("/stats")
+    assert response.status_code == 200
+    assert "Review Heatmap" in response.text
+    assert 'id="stats-data"' in response.text
+    assert '"reviews": 1' in response.text   # today's activity row
+    assert '"due": 1' in response.text       # forecast row for the rescheduled card
+    assert '"current": 1' in response.text   # streak from the rating above
+
+@patch("main.supabase.auth.get_user")
+def test_stats_page_empty_deck_still_renders(mock_get_user, client, db_conn):
+    """A user with no activity and no cards gets the page, not an error."""
+    auth_client, _, _ = authenticate_client(mock_get_user, client, db_conn, email="statsempty@example.com")
+    response = auth_client.get("/stats")
+    assert response.status_code == 200
+    assert "Review Heatmap" in response.text
+
+def test_stats_page_unauthenticated(client):
+    response = client.get("/stats", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/auth"
+
 # --- AI Card Generation Tests ---
 @patch("main.supabase.auth.get_user")
 @patch("main.generate_cards")
