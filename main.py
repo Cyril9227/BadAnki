@@ -1603,6 +1603,16 @@ async def review(request: Request, conn: psycopg2.extensions.connection = Depend
         "csrf_token": csrf_token
     })
 
+@app.get("/stats", response_class=HTMLResponse)
+async def stats(request: Request, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
+    """Review heatmap + streak stats, linked from the profile dropdown."""
+    heatmap = crud.get_review_heatmap_for_user(conn, user.auth_user_id)
+    return templates.TemplateResponse(request, "stats.html", {
+        "heatmap": heatmap,
+        "streak": crud.get_review_streak_for_user(conn, user.auth_user_id) if heatmap else None,
+    })
+
+
 @app.post("/review/{card_id}")
 async def update_review(card_id: int, status: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     if crud.update_card_for_user(conn, card_id, user.auth_user_id, status == "remembered"):

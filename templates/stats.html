@@ -1,0 +1,313 @@
+{% extends "layout.html" %}
+
+{% block title %}Stats - Bad Anki{% endblock %}
+
+{# No markdown/LaTeX on this page; skip the heavy MathJax bundle. #}
+{% block mathjax %}{% endblock %}
+
+{% block head %}
+{{ super() }}
+<style>
+    /* --- Review heatmap (GitHub-style year grid) ---
+       Two sequential ramps, one hue each: green = past reviews, blue = due
+       forecast. Dark steps are selected for the dark card surface, not an
+       automatic flip of the light ones. */
+    .heatmap {
+        --cell: 11px;
+        --gap: 3px;
+        --cell-empty: rgba(var(--border-rgb), 0.55);
+        --heat-1: #9be9a8; --heat-2: #40c463; --heat-3: #30a14e; --heat-4: #216e39;
+        --due-1: #b7d3f6;  --due-2: #6da7ec;  --due-3: #2a78d6;  --due-4: #184f95;
+    }
+    [data-bs-theme="dark"] .heatmap {
+        --cell-empty: rgba(var(--border-rgb), 0.9);
+        --heat-1: #0e4429; --heat-2: #006d32; --heat-3: #26a641; --heat-4: #39d353;
+        --due-1: #0d366b;  --due-2: #1c5cab;  --due-3: #3987e5;  --due-4: #86b6ef;
+    }
+
+    .heatmap { display: flex; gap: 0.4rem; }
+
+    /* Weekday labels sit outside the scroller so they stay pinned while the
+       months pan. The spacer mirrors the month-label row inside. */
+    .heatmap-weekdays {
+        display: grid;
+        grid-template-rows: repeat(7, var(--cell));
+        row-gap: var(--gap);
+        font-size: 0.65rem;
+        color: rgb(var(--muted-foreground-rgb));
+        text-align: right;
+        flex-shrink: 0;
+    }
+    .heatmap-weekdays > span { line-height: var(--cell); }
+
+    .heatmap-scroll { overflow-x: auto; flex: 1; padding-bottom: 0.25rem; }
+
+    .heatmap-months {
+        display: grid;
+        grid-auto-flow: column;
+        grid-auto-columns: calc(var(--cell) + var(--gap));
+        font-size: 0.65rem;
+        color: rgb(var(--muted-foreground-rgb));
+        height: 1.1rem;
+    }
+    .heatmap-months > span { white-space: nowrap; }
+    .heatmap-month-spacer { height: 1.1rem; }
+
+    .heatmap-grid {
+        display: grid;
+        grid-auto-flow: column;
+        grid-template-rows: repeat(7, var(--cell));
+        grid-auto-columns: var(--cell);
+        gap: var(--gap);
+    }
+    .heatmap-grid .day {
+        width: var(--cell);
+        height: var(--cell);
+        border-radius: 2px;
+        background-color: var(--cell-empty);
+    }
+    .heatmap-grid .day.pad { background: transparent; }
+    .heatmap-grid .day.h1 { background-color: var(--heat-1); }
+    .heatmap-grid .day.h2 { background-color: var(--heat-2); }
+    .heatmap-grid .day.h3 { background-color: var(--heat-3); }
+    .heatmap-grid .day.h4 { background-color: var(--heat-4); }
+    .heatmap-grid .day.d1 { background-color: var(--due-1); }
+    .heatmap-grid .day.d2 { background-color: var(--due-2); }
+    .heatmap-grid .day.d3 { background-color: var(--due-3); }
+    .heatmap-grid .day.d4 { background-color: var(--due-4); }
+    .heatmap-grid .day.today {
+        outline: 2px solid rgb(var(--primary-rgb));
+        outline-offset: 1px;
+    }
+    .heatmap-grid .day.selected {
+        outline: 2px solid rgb(var(--foreground-rgb));
+        outline-offset: 1px;
+    }
+
+    .heatmap-legend {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.3rem;
+        font-size: 0.75rem;
+        color: rgb(var(--muted-foreground-rgb));
+    }
+    .heatmap-legend .swatch {
+        width: 11px;
+        height: 11px;
+        border-radius: 2px;
+        display: inline-block;
+    }
+
+    #day-caption { min-height: 1.5em; }
+
+    .stat-tile .stat-value { font-size: 1.5rem; font-weight: 700; }
+    .stat-tile .stat-label { font-size: 0.8rem; color: rgb(var(--muted-foreground-rgb)); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4" style="max-width: 60rem;">
+    <h2 class="mb-4">Stats</h2>
+
+    {% if heatmap is none %}
+    <div class="card">
+        <div class="card-body text-center text-muted py-5">
+            Review stats aren't available yet — they'll appear once activity tracking is set up.
+        </div>
+    </div>
+    {% else %}
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="row text-center gy-3">
+                <div class="col-6 col-sm-3 stat-tile">
+                    <div class="stat-value" id="stat-average">–</div>
+                    <div class="stat-label">daily average</div>
+                </div>
+                <div class="col-6 col-sm-3 stat-tile">
+                    <div class="stat-value" id="stat-learned">–</div>
+                    <div class="stat-label">days learned</div>
+                </div>
+                <div class="col-6 col-sm-3 stat-tile">
+                    <div class="stat-value" id="stat-longest">–</div>
+                    <div class="stat-label">longest streak</div>
+                </div>
+                <div class="col-6 col-sm-3 stat-tile">
+                    <div class="stat-value" id="stat-current">–</div>
+                    <div class="stat-label">current streak</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">Review Heatmap</div>
+        <div class="card-body">
+            <div class="heatmap" role="img" aria-label="Daily reviews over the last year and upcoming due cards">
+                <div>
+                    <div class="heatmap-month-spacer"></div>
+                    <div class="heatmap-weekdays">
+                        <span>Mon</span><span></span><span>Wed</span><span></span><span>Fri</span><span></span><span></span>
+                    </div>
+                </div>
+                <div class="heatmap-scroll" id="heatmap-scroll">
+                    <div class="heatmap-months" id="heatmap-months"></div>
+                    <div class="heatmap-grid" id="heatmap-grid"></div>
+                </div>
+            </div>
+            <p class="text-body-secondary small mt-3 mb-2" id="day-caption" aria-live="polite"></p>
+            <div class="heatmap-legend heatmap">
+                <span>Less</span>
+                <span class="swatch" style="background-color: var(--cell-empty)"></span>
+                <span class="swatch" style="background-color: var(--heat-1)"></span>
+                <span class="swatch" style="background-color: var(--heat-2)"></span>
+                <span class="swatch" style="background-color: var(--heat-3)"></span>
+                <span class="swatch" style="background-color: var(--heat-4)"></span>
+                <span>More</span>
+                <span class="ms-3">Due ahead</span>
+                <span class="swatch" style="background-color: var(--due-1)"></span>
+                <span class="swatch" style="background-color: var(--due-2)"></span>
+                <span class="swatch" style="background-color: var(--due-3)"></span>
+                <span class="swatch" style="background-color: var(--due-4)"></span>
+            </div>
+        </div>
+    </div>
+
+    <script id="stats-data" type="application/json">{{ {"heatmap": heatmap, "streak": streak} | tojson }}</script>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if heatmap is not none %}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const data = JSON.parse(document.getElementById('stats-data').textContent);
+    const activity = new Map(data.heatmap.activity.map(a => [a.day, a]));
+    const forecast = new Map(data.heatmap.forecast.map(f => [f.day, f.due]));
+    const streak = data.streak;
+
+    const DAY_MS = 86400000;
+    const toUtc = iso => Date.parse(iso + 'T00:00:00Z');
+    const toIso = ts => new Date(ts).toISOString().slice(0, 10);
+    // Monday-first row index (0 = Mon … 6 = Sun).
+    const mondayIndex = ts => (new Date(ts).getUTCDay() + 6) % 7;
+    const fmtDay = ts => new Date(ts).toLocaleDateString(undefined,
+        { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
+
+    const today = toUtc(data.heatmap.today);
+    // 52 weeks of history plus 8 weeks of due forecast, aligned to whole weeks.
+    let start = today - 364 * DAY_MS;
+    start -= mondayIndex(start) * DAY_MS;
+    let end = today + 56 * DAY_MS;
+    end += (6 - mondayIndex(end)) * DAY_MS;
+
+    // --- Stat tiles: averages over the days since the first activity in the
+    // window (so a new user isn't diluted by a year of empty days). ---
+    let totalReviews = 0, activeDays = 0, firstActive = null;
+    for (const a of data.heatmap.activity) {
+        totalReviews += a.reviews;
+        activeDays += 1;
+        if (firstActive === null) firstActive = toUtc(a.day);
+    }
+    const spanDays = firstActive === null ? 0 : Math.round((today - firstActive) / DAY_MS) + 1;
+    document.getElementById('stat-average').textContent =
+        spanDays ? (totalReviews / spanDays).toFixed(1) : '0';
+    document.getElementById('stat-learned').textContent =
+        spanDays ? Math.round(activeDays / spanDays * 100) + '%' : '0%';
+    document.getElementById('stat-longest').textContent = streak ? streak.longest : '0';
+    document.getElementById('stat-current').textContent = streak ? streak.current : '0';
+
+    // --- Grid ---
+    // Intensity levels are scaled to this user's own busiest day.
+    let maxReviews = 0, maxDue = 0;
+    activity.forEach(a => { maxReviews = Math.max(maxReviews, a.reviews); });
+    for (let ts = today + DAY_MS; ts <= end; ts += DAY_MS) {
+        maxDue = Math.max(maxDue, forecast.get(toIso(ts)) || 0);
+    }
+    const level = (count, max) => count > 0 ? Math.ceil(count / max * 4) : 0;
+
+    const grid = document.getElementById('heatmap-grid');
+    const months = document.getElementById('heatmap-months');
+    const cells = document.createDocumentFragment();
+    let todayCol = 0, lastLabeledCol = -3, lastMonth = -1;
+    const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    for (let ts = start, col = 0; ts <= end; ts += DAY_MS) {
+        const iso = toIso(ts);
+        const cell = document.createElement('div');
+        cell.className = 'day';
+        cell.dataset.date = iso;
+        if (ts <= today) {
+            const a = activity.get(iso);
+            if (a) {
+                cell.classList.add('h' + level(a.reviews, maxReviews));
+                cell.dataset.reviews = a.reviews;
+                cell.dataset.remembered = a.remembered;
+            }
+        } else {
+            const due = forecast.get(iso) || 0;
+            if (due) {
+                cell.classList.add('d' + level(due, maxDue));
+                cell.dataset.due = due;
+            }
+        }
+        if (ts === today) { cell.classList.add('today'); todayCol = col; }
+        cells.appendChild(cell);
+
+        if (mondayIndex(ts) === 6) col += 1;      // Sunday closes the column
+        else if (mondayIndex(ts) === 0) {          // Monday opens one: month label?
+            const month = new Date(ts).getUTCMonth();
+            if (month !== lastMonth) {
+                if (lastMonth !== -1 && col - lastLabeledCol >= 3) {
+                    const label = document.createElement('span');
+                    label.style.gridColumnStart = col + 1;
+                    label.textContent = MONTHS[month];
+                    months.appendChild(label);
+                    lastLabeledCol = col;
+                }
+                lastMonth = month;
+            }
+        }
+    }
+    grid.appendChild(cells);
+
+    // --- Caption: summary by default, day detail on hover/tap ---
+    const caption = document.getElementById('day-caption');
+    const defaultCaption = totalReviews
+        ? totalReviews.toLocaleString() + ' review' + (totalReviews !== 1 ? 's' : '') + ' in the last 12 months'
+        : 'No reviews yet — the heatmap fills in as you review.';
+    caption.textContent = defaultCaption;
+
+    let selected = null;
+    function describe(cell) {
+        if (!cell || !cell.dataset.date) return;
+        if (selected) selected.classList.remove('selected');
+        selected = cell;
+        cell.classList.add('selected');
+        const when = fmtDay(toUtc(cell.dataset.date));
+        if (cell.dataset.due) {
+            caption.textContent = cell.dataset.due + ' card' + (cell.dataset.due !== '1' ? 's' : '') + ' due — ' + when;
+        } else if (cell.dataset.reviews) {
+            caption.textContent = cell.dataset.reviews + ' review' + (cell.dataset.reviews !== '1' ? 's' : '') +
+                ' · ' + cell.dataset.remembered + ' remembered — ' + when;
+        } else {
+            caption.textContent = (toUtc(cell.dataset.date) > today ? 'Nothing due — ' : 'No reviews — ') + when;
+        }
+    }
+    grid.addEventListener('mouseover', e => describe(e.target.closest('.day')));
+    grid.addEventListener('click', e => describe(e.target.closest('.day')));
+    grid.addEventListener('mouseleave', () => {
+        if (selected) selected.classList.remove('selected');
+        selected = null;
+        caption.textContent = defaultCaption;
+    });
+
+    // Land with today in view, forecast to its right, history off to the left.
+    const scroll = document.getElementById('heatmap-scroll');
+    const colWidth = grid.scrollWidth / Math.ceil(grid.children.length / 7);
+    scroll.scrollLeft = Math.max(0, todayCol * colWidth - scroll.clientWidth * 0.7);
+});
+</script>
+{% endif %}
+{% endblock %}
