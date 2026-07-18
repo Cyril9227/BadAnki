@@ -120,18 +120,27 @@
             font-size: 0.85rem;
         }
 
-        .action-buttons {
+        /* .table td above wins over a bare .action-buttons selector, keeping
+           the cell display:block — which let the edit <a> (display:flex from
+           the child rule) stretch full width while the delete button stayed
+           content-sized inside its d-inline form. Qualify the selector so the
+           cell really is a flex row, with the Actions label on its own line. */
+        .table td.action-buttons {
             display: flex;
             gap: 0.5rem;
             margin-top: 1rem;
             flex-wrap: wrap;
+        }
+        .table td.action-buttons::before {
+            flex-basis: 100%;
+            margin-bottom: 0; /* the flex gap already separates label and buttons */
         }
 
         .action-buttons a, .action-buttons form {
             flex: 0 0 auto;
             display: flex;
         }
-        
+
         .action-buttons .btn {
             flex: 0 0 auto;
             white-space: nowrap;
