@@ -8,30 +8,12 @@
 <style>
     /* Review page specific mobile optimizations */
     @media (max-width: 576px) {
-        .card.text-center {
-            margin-left: 0.5rem;
-            margin-right: 0.5rem;
-        }
-
+        /* No extra side margins on the review card: the column's own gutter
+           already insets it, and the deck status card below has no margins —
+           the two panels were rendering at different widths. */
         .card-body {
             padding: 1rem;
         }
-
-        /* Stack buttons vertically on very small screens */
-        .d-sm-flex {
-            flex-direction: column;
-            gap: 0.5rem;
-        }
-
-        .d-sm-flex .btn {
-            width: 100%;
-        }
-    }
-
-    /* Ensure question/answer text doesn't overflow */
-    .question .card-text,
-    .answer .card-text {
-        overflow-x: auto;
     }
 
     .review-card-content pre,

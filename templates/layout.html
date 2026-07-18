@@ -97,9 +97,12 @@
         overflow-x: hidden;
         background-color: rgb(var(--background-rgb));
         color: rgb(var(--foreground-rgb));
-        padding-top: 56px; /* Standard navbar height */
         transition: background-color 0.3s ease, color 0.3s ease;
     }
+    /* Navbar clearance on body ONLY — this rule once sat in the shared
+       html+body block above, which applied it twice and opened a ~112px
+       void between the navbar and every page's content. */
+    body { padding-top: 56px; }
 
     /* Always show the scrollbar track: without it, navigating between a
        short page (review) and a scrolling one shifts the layout sideways —
@@ -383,6 +386,9 @@
     }
 
     main {
+        /* Top padding matches the mt-4 rhythm between stacked panels, so the
+           gap below the navbar reads the same as the gaps between cards. */
+        padding-top: 1.5rem;
         padding-bottom: 5rem;
     }
     @media (max-width: 576px) {
@@ -472,9 +478,13 @@
             overflow: hidden;
         }
 
+        /* No overflow-x:auto here: wide content already scrolls in its own
+           innermost container (pre, table, mjx-container). A scrollable
+           card-body nested a second scroller around those, let the whole
+           body pan sideways (dragging titles and buttons along), and turned
+           the review card into a swipe dead zone. */
         .card-body {
             padding: 0.75rem;
-            overflow-x: auto;
         }
 
         /* Smaller MathJax on mobile */

@@ -6,7 +6,7 @@
 {% block mathjax %}{% endblock %}
 
 {% block content %}
-<div class="container-fluid home-hero">
+<div class="container-fluid">
     {# p-4 below md: desktop-scale p-5 squeezes the CTA labels into wrapping. #}
     <div class="card p-4 p-md-5 text-center">
         <h1 class="display-5 fw-bold">Personal Learning App</h1>
@@ -20,7 +20,8 @@
     </div>
 </div>
 
-<div class="container mt-2 mt-md-5">
+{# mt-4 below md matches the panel rhythm; roomier mt-5 on desktop. #}
+<div class="container mt-4 mt-md-5">
     <div class="row">
         <div class="col-md-6 mb-4">
             <div class="card h-100">
@@ -71,15 +72,4 @@
     </div>
     {% endif %}
 </div>
-
-<style>
-@media (max-width: 768px) {
-    /* No full-height centered hero on phones: centering left a wide blank
-       band between the navbar and the card, and the first scroll dragged
-       the panels through empty space. Flow top-down instead. */
-    .home-hero {
-        padding: 1rem;
-    }
-}
-</style>
 {% endblock %}
