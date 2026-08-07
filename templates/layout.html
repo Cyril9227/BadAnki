@@ -406,12 +406,17 @@
         hyphens: auto;
     }
 
-    /* MathJax overflow handling - allow horizontal scroll for wide formulas */
-    .mjx-container {
-        max-width: 100% !important;
-        overflow-x: auto !important;
-        overflow-y: hidden !important;
-        display: block !important;
+    /* MathJax overflow handling - allow horizontal scroll for wide formulas.
+       Selector is the element name, not a class: MathJax emits
+       <mjx-container class="MathJax">, so `.mjx-container` matched nothing and
+       wide display math spilled out past the card's right edge. Scoped to
+       display math — an inline container is an inline box, where overflow and
+       max-width have no effect and forcing display:block would drop mid-
+       sentence math onto its own line. */
+    mjx-container[display="true"] {
+        max-width: 100%;
+        overflow-x: auto;
+        overflow-y: hidden;
     }
 
     /* Code blocks - wrap and scroll on overflow */
@@ -488,7 +493,7 @@
         }
 
         /* Smaller MathJax on mobile */
-        .mjx-container {
+        mjx-container {
             font-size: 90% !important;
         }
 

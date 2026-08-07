@@ -147,13 +147,7 @@
         }
     }
 
-    /* Ensure MathJax content doesn't overflow */
-    .mjx-container {
-        max-width: 100% !important;
-        overflow-x: auto !important;
-        overflow-y: hidden !important;
-        box-sizing: border-box !important;
-    }
+    /* MathJax overflow is handled once in the layout. */
 
     /* Handle long text */
     .table td a {
