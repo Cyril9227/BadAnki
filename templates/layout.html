@@ -419,6 +419,20 @@
         overflow-y: hidden;
     }
 
+    /* Inline math needs the opposite treatment. MathJax renders a formula as
+       one unbreakable SVG, so a long mid-sentence $...$ can be wider than the
+       card, and the rule above can't help: an inline box ignores overflow and
+       max-width, while making the container an inline-block scroll box would
+       shift every *short* formula off the text baseline. Cap the SVG instead
+       — with height:auto it scales down on its own viewBox, so an oversized
+       formula shrinks to fit and stays readable inside the sentence. A
+       formula that already fits is untouched: max-width never bites, and
+       height:auto resolves to the height it was going to have anyway. */
+    mjx-container:not([display="true"]) > svg {
+        max-width: 100%;
+        height: auto;
+    }
+
     /* Code blocks - wrap and scroll on overflow */
     .markdown-content pre {
         max-width: 100%;
