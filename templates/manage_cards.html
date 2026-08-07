@@ -396,14 +396,8 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         }
 
-        // window.MathJax is a truthy config object before the async bundle loads, so we
-        // must also check typesetPromise exists. When MathJax isn't ready yet, its own
-        // startup pass typesets whatever has been rendered by then.
-        if (toTypeset.length && window.MathJax && typeof window.MathJax.typesetPromise === 'function') {
-            MathJax.typesetPromise(toTypeset).catch(function (e) {
-                console.error('MathJax rendering error:', e);
-            });
-        }
+        // Newly revealed cells only. A deck with no LaTeX never loads MathJax.
+        window.typesetMath(toTypeset);
     }
 
     // Changing what's visible drops the selection — a "Delete selected (3)"

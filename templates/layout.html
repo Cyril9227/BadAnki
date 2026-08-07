@@ -541,15 +541,6 @@
     }
 </style>
 
-{% block mathjax %}
-<script>
-window.MathJax = {
-  tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
-  svg: { fontCache: 'global' }
-};
-</script>
-<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
-{% endblock %}
 <!-- defer: both are only called from DOMContentLoaded handlers, so they don't
      need to block first paint. -->
 <script defer src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -566,6 +557,56 @@ window.MathJax = {
     // its own. Keep in sync with render_card.html.
     const MATH_SEGMENT = /\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|(?<!\\)\$[^$\n]+?\$/g;
     const CODE_SEGMENT = /(```[\s\S]*?```|`[^`\n]*`)/;
+
+    // MathJax's tex-svg bundle is ~1MB and most decks contain no LaTeX at all,
+    // so it is no longer in the page by default: window.typesetMath() looks at
+    // the nodes it is handed and only fetches the bundle when one of them
+    // actually contains math. The first such call loads it; later calls reuse
+    // the same promise. Callers therefore no longer need the old "window.MathJax
+    // is a bare config object until the async bundle lands" guard, and content
+    // rendered after load (next review card, generated cards, live previews)
+    // no longer depends on MathJax's startup pass having happened to catch it.
+    // The same-source clone drops MATH_SEGMENT's /g flag, whose lastIndex would
+    // make .test() alternate between true and false on repeated calls.
+    const MATH_PRESENT = new RegExp(MATH_SEGMENT.source);
+    let mathJaxReady = null;
+
+    function loadMathJax() {
+        if (mathJaxReady) return mathJaxReady;
+        window.MathJax = {
+            tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+            svg: { fontCache: 'global' },
+            // Every call site typesets explicitly through typesetMath, so the
+            // startup pass over the whole document would only redo that work.
+            startup: { typeset: false }
+        };
+        mathJaxReady = new Promise(function (resolve, reject) {
+            const script = document.createElement('script');
+            script.id = 'MathJax-script';
+            script.src = 'https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js';
+            script.onload = function () { resolve(window.MathJax.startup.promise); };
+            script.onerror = function () { reject(new Error('MathJax bundle failed to load')); };
+            document.head.appendChild(script);
+        });
+        return mathJaxReady;
+    }
+
+    // Does this text carry anything MathJax would typeset? Deliberately the
+    // same test the masking pass uses, so "we loaded the bundle" and "there was
+    // math to render" can't disagree.
+    window.hasMath = function (text) { return !!text && MATH_PRESENT.test(text); };
+
+    // Typeset the given elements, loading MathJax first if this is the first
+    // math on the page. A no-op — and no download — when none of them have any.
+    window.typesetMath = function (elements) {
+        const nodes = (elements || []).filter(Boolean);
+        if (!nodes.some(function (el) { return window.hasMath(el.textContent); })) {
+            return Promise.resolve();
+        }
+        return loadMathJax()
+            .then(function () { return window.MathJax.typesetPromise(nodes); })
+            .catch(function (error) { console.warn('MathJax typesetting failed:', error); });
+    };
     function renderMarkdownSafely(text, inline, sanitizeConfig) {
         const stash = [];
         const masked = text.split(CODE_SEGMENT).map(function (part, i) {

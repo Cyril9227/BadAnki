@@ -130,13 +130,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function renderPreview(preview, text) {
         preview.innerHTML = window.safeMarkdown(text);
-        // window.MathJax is a plain config object until the async bundle loads,
-        // so also check typesetPromise before calling it.
-        if (window.MathJax && typeof window.MathJax.typesetPromise === 'function') {
-            MathJax.typesetPromise([preview]).catch(function (e) {
-                console.warn('MathJax typesetting failed:', e);
-            });
-        }
+        window.typesetMath([preview]);
     }
 
     // Auto-fill stops as soon as the user edits the answer themselves —

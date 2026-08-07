@@ -42,7 +42,8 @@ window.MathJax = {
   startup: { typeset: false }
 };
 </script>
-<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+<!-- The MathJax bundle is fetched below, and only for cards that actually
+     contain math — it used to block this page's load on every render. -->
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
 </head>
@@ -81,12 +82,28 @@ window.addEventListener('DOMContentLoaded', function () {
     }).replace(/\uE000(\d+)\uE001/g, function (_, i) {
         return escapeHtml(stash[Number(i)]);
     });
-    // The screenshot function waits for this flag, so it must be set on the
-    // failure paths too — a botched typeset still beats a timeout.
-    MathJax.startup.promise
-        .then(function () { return MathJax.typesetPromise([card]); })
-        .catch(function (error) { console.warn('MathJax typesetting failed:', error); })
-        .then(function () { window.__RENDER_READY__ = true; });
+    // The screenshot function waits for this flag, so every path has to set it
+    // — a botched typeset still beats a timeout.
+    const ready = function () { window.__RENDER_READY__ = true; };
+
+    // `stash` is non-empty exactly when the masking pass above found math, so
+    // it decides whether this render needs MathJax at all. Cards without any
+    // (the common case) now skip a ~1MB download inside the screenshot browser.
+    if (!stash.length) return ready();
+
+    const mathJax = document.createElement('script');
+    mathJax.src = 'https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js';
+    mathJax.onload = function () {
+        MathJax.startup.promise
+            .then(function () { return MathJax.typesetPromise([card]); })
+            .catch(function (error) { console.warn('MathJax typesetting failed:', error); })
+            .then(ready);
+    };
+    mathJax.onerror = function () {
+        console.warn('MathJax bundle failed to load; screenshotting without it');
+        ready();
+    };
+    document.head.appendChild(mathJax);
 });
 </script>
 </body>

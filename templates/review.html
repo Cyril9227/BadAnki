@@ -164,23 +164,7 @@
         const sessionHistory = []; // {id, card, previous?}
         const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-        function typesetMath(elements) {
-            if (!window.MathJax || typeof window.MathJax.typesetPromise !== 'function') return;
-
-            try {
-                const typeset = elements
-                    ? window.MathJax.typesetPromise(elements)
-                    : window.MathJax.typesetPromise();
-
-                if (typeset && typeof typeset.catch === 'function') {
-                    typeset.catch(function(error) {
-                        console.warn('MathJax typesetting failed:', error);
-                    });
-                }
-            } catch (error) {
-                console.warn('MathJax typesetting failed:', error);
-            }
-        }
+        const typesetMath = window.typesetMath;  // loads MathJax only for cards with math
 
         function renderMarkdown(el, markdown) {
             try {

@@ -73,11 +73,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function renderPreview(preview, text) {
         preview.innerHTML = window.safeMarkdown(text);
-        if (window.MathJax && typeof window.MathJax.typesetPromise === 'function') {
-            window.MathJax.typesetPromise([preview]).catch(function (e) {
-                console.warn('MathJax typesetting failed:', e);
-            });
-        }
+        window.typesetMath([preview]);
     }
 
     // Cloze answers are derived from the {{ '{{' }}cN::…{{ '}}' }} markers at

@@ -220,13 +220,10 @@
         const courseContentDiv = document.getElementById('course-content');
         const rawContent = document.getElementById('raw-content').textContent;
 
-        // Sanitized markdown first, then MathJax over the result.
+        // Sanitized markdown first, then MathJax over the result (loaded only
+        // if the course actually has math in it).
         courseContentDiv.innerHTML = window.safeMarkdown(rawContent);
-        if (window.MathJax && typeof window.MathJax.typesetPromise === 'function') {
-            window.MathJax.typesetPromise([courseContentDiv]).catch(error => {
-                console.error("Error rendering course content:", error);
-            });
-        }
+        window.typesetMath([courseContentDiv]);
 
         const downloadBtn = document.getElementById('download-btn');
         if(downloadBtn) {

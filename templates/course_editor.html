@@ -826,9 +826,7 @@ document.addEventListener('DOMContentLoaded', function () {
         // Sanitize preview output — the editor may be rendering markdown that
         // was pasted from an untrusted source (e.g. downloaded course files).
         livePreview.innerHTML = window.safeMarkdown(markdownEditor.value);
-        if (window.MathJax && window.MathJax.startup) {
-            MathJax.typesetPromise([livePreview]);
-        }
+        window.typesetMath([livePreview]);
     }
 
     // Mobile Write/Preview toggle: one pane at a time (see the CSS above).

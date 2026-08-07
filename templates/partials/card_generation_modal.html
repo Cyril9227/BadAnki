@@ -287,12 +287,7 @@ document.addEventListener('DOMContentLoaded', function () {
         });
 
         cardsModalBody.appendChild(container);
-        // window.MathJax is a plain config object until the async bundle loads.
-        if (window.MathJax && typeof window.MathJax.typesetPromise === 'function') {
-            MathJax.typesetPromise([cardsModalBody]).catch(function (e) {
-                console.warn('MathJax typesetting failed:', e);
-            });
-        }
+        window.typesetMath([cardsModalBody]);
     }
 
     cardsModalBody.addEventListener('click', function(e) {
@@ -330,11 +325,7 @@ document.addEventListener('DOMContentLoaded', function () {
             questionSpan.innerHTML = window.safeMarkdownInline(newQuestion);
             answerSpan.innerHTML = window.safeMarkdownInline(newAnswer);
 
-            if (window.MathJax && typeof window.MathJax.typesetPromise === 'function') {
-                MathJax.typesetPromise([questionSpan, answerSpan]).catch(function (e) {
-                    console.warn('MathJax typesetting failed:', e);
-                });
-            }
+            window.typesetMath([questionSpan, answerSpan]);
 
             cardElement.querySelector('.card-content').style.display = 'block';
             cardElement.querySelector('.edit-form').style.display = 'none';
