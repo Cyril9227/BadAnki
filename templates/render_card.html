@@ -86,15 +86,24 @@ window.addEventListener('DOMContentLoaded', function () {
     // — a botched typeset still beats a timeout.
     const ready = function () { window.__RENDER_READY__ = true; };
 
-    // `stash` is non-empty exactly when the masking pass above found math, so
-    // it decides whether this render needs MathJax at all. Cards without any
-    // (the common case) now skip a ~1MB download inside the screenshot browser.
-    if (!stash.length) return ready();
+    // `stash` covers delimited math. A LaTeX environment needs no delimiters
+    // — MathJax's processEnvironments is on by default — and the masking pass
+    // deliberately doesn't stash it, so it has to be tested separately. This
+    // is exactly the content needs_screenshot() routes here for: without the
+    // second test, \begin{pmatrix}... was screenshotted as raw source. Keep in
+    // sync with layout.html's MATH_ENVIRONMENT.
+    const MATH_ENVIRONMENT = /\\begin\{[a-zA-Z*]+\}/;
+    if (!stash.length && !MATH_ENVIRONMENT.test(raw)) return ready();
 
     const mathJax = document.createElement('script');
     mathJax.src = 'https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js';
     mathJax.onload = function () {
-        MathJax.startup.promise
+        // A bundle that 200s without initializing (captive portal, proxy) still
+        // fires load, and window.MathJax is then just the config object above —
+        // so .startup.promise is undefined and .then() would throw right here,
+        // leaving __RENDER_READY__ unset and the screenshot to time out.
+        Promise.resolve()
+            .then(function () { return MathJax.startup.promise; })
             .then(function () { return MathJax.typesetPromise([card]); })
             .catch(function (error) { console.warn('MathJax typesetting failed:', error); })
             .then(ready);

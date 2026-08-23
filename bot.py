@@ -70,7 +70,10 @@ RENDER_TIMEOUT_SECONDS = 15.0
 RENDER_TOKEN_TTL_SECONDS = 300
 # Bump to invalidate all cached renders (e.g. after changing the render page
 # styling or screenshot parameters).
-RENDER_CACHE_VERSION = "v1"
+# v2: while the render page's MathJax gate missed bare \begin{...}
+# environments, those cards were screenshotted as raw LaTeX and the bad PNG
+# cached by file_id with no TTL. Re-keying is what makes the fix reach them.
+RENDER_CACHE_VERSION = "v2"
 
 
 def _card_url(card_id) -> str:
