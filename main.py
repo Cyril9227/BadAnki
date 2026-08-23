@@ -120,6 +120,32 @@ templates = Jinja2Templates(directory="templates")
 # Inline SVG icons callable from every template without per-file imports.
 templates.env.globals["icon"] = templates.get_template("partials/icons.html").module.icon
 
+_RELATIVE_UNITS = (
+    ("year", 31_557_600), ("month", 2_629_800), ("week", 604_800),
+    ("day", 86_400), ("hour", 3_600), ("minute", 60),
+)
+
+
+def relative_time(value: Optional[datetime]) -> str:
+    """"3 days ago" for a naive server-clock timestamp, or "" when unset.
+
+    Deliberately server-side: both sides of the subtraction come from
+    datetime.now(), so this is correct whatever timezone the server keeps.
+    Handing the browser a naive ISO string instead would have it parsed as
+    the visitor's local time and read hours off.
+    """
+    if not value:
+        return ""
+    seconds = (datetime.now() - value).total_seconds()
+    for unit, size in _RELATIVE_UNITS:
+        count = int(seconds // size)
+        if count > 0:
+            return f"{count} {unit}{'s' if count != 1 else ''} ago"
+    return "just now"  # under a minute, or a clock-skewed future stamp
+
+
+templates.env.filters["relative_time"] = relative_time
+
 
 def should_resolve_user_for_request(request: Request) -> bool:
     # A lone refresh-token cookie still identifies a returning user — the

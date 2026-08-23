@@ -308,6 +308,61 @@ def test_courses_page_is_server_rendered(mock_get_user, client, db_conn):
     assert "maths/integrals.md" in response.text   # path subtitle
     assert "calculus" in response.text             # tag chip
 
+@patch("main.supabase.auth.get_user")
+def test_courses_page_has_search_sort_and_recency(mock_get_user, client, db_conn):
+    """The list was a bare alphabetical dump. It now carries a search box, a
+    sort control, a count, and the last-edited time that `courses.updated_at`
+    had been recording without ever surfacing."""
+    auth_client, _, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="coursefind@example.com")
+    for path, title in (("maths/integrals.md", "Integration Tricks"), ("physics/qm.md", "Quantum")):
+        auth_client.post(
+            "/api/course-content",
+            json={"path": path, "content": f"---\ntitle: {title}\n---\n# Body"},
+            headers={"X-CSRF-Token": csrf_token},
+        )
+
+    response = auth_client.get("/courses")
+    assert response.status_code == 200
+    assert 'id="course-search"' in response.text
+    assert 'id="course-sort"' in response.text
+    assert "2 courses" in response.text
+    # Sort/filter keys ride on the rows so the JS never reads rendered text.
+    assert 'data-title="integration tricks"' in response.text
+    assert 'data-search="integration tricks maths/integrals.md"' in response.text
+    # Freshly saved, so the relative label is the sub-minute case.
+    assert "just now" in response.text
+
+@patch("main.supabase.auth.get_user")
+def test_courses_overview_carries_updated_at(mock_get_user, client, db_conn):
+    """A file created but never saved has no updated_at — the row must still
+    render (no timestamp) rather than blowing up the page."""
+    auth_client, user_id, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="courseblank@example.com")
+    auth_client.post(
+        "/api/course-item",
+        json={"path": "untouched.md", "type": "file"},
+        headers={"X-CSRF-Token": csrf_token},
+    )
+
+    courses, _ = crud.get_courses_overview_for_user(db_conn, user_id)
+    assert len(courses) == 1
+    assert courses[0]["updated_at"] is None
+
+    response = auth_client.get("/courses")
+    assert response.status_code == 200
+    assert 'data-updated=""' in response.text
+
+def test_relative_time_filter():
+    from main import relative_time
+    now = datetime.now()
+    assert relative_time(None) == ""
+    assert relative_time(now) == "just now"
+    assert relative_time(now + timedelta(hours=1)) == "just now"  # clock skew
+    assert relative_time(now - timedelta(seconds=90)) == "1 minute ago"
+    assert relative_time(now - timedelta(hours=5)) == "5 hours ago"
+    assert relative_time(now - timedelta(days=1)) == "1 day ago"
+    assert relative_time(now - timedelta(days=10)) == "1 week ago"
+    assert relative_time(now - timedelta(days=400)) == "1 year ago"
+
 def test_get_courses_page_unauthenticated(client):
     response = client.get("/courses", follow_redirects=False)
     assert response.status_code == 303

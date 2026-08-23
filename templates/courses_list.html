@@ -16,19 +16,116 @@
                 {% endfor %}
             </div>
 
-            <h2 class="mb-4">All Courses</h2>
-            <div class="list-group">
+            <h2 class="mb-3">All Courses</h2>
+
+            {% if courses %}
+            {# Same search/filter bar shape as the Manage page. Filtering and
+               ordering are client-side: this is one user's own list, so a
+               round trip per keystroke would buy nothing. #}
+            <div class="row g-2 mb-1">
+                <div class="col">
+                    <input type="search" id="course-search" class="form-control"
+                           placeholder="Search courses…" aria-label="Search courses">
+                </div>
+                <div class="col-auto">
+                    {# Folder order is the server's path-ascending order, which
+                       groups a folder's courses together — the reason it stays
+                       the default rather than title order. #}
+                    <select id="course-sort" class="form-select" aria-label="Sort courses">
+                        <option value="folder">Folder order</option>
+                        <option value="title">Title A→Z</option>
+                        <option value="recent">Recently edited</option>
+                    </select>
+                </div>
+            </div>
+            <p id="course-count" class="text-muted small mb-2" aria-live="polite">
+                {{ courses | length }} course{{ 's' if courses | length != 1 }}
+            </p>
+            {% endif %}
+
+            <div class="list-group" id="course-list">
                 {% for course in courses %}
-                <a href="/courses/{{ course.path | urlencode }}" class="list-group-item list-group-item-action">
-                    <strong>{{ course.display }}</strong>
-                    <br>
-                    <small class="text-muted">{{ course.path }}</small>
+                {# data-* carry the raw sort/filter keys so the JS never reads
+                   back rendered text. data-updated is an ISO string, which
+                   orders correctly as a plain string compare. #}
+                <a href="/courses/{{ course.path | urlencode }}"
+                   class="list-group-item list-group-item-action course-row"
+                   data-search="{{ (course.display ~ ' ' ~ course.path) | lower }}"
+                   data-title="{{ course.display | lower }}"
+                   data-updated="{{ course.updated_at.isoformat() if course.updated_at else '' }}">
+                    <div class="d-flex justify-content-between align-items-start gap-3">
+                        <span class="text-break">
+                            <strong>{{ course.display }}</strong>
+                            <br>
+                            <small class="text-muted">{{ course.path }}</small>
+                        </span>
+                        {% if course.updated_at %}
+                        <small class="text-body-secondary text-nowrap">{{ course.updated_at | relative_time }}</small>
+                        {% endif %}
+                    </div>
                 </a>
                 {% else %}
                 <p class="p-3 mb-0">No courses found. You can create one in the editor.</p>
                 {% endfor %}
             </div>
+
+            <p id="course-empty" class="text-muted mt-3" style="display: none;">No courses match your search.</p>
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const list = document.getElementById('course-list');
+    const search = document.getElementById('course-search');
+    const sortSelect = document.getElementById('course-sort');
+    if (!list || !search || !sortSelect) return;  // empty course list
+
+    const rows = Array.from(list.querySelectorAll('.course-row'));
+    const count = document.getElementById('course-count');
+    const empty = document.getElementById('course-empty');
+
+    // Orders are precomputed once — sorting per keystroke would be wasted work.
+    // Never-saved files have no timestamp; they sort last under "recent"
+    // rather than jumping to the top as empty strings would.
+    const ORDERS = {
+        folder: rows.slice(),  // server order, path-ascending
+        title: rows.slice().sort(function (a, b) {
+            return a.dataset.title.localeCompare(b.dataset.title);
+        }),
+        recent: rows.slice().sort(function (a, b) {
+            const x = a.dataset.updated, y = b.dataset.updated;
+            if (x === y) return 0;
+            if (!x) return 1;
+            if (!y) return -1;
+            return y.localeCompare(x);
+        }),
+    };
+
+    function refresh() {
+        const q = search.value.trim().toLowerCase();
+        const order = ORDERS[sortSelect.value] || ORDERS.folder;
+        let matched = 0;
+
+        const frag = document.createDocumentFragment();
+        order.forEach(function (row) {
+            const show = !q || row.dataset.search.indexOf(q) !== -1;
+            row.style.display = show ? '' : 'none';
+            if (show) matched++;
+            frag.appendChild(row);  // moves the node, applying the sort order
+        });
+        list.appendChild(frag);
+
+        empty.style.display = matched === 0 ? '' : 'none';
+        count.textContent = q
+            ? matched + ' of ' + rows.length + ' course' + (rows.length === 1 ? '' : 's') + ' match'
+            : rows.length + ' course' + (rows.length === 1 ? '' : 's');
+    }
+
+    search.addEventListener('input', refresh);
+    sortSelect.addEventListener('change', refresh);
+});
+</script>
 {% endblock %}
