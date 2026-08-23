@@ -239,6 +239,9 @@
 
         // Return the UI to the "question only" state for the next card.
         function resetForNextCard() {
+            // Read the scroll position before the style writes below, or it
+            // forces a synchronous layout to answer.
+            const scrolled = window.scrollY > 0;
             answerShown = false;
             submitting = false;
             lastRatingValue = null;
@@ -260,7 +263,7 @@
             }
             // Already at the top on most swaps — a no-op smooth scroll still
             // costs a frame, and smooth motion is a vestibular trigger.
-            if (window.scrollY > 0) {
+            if (scrolled) {
                 window.scrollTo({ top: 0, behavior: REDUCED_MOTION ? 'auto' : 'smooth' });
             }
         }

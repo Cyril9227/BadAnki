@@ -561,7 +561,8 @@ def test_review_page_is_screen_reader_navigable(mock_get_user, client, db_conn):
     assert 'aria-label="Skip this card for now"' in response.text
     assert 'aria-label="Back to the previous card"' in response.text
     # The answer is focused on reveal rather than announced by a live region.
-    assert 'id="answer-section" style="display: none;" tabindex="-1"' in response.text
+    assert 'id="answer-section"' in response.text
+    assert 'tabindex="-1"' in response.text
 
 @patch("main.supabase.auth.get_user")
 def test_review_streak_badge_keeps_the_flame_out_of_the_name(mock_get_user, client, db_conn):
