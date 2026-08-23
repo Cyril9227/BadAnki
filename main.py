@@ -1618,9 +1618,10 @@ async def stats(request: Request, conn: psycopg2.extensions.connection = Depends
     return templates.TemplateResponse(request, "stats.html", {
         "heatmap": heatmap,
         "streak": crud.get_review_streak_for_user(conn, user.auth_user_id) if heatmap else None,
-        # Deck make-up reads `cards`, not review_activity, so it renders even
-        # when activity tracking is unavailable and the heatmap is hidden.
-        "deck": crud.get_deck_composition_for_user(conn, user.auth_user_id),
+        # Same counters the home page gets. They read `cards`, not
+        # review_activity, so the deck card renders even when activity
+        # tracking is unavailable and the heatmap is hidden.
+        "deck": crud.get_review_stats_for_user(conn, user.auth_user_id),
     })
 
 

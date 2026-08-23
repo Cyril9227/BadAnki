@@ -114,8 +114,10 @@
     <h2 class="mb-4">Stats</h2>
 
     {# Deck make-up reads the cards table, so it renders whether or not
-       activity tracking (and therefore the heatmap below) is available. #}
-    {% if deck and deck.total %}
+       activity tracking (and therefore the heatmap below) is available.
+       `deck` is get_review_stats_for_user's row — the same shape the home
+       page gets. #}
+    {% if deck and deck.total_cards %}
     <div class="card mb-4">
         <div class="card-header">Deck</div>
         <div class="card-body">

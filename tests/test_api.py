@@ -727,12 +727,16 @@ def test_stats_page_shows_recall_and_deck_composition(mock_get_user, client, db_
         cur.execute("UPDATE cards SET interval = 30 WHERE id = %s", (mature,))
         db_conn.commit()
 
-    composition = crud.get_deck_composition_for_user(db_conn, user_id)
-    assert composition["total"] == 3
+    composition = crud.get_review_stats_for_user(db_conn, user_id)
+    assert composition["total_cards"] == 3
     assert composition["new_cards"] == 1
     assert composition["young"] == 1
     assert composition["mature"] == 1
     assert composition["due_week"] == 1  # the two 40-days-out cards are outside it
+    # new/young/mature partition the deck — the reason new_cards dropped its
+    # redundant ease_factor conjunct when these counters were folded in.
+    assert composition["new_cards"] + composition["young"] + composition["mature"] \
+        == composition["total_cards"]
 
     response = auth_client.get("/stats")
     assert response.status_code == 200
