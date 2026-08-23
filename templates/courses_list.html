@@ -59,9 +59,9 @@
                             <br>
                             <small class="text-muted">{{ course.path }}</small>
                         </span>
-                        {% if course.updated_at %}
+                        {# relative_time renders "" for a never-saved file, so
+                           no guard here — one owner for the empty case. #}
                         <small class="text-body-secondary text-nowrap">{{ course.updated_at | relative_time }}</small>
-                        {% endif %}
                     </div>
                 </a>
                 {% else %}
@@ -86,46 +86,38 @@ document.addEventListener('DOMContentLoaded', function () {
     const rows = Array.from(list.querySelectorAll('.course-row'));
     const count = document.getElementById('course-count');
     const empty = document.getElementById('course-empty');
+    const total = rows.length + ' course' + (rows.length === 1 ? '' : 's');
 
-    // Orders are precomputed once — sorting per keystroke would be wasted work.
-    // Never-saved files have no timestamp; they sort last under "recent"
-    // rather than jumping to the top as empty strings would.
-    const ORDERS = {
-        folder: rows.slice(),  // server order, path-ascending
-        title: rows.slice().sort(function (a, b) {
-            return a.dataset.title.localeCompare(b.dataset.title);
-        }),
-        recent: rows.slice().sort(function (a, b) {
-            const x = a.dataset.updated, y = b.dataset.updated;
-            if (x === y) return 0;
-            if (!x) return 1;
-            if (!y) return -1;
-            return y.localeCompare(x);
-        }),
+    // Ordering and filtering are separate jobs. Only the sort control changes
+    // the order, so re-parenting the rows stays out of the per-keystroke path;
+    // typing only toggles display.
+    const COMPARE = {
+        title: function (a, b) { return a.dataset.title.localeCompare(b.dataset.title); },
+        // data-updated is '' for never-saved files, and '' is lexicographically
+        // smallest, so a plain descending compare already sorts them last.
+        recent: function (a, b) { return b.dataset.updated.localeCompare(a.dataset.updated); },
     };
+
+    function applyOrder() {
+        const compare = COMPARE[sortSelect.value];
+        if (!compare) return list.append.apply(list, rows);  // server's folder order
+        rows.slice().sort(compare).forEach(function (row) { list.appendChild(row); });
+    }
 
     function refresh() {
         const q = search.value.trim().toLowerCase();
-        const order = ORDERS[sortSelect.value] || ORDERS.folder;
         let matched = 0;
-
-        const frag = document.createDocumentFragment();
-        order.forEach(function (row) {
-            const show = !q || row.dataset.search.indexOf(q) !== -1;
-            row.style.display = show ? '' : 'none';
-            if (show) matched++;
-            frag.appendChild(row);  // moves the node, applying the sort order
+        rows.forEach(function (row) {
+            const display = (!q || row.dataset.search.indexOf(q) !== -1) ? '' : 'none';
+            if (row.style.display !== display) row.style.display = display;
+            if (!display) matched++;
         });
-        list.appendChild(frag);
-
         empty.style.display = matched === 0 ? '' : 'none';
-        count.textContent = q
-            ? matched + ' of ' + rows.length + ' course' + (rows.length === 1 ? '' : 's') + ' match'
-            : rows.length + ' course' + (rows.length === 1 ? '' : 's');
+        count.textContent = q ? matched + ' of ' + total + ' match' : total;
     }
 
     search.addEventListener('input', refresh);
-    sortSelect.addEventListener('change', refresh);
+    sortSelect.addEventListener('change', function () { applyOrder(); refresh(); });
 });
 </script>
 {% endblock %}
