@@ -9,11 +9,39 @@
     <div class="card p-4 p-md-5 text-center">
         <h1 class="display-5 fw-bold">Personal Learning App</h1>
         <div class="col-lg-8 mx-auto">
+            {# Signed in, the pitch is wasted space: say what's waiting instead.
+               `deck` is only passed for logged-in visitors, so the anonymous
+               page is unchanged. #}
+            {% if deck %}
+            <p class="lead mb-4">
+                {%- if deck.due_today %}
+                You have <strong>{{ deck.due_today }}</strong> card{{ 's' if deck.due_today != 1 }} due for review.
+                {%- elif deck.total_cards %}
+                You're all caught up — nothing due right now.
+                {%- else %}
+                Your deck is empty. Write a card, or let AI draft a batch from a topic.
+                {%- endif %}
+            </p>
+            {% else %}
             <p class="lead mb-4">Welcome to your personal spaced repetition learning application. Create new cards with Markdown and LaTeX, then review them to commit them to memory.</p>
+            {% endif %}
             <div class="d-grid gap-2 d-sm-flex justify-content-sm-center">
-                <a href="/review" class="btn btn-primary btn-lg px-4 gap-3 text-nowrap">Start Reviewing</a>
+                <a href="/review" class="btn btn-primary btn-lg px-4 gap-3 text-nowrap">
+                    Start Reviewing{% if deck and deck.due_today %} <span class="badge text-bg-light align-middle ms-1">{{ deck.due_today }}</span>{% endif %}
+                </a>
                 <a href="/new" class="btn btn-outline-secondary btn-lg px-4 text-nowrap">Create a New Card</a>
             </div>
+            {% if deck and deck.total_cards %}
+            <div class="d-flex flex-wrap justify-content-center gap-3 mt-4 small text-body-secondary">
+                {% if streak and streak.current %}
+                <span>🔥 <strong>{{ streak.current }}</strong>-day streak</span>
+                {% endif %}
+                {% if deck.new_cards %}
+                <span><strong>{{ deck.new_cards }}</strong> new</span>
+                {% endif %}
+                <span><strong>{{ deck.total_cards }}</strong> card{{ 's' if deck.total_cards != 1 }} in your deck</span>
+            </div>
+            {% endif %}
         </div>
     </div>
 </div>
@@ -27,7 +55,7 @@
                     <h5 class="card-title">How It Works</h5>
                     <ul>
                         <li><strong>Create or Upload Courses:</strong> You can write your own courses directly in the editor using Markdown and LaTeX, or upload existing Markdown files.</li>
-                        <li><strong>AI-Powered Card Generation:</strong> Use AI (Gemini or Anthropic) to automatically generate flashcards from your course content.</li>
+                        <li><strong>AI-Powered Card Generation:</strong> Use AI (Gemini, Anthropic or OpenAI) to automatically generate flashcards from your course content.</li>
                         <li><strong>Free AI Tier:</strong> New users can start generating cards right away with a pre-configured API key. You can add your own key for more extensive use.</li>
                         <li><strong>Spaced Repetition:</strong> The app uses a spaced repetition algorithm (inspired by SM-2) to schedule card reviews at optimal intervals, maximizing retention.</li>
                     </ul>

@@ -1320,16 +1320,24 @@ async def health_check():
 
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
-    # The leaderboard is members-only content on an otherwise public page —
-    # the DB connection is only acquired when there's a user to show it to.
-    leaderboard = None
+    # Leaderboard and deck status are members-only content on an otherwise
+    # public page — the DB connection is only acquired when there's a user to
+    # show them to. Returning users landed on generic copy before this and had
+    # to open /review to find out whether anything was waiting for them.
+    leaderboard = deck = streak = None
     if request.state.user:
-        leaderboard = crud.get_leaderboard(get_request_db(request), request.state.user.auth_user_id)
+        conn = get_request_db(request)
+        auth_user_id = request.state.user.auth_user_id
+        leaderboard = crud.get_leaderboard(conn, auth_user_id)
+        deck = crud.get_review_stats_for_user(conn, auth_user_id)
+        streak = crud.get_review_streak_for_user(conn, auth_user_id)
     return templates.TemplateResponse(request, "home.html", {
         "telegram_bot_username": TELEGRAM_BOT_USERNAME,
         "supabase_url": SUPABASE_URL,
         "supabase_key": SUPABASE_KEY,
         "leaderboard": leaderboard,
+        "deck": deck,
+        "streak": streak,
     })
 
 @app.get("/courses", response_class=HTMLResponse)
@@ -1610,6 +1618,10 @@ async def stats(request: Request, conn: psycopg2.extensions.connection = Depends
     return templates.TemplateResponse(request, "stats.html", {
         "heatmap": heatmap,
         "streak": crud.get_review_streak_for_user(conn, user.auth_user_id) if heatmap else None,
+        # Same counters the home page gets. They read `cards`, not
+        # review_activity, so the deck card renders even when activity
+        # tracking is unavailable and the heatmap is hidden.
+        "deck": crud.get_review_stats_for_user(conn, user.auth_user_id),
     })
 
 

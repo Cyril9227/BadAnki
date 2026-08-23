@@ -23,6 +23,8 @@ INITIAL_INTERVAL = 1
 # Cap interval growth (~100 years): repeated "remembered" ratings otherwise
 # compound until due_date overflows datetime.max and the card 500s forever.
 MAX_INTERVAL_DAYS = 36500
+# Anki's convention: a card is "mature" once its interval reaches three weeks.
+MATURE_INTERVAL_DAYS = 21
 
 # How much of a course document to fetch when only the frontmatter matters
 # (titles, tags). Frontmatter blocks are tiny; documents can reach 1 MB.
@@ -404,17 +406,37 @@ def get_review_cards_for_user(conn, auth_user_id: str, exclude_ids=None):
         return cursor.fetchone()
 
 def get_review_stats_for_user(conn, auth_user_id: str):
-    """Deck counters in one pass over the user's cards — this runs on every
-    review-loop request, so three separate COUNT subqueries added up."""
+    """Every deck counter the UI shows, in one pass over the user's cards.
+
+    Runs on every review-loop request, so it has to stay a single scan — but
+    extra FILTER aggregates ride that scan for free (same rows, same index,
+    a few more comparisons), which is why /stats reads its composition from
+    here instead of a second near-identical query.
+
+    new/young/mature partition the deck. `interval = 0` is exactly "never
+    rated": every rating moves the interval to at least INITIAL_INTERVAL.
+    The predicate used to carry an `and ease_factor = 2.5` conjunct that the
+    scheduler makes redundant; dropping it is what lets the three buckets sum
+    to total_cards.
+    """
     query = """
     SELECT
+        COUNT(*) AS total_cards,
         COUNT(*) FILTER (WHERE due_date <= %s) AS due_today,
-        COUNT(*) FILTER (WHERE interval = 0 AND ease_factor = 2.5) AS new_cards,
-        COUNT(*) AS total_cards
+        COUNT(*) FILTER (WHERE due_date < %s) AS due_week,
+        COUNT(*) FILTER (WHERE interval = 0) AS new_cards,
+        COUNT(*) FILTER (WHERE interval > 0 AND interval < %s) AS young,
+        COUNT(*) FILTER (WHERE interval >= %s) AS mature
     FROM cards WHERE user_id = %s;
     """
+    # Plain timestamp bounds (not due_date::date) keep the (user_id, due_date)
+    # index usable, as in get_review_heatmap_for_user. due_week runs to the end
+    # of the seventh day ahead and counts anything already overdue, so the tile
+    # reads as "work waiting in the next week".
+    week_end = datetime.combine(date.today() + timedelta(days=8), datetime.min.time())
     with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
-        cursor.execute(query, (datetime.now(), auth_user_id))
+        cursor.execute(query, (datetime.now(), week_end, MATURE_INTERVAL_DAYS,
+                               MATURE_INTERVAL_DAYS, auth_user_id))
         return cursor.fetchone()
 
 
