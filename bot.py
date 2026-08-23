@@ -24,6 +24,8 @@ from crud import (
     get_card_for_user,
     get_card_list_for_user,
     get_random_card_for_user,
+    get_review_stats_for_user,
+    get_review_streak_for_user,
     get_user_by_telegram_chat_id,
     link_telegram_chat,
 )
@@ -326,8 +328,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         await update.message.reply_text(
-            "Welcome to the Anki Clone bot! Use /review to get a link to your next review session, "
-            "/random for a random card, /list to browse your cards, or /card <id> for a specific one."
+            "Welcome to the Anki Clone bot! Use /due to see what's waiting, /stats for your streak "
+            "and deck counters, /review for a link to your next session, /random for a random card, "
+            "/list to browse your cards, or /card <id> for a specific one."
         )
     except Exception as e:
         logger.error(f"Error in /start command: {e}", exc_info=True)
@@ -439,6 +442,59 @@ async def card_by_id(update: Update, context: ContextTypes.DEFAULT_TYPE, user, c
     await _deliver_card(update.message, card, conn)
     logger.info("Sent card %s to chat_id %s.", card_id, _redact_identifier(update.message.chat_id))
 
+
+def _plural(count: int, noun: str) -> str:
+    return f"{count} {noun}{'' if count == 1 else 's'}"
+
+
+@linked_command
+async def due_cards(update: Update, context: ContextTypes.DEFAULT_TYPE, user, conn):
+    """How much is waiting, with a link straight into the session. The daily
+    reminder answers this once a day; /due answers it on demand."""
+    stats = get_review_stats_for_user(conn, user['auth_user_id'])
+    due = stats['due_today'] if stats else 0
+    if not due:
+        await update.message.reply_text(
+            "🎉 Nothing due right now — nice work.\n\nSend /random to jog your memory anyway."
+        )
+        return
+    await update.message.reply_text(
+        f"📚 {_plural(due, 'card')} due for review.\n\nStart here: {APP_URL}/review"
+    )
+
+
+@linked_command
+async def deck_stats(update: Update, context: ContextTypes.DEFAULT_TYPE, user, conn):
+    """Streak and deck counters — the /stats web page, minus the heatmap.
+    Streak tracking is best-effort in crud, so the streak lines are omitted
+    rather than faked when it returns None."""
+    stats = get_review_stats_for_user(conn, user['auth_user_id'])
+    streak = get_review_streak_for_user(conn, user['auth_user_id'])
+
+    if not stats or not stats['total_cards']:
+        await update.message.reply_text(
+            f"Your deck is empty. Add cards at {APP_URL}/new."
+        )
+        return
+
+    lines = ["📊 Your deck", ""]
+    if streak and streak['current']:
+        best = f" (best: {streak['longest']})" if streak['longest'] > streak['current'] else ""
+        lines.append(f"🔥 Streak: {_plural(streak['current'], 'day')}{best}")
+        if not streak['reviewed_today']:
+            lines.append("   ⚠️ Not reviewed today — the streak is on the line.")
+    elif streak:
+        lines.append("🔥 Streak: none yet — review today to start one.")
+    lines += [
+        f"📚 Due today: {stats['due_today']}",
+        f"✨ New: {stats['new_cards']}",
+        f"🗂 Total: {stats['total_cards']}",
+        "",
+        f"{APP_URL}/review",
+    ]
+    await update.message.reply_text("\n".join(lines))
+
+
 async def show_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Reveals a card's answer when its "Show answer" button is tapped."""
     query = update.callback_query
@@ -501,6 +557,8 @@ def get_bot_application():
     application.add_handler(CommandHandler("random", random_card))
     application.add_handler(CommandHandler("list", list_cards))
     application.add_handler(CommandHandler("card", card_by_id))
+    application.add_handler(CommandHandler("due", due_cards))
+    application.add_handler(CommandHandler("stats", deck_stats))
     application.add_handler(CallbackQueryHandler(show_answer, pattern=r"^ans:\d+$"))
 
     return application
