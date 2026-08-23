@@ -1,3 +1,4 @@
+import asyncio
 import os
 import pytest
 from fastapi.testclient import TestClient
@@ -18,6 +19,7 @@ os.environ["TELEGRAM_WEBHOOK_SECRET"] = "testsecret"
 
 # Import FastAPI app after setting env
 from main import app
+import bot
 import crud
 
 # --- Ephemeral Postgres Fixture ---
@@ -1187,6 +1189,122 @@ def test_photo_cache_roundtrip_and_upsert(db_conn):
     # Re-rendering the same content upserts the newer file_id.
     crud.cache_photo_file_id(db_conn, content_hash, "file-2", card_id=123)
     assert crud.get_cached_photo_file_id(db_conn, content_hash) == "file-2"
+
+# --- Telegram Command Tests ---
+# The handlers open their own pooled connection through linked_command, so
+# every fixture write has to be committed before the handler is invoked.
+
+def _fake_telegram_update(chat_id):
+    """The pieces of telegram.Update the command handlers actually touch,
+    plus a list that collects whatever they reply."""
+    update = MagicMock()
+    update.message.chat_id = chat_id
+    sent = []
+
+    async def reply_text(text, **kwargs):
+        sent.append(text)
+
+    update.message.reply_text = reply_text
+    return update, sent
+
+def _link_telegram(db_conn, auth_user_id, chat_id):
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "UPDATE profiles SET telegram_chat_id = %s WHERE auth_user_id = %s",
+            (str(chat_id), str(auth_user_id)),
+        )
+        db_conn.commit()
+
+def test_telegram_due_reports_the_waiting_count(pg_container, db_conn):
+    user_id = create_test_user(db_conn, email="tgdue@example.com")
+    _link_telegram(db_conn, user_id, 4242)
+    create_test_card(db_conn, user_id, "Q1", "A1")
+    create_test_card(db_conn, user_id, "Q2", "A2")
+
+    update, sent = _fake_telegram_update(4242)
+    asyncio.run(bot.due_cards(update, MagicMock()))
+
+    assert len(sent) == 1
+    assert "2 cards due" in sent[0]
+    assert "/review" in sent[0]
+
+def test_telegram_due_when_nothing_is_waiting(pg_container, db_conn):
+    user_id = create_test_user(db_conn, email="tgdueclear@example.com")
+    _link_telegram(db_conn, user_id, 4243)
+    create_test_card(db_conn, user_id, "Q", "A", due_date=datetime.now() + timedelta(days=3))
+
+    update, sent = _fake_telegram_update(4243)
+    asyncio.run(bot.due_cards(update, MagicMock()))
+
+    assert "Nothing due" in sent[0]
+    assert "/random" in sent[0]
+
+def test_telegram_stats_reports_streak_and_counters(pg_container, db_conn):
+    user_id = create_test_user(db_conn, email="tgstats@example.com")
+    _link_telegram(db_conn, user_id, 4244)
+    create_test_card(db_conn, user_id, "Q1", "A1")
+    create_test_card(db_conn, user_id, "Q2", "A2", due_date=datetime.now() + timedelta(days=3))
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO review_activity (user_id, day, reviews, remembered) VALUES (%s, CURRENT_DATE, 3, 2)",
+            (str(user_id),),
+        )
+        db_conn.commit()
+
+    update, sent = _fake_telegram_update(4244)
+    asyncio.run(bot.deck_stats(update, MagicMock()))
+
+    message = sent[0]
+    assert "Streak: 1 day" in message
+    assert "Due today: 1" in message
+    assert "Total: 2" in message
+    # Today's activity row exists, so the at-risk warning must not fire.
+    assert "on the line" not in message
+
+def test_telegram_stats_warns_when_the_streak_is_at_risk(pg_container, db_conn):
+    user_id = create_test_user(db_conn, email="tgrisk@example.com")
+    _link_telegram(db_conn, user_id, 4245)
+    create_test_card(db_conn, user_id, "Q", "A")
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO review_activity (user_id, day, reviews, remembered)"
+            " VALUES (%s, CURRENT_DATE - 1, 5, 4)",
+            (str(user_id),),
+        )
+        db_conn.commit()
+
+    update, sent = _fake_telegram_update(4245)
+    asyncio.run(bot.deck_stats(update, MagicMock()))
+
+    assert "Streak: 1 day" in sent[0]
+    assert "on the line" in sent[0]
+
+def test_telegram_stats_on_an_empty_deck(pg_container, db_conn):
+    user_id = create_test_user(db_conn, email="tgempty@example.com")
+    _link_telegram(db_conn, user_id, 4246)
+
+    update, sent = _fake_telegram_update(4246)
+    asyncio.run(bot.deck_stats(update, MagicMock()))
+
+    assert "deck is empty" in sent[0]
+
+def test_telegram_new_commands_require_a_linked_account(pg_container, db_conn):
+    for handler in (bot.due_cards, bot.deck_stats):
+        update, sent = _fake_telegram_update(999999)
+        asyncio.run(handler(update, MagicMock()))
+        assert sent == [bot.NOT_LINKED_MESSAGE]
+
+def test_telegram_commands_are_registered(monkeypatch):
+    # Canonical token shape; build() never talks to Telegram, only initialize() does.
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11")
+    application = bot.get_bot_application()
+    registered = {
+        command
+        for handlers in application.handlers.values()
+        for handler in handlers
+        for command in getattr(handler, "commands", ())
+    }
+    assert {"due", "stats"} <= registered
 
 # --- Password Reset & Change Tests ---
 def _fake_httpx_response(status_code, json_body=None):
