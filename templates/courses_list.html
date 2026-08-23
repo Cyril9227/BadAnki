@@ -16,19 +16,108 @@
                 {% endfor %}
             </div>
 
-            <h2 class="mb-4">All Courses</h2>
-            <div class="list-group">
+            <h2 class="mb-3">All Courses</h2>
+
+            {% if courses %}
+            {# Same search/filter bar shape as the Manage page. Filtering and
+               ordering are client-side: this is one user's own list, so a
+               round trip per keystroke would buy nothing. #}
+            <div class="row g-2 mb-1">
+                <div class="col">
+                    <input type="search" id="course-search" class="form-control"
+                           placeholder="Search courses…" aria-label="Search courses">
+                </div>
+                <div class="col-auto">
+                    {# Folder order is the server's path-ascending order, which
+                       groups a folder's courses together — the reason it stays
+                       the default rather than title order. #}
+                    <select id="course-sort" class="form-select" aria-label="Sort courses">
+                        <option value="folder">Folder order</option>
+                        <option value="title">Title A→Z</option>
+                        <option value="recent">Recently edited</option>
+                    </select>
+                </div>
+            </div>
+            <p id="course-count" class="text-muted small mb-2" aria-live="polite">
+                {{ courses | length }} course{{ 's' if courses | length != 1 }}
+            </p>
+            {% endif %}
+
+            <div class="list-group" id="course-list">
                 {% for course in courses %}
-                <a href="/courses/{{ course.path | urlencode }}" class="list-group-item list-group-item-action">
-                    <strong>{{ course.display }}</strong>
-                    <br>
-                    <small class="text-muted">{{ course.path }}</small>
+                {# data-* carry the raw sort/filter keys so the JS never reads
+                   back rendered text. data-updated is an ISO string, which
+                   orders correctly as a plain string compare. #}
+                <a href="/courses/{{ course.path | urlencode }}"
+                   class="list-group-item list-group-item-action course-row"
+                   data-search="{{ (course.display ~ ' ' ~ course.path) | lower }}"
+                   data-title="{{ course.display | lower }}"
+                   data-updated="{{ course.updated_at.isoformat() if course.updated_at else '' }}">
+                    <div class="d-flex justify-content-between align-items-start gap-3">
+                        <span class="text-break">
+                            <strong>{{ course.display }}</strong>
+                            <br>
+                            <small class="text-muted">{{ course.path }}</small>
+                        </span>
+                        {# relative_time renders "" for a never-saved file, so
+                           no guard here — one owner for the empty case. #}
+                        <small class="text-body-secondary text-nowrap">{{ course.updated_at | relative_time }}</small>
+                    </div>
                 </a>
                 {% else %}
                 <p class="p-3 mb-0">No courses found. You can create one in the editor.</p>
                 {% endfor %}
             </div>
+
+            <p id="course-empty" class="text-muted mt-3" style="display: none;">No courses match your search.</p>
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const list = document.getElementById('course-list');
+    const search = document.getElementById('course-search');
+    const sortSelect = document.getElementById('course-sort');
+    if (!list || !search || !sortSelect) return;  // empty course list
+
+    const rows = Array.from(list.querySelectorAll('.course-row'));
+    const count = document.getElementById('course-count');
+    const empty = document.getElementById('course-empty');
+    const total = rows.length + ' course' + (rows.length === 1 ? '' : 's');
+
+    // Ordering and filtering are separate jobs. Only the sort control changes
+    // the order, so re-parenting the rows stays out of the per-keystroke path;
+    // typing only toggles display.
+    const COMPARE = {
+        title: function (a, b) { return a.dataset.title.localeCompare(b.dataset.title); },
+        // data-updated is '' for never-saved files, and '' is lexicographically
+        // smallest, so a plain descending compare already sorts them last.
+        recent: function (a, b) { return b.dataset.updated.localeCompare(a.dataset.updated); },
+    };
+
+    function applyOrder() {
+        const compare = COMPARE[sortSelect.value];
+        if (!compare) return list.append.apply(list, rows);  // server's folder order
+        rows.slice().sort(compare).forEach(function (row) { list.appendChild(row); });
+    }
+
+    function refresh() {
+        const q = search.value.trim().toLowerCase();
+        let matched = 0;
+        rows.forEach(function (row) {
+            const display = (!q || row.dataset.search.indexOf(q) !== -1) ? '' : 'none';
+            if (row.style.display !== display) row.style.display = display;
+            if (!display) matched++;
+        });
+        empty.style.display = matched === 0 ? '' : 'none';
+        count.textContent = q ? matched + ' of ' + total + ' match' : total;
+    }
+
+    search.addEventListener('input', refresh);
+    sortSelect.addEventListener('change', function () { applyOrder(); refresh(); });
+});
+</script>
 {% endblock %}

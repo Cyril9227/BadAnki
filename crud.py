@@ -231,12 +231,14 @@ def get_courses_tree_for_user(conn, auth_user_id: str):
     return _build_course_tree(entries)
 
 def get_courses_overview_for_user(conn, auth_user_id: str):
-    """Flat course list ({path, display}) plus sorted tags, from a single
-    head scan — the server-rendered /courses page needs both, and fetching
-    them separately would scan the same rows twice."""
+    """Flat course list ({path, display, updated_at}) plus sorted tags, from a
+    single head scan — the server-rendered /courses page needs both, and
+    fetching them separately would scan the same rows twice. updated_at is
+    None for files created but never saved (create_course_item_for_user
+    doesn't set it)."""
     with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
         cursor.execute(
-            "SELECT path, LEFT(content, %s) AS head FROM courses WHERE user_id = %s ORDER BY path",
+            "SELECT path, updated_at, LEFT(content, %s) AS head FROM courses WHERE user_id = %s ORDER BY path",
             (FRONTMATTER_HEAD_LEN, auth_user_id),
         )
         rows = cursor.fetchall()
@@ -248,7 +250,11 @@ def get_courses_overview_for_user(conn, auth_user_id: str):
             name = name[:-3]
         # One frontmatter parse per row covers both the title and the tags.
         metadata = _head_metadata(row["head"])
-        courses.append({"path": row["path"], "display": metadata.get("title", name)})
+        courses.append({
+            "path": row["path"],
+            "display": metadata.get("title", name),
+            "updated_at": row["updated_at"],
+        })
         tags.update(sanitize_tags(metadata.get("tags")))
     return courses, sorted(tags)
 
