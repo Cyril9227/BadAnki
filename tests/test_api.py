@@ -498,6 +498,20 @@ def test_get_manage_cards_page_authenticated(mock_get_user, client, db_conn):
     assert "Manage Cards" in response.text
 
 @patch("main.supabase.auth.get_user")
+def test_generation_modal_has_bulk_approval(mock_get_user, client, db_conn):
+    """Trimming a ten-card batch meant clicking ten checkboxes. Pages that
+    include the shared generation modal now ship the approve-all bar."""
+    auth_client, _, _ = authenticate_client(mock_get_user, client, db_conn, email="bulkapprove@example.com")
+
+    response = auth_client.get("/new")
+    assert response.status_code == 200
+    assert 'id="approve-all"' in response.text
+    assert 'id="approve-count"' in response.text
+    assert "function refreshApproval()" in response.text
+    # The Save button grows a count, so its base label has to be captured.
+    assert "const SAVE_LABEL = saveCardsBtn.textContent;" in response.text
+
+@patch("main.supabase.auth.get_user")
 def test_create_card(mock_get_user, client, db_conn):
     auth_client, user_id, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="cardcreator@example.com")
 
