@@ -603,6 +603,55 @@ def test_review_page_submits_rating_via_ajax(mock_get_user, client, db_conn):
     assert 'action="/review/' in response.text
 
 @patch("main.supabase.auth.get_user")
+def test_review_page_is_screen_reader_navigable(mock_get_user, client, db_conn):
+    """Card swaps rewrite text in place, so the loop needs a labelled region,
+    a polite status region to narrate navigation, and shortcut hints that
+    aren't hidden behind the touch-only kbd styling."""
+    auth_client, user_id, _ = authenticate_client(mock_get_user, client, db_conn, email="a11yreview@example.com")
+    create_test_card(db_conn, user_id, "Review Q", "Review A")
+
+    response = auth_client.get("/review")
+    assert response.status_code == 200
+    assert 'aria-label="Review card"' in response.text
+    assert 'id="review-status"' in response.text and 'role="status"' in response.text
+    assert 'aria-keyshortcuts="1"' in response.text
+    assert 'aria-label="Skip this card for now"' in response.text
+    assert 'aria-label="Back to the previous card"' in response.text
+    # The answer is focused on reveal rather than announced by a live region.
+    assert 'id="answer-section"' in response.text
+    assert 'tabindex="-1"' in response.text
+
+@patch("main.supabase.auth.get_user")
+def test_review_streak_badge_keeps_the_flame_out_of_the_name(mock_get_user, client, db_conn):
+    """"Day Streak, fire, 5" is what a screen reader read before the emoji was
+    split into its own aria-hidden span."""
+    auth_client, user_id, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="flame@example.com")
+    card_id = create_test_card(db_conn, user_id, "Q", "A")
+    create_test_card(db_conn, user_id, "Q2", "A2")
+    auth_client.post(
+        f"/review/{card_id}",
+        data={"status": "remembered"},
+        headers={"X-CSRF-Token": csrf_token},
+        follow_redirects=False,
+    )
+
+    response = auth_client.get("/review")
+    assert response.status_code == 200
+    assert '<span aria-hidden="true">\U0001F525</span>' in response.text
+    assert '<span id="streak-badge">1</span>' in response.text
+
+@patch("main.supabase.auth.get_user")
+def test_card_viewer_offers_edit(mock_get_user, client, db_conn):
+    """/card/{id} is where Telegram's /list and /card links land — Edit is the
+    action people arrive wanting, and it was a dead end before."""
+    auth_client, user_id, _ = authenticate_client(mock_get_user, client, db_conn, email="cardview@example.com")
+    card_id = create_test_card(db_conn, user_id, "Q", "A")
+
+    response = auth_client.get(f"/card/{card_id}")
+    assert response.status_code == 200
+    assert f'href="/edit-card/{card_id}"' in response.text
+
+@patch("main.supabase.auth.get_user")
 def test_get_review_page_no_due_cards(mock_get_user, client, db_conn):
     """A user with no cards at all gets the empty-deck state."""
     auth_client, _, _ = authenticate_client(mock_get_user, client, db_conn, email="reviewuser2@example.com")
