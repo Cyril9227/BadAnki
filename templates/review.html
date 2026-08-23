@@ -61,7 +61,8 @@
 {% endblock %}
 
 {% block content %}
-<div class="card text-center mx-auto" id="review-card" style="max-width: 40rem;">
+<div class="card text-center mx-auto" id="review-card" style="max-width: 40rem;"
+     role="region" aria-label="Review card">
     <div class="card-header">
         Review Card
         <span id="card-type-badge" class="badge bg-info ms-2" style="display: none;">Cloze</span>
@@ -69,34 +70,44 @@
     <div class="card-body" id="review-card-body">
         <div class="question">
             <h5 class="card-title" id="question-title">Question</h5>
-            <div class="card-text fs-4 markdown-content review-card-content" id="question-content"><span class="skeleton-line w-75"></span><span class="skeleton-line w-50"></span></div>
+            <div class="card-text fs-4 markdown-content review-card-content" id="question-content"><span class="skeleton-line w-75" aria-hidden="true"></span><span class="skeleton-line w-50" aria-hidden="true"></span></div>
         </div>
         <hr>
-        <div class="answer" id="answer-section" style="display: none;">
+        {# tabindex + focus() on reveal rather than aria-live: the answer can be
+           long markdown or math, and focusing the region reads it in place and
+           leaves Tab pointing at the rating buttons. A live region would also
+           risk announcing again when the section is hidden for the next card. #}
+        <div class="answer" id="answer-section" style="display: none;" tabindex="-1">
             <h5 class="card-title">Answer</h5>
             <div class="card-text fs-4 markdown-content review-card-content" id="answer-content"></div>
         </div>
     </div>
     <div class="card-footer text-muted">
-        <button class="btn btn-primary" id="show-answer-btn" type="button">Show Answer</button>
+        <button class="btn btn-primary" id="show-answer-btn" type="button" aria-keyshortcuts="Space">Show Answer</button>
         <div class="form-text mt-2 kbd-hint" id="show-answer-hint">Shortcut: <kbd>Space</kbd> Show answer · <kbd>→</kbd> Skip</div>
 
         <form id="review-form" action="/review/{{ card.id }}" method="post" class="mt-3" style="display: none;">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="d-grid gap-2 d-sm-flex justify-content-sm-center">
-                <button type="submit" name="status" value="remembered" class="btn btn-success rating-btn">Remembered</button>
-                <button type="submit" name="status" value="forgot" class="btn btn-danger rating-btn">Forgot</button>
+                <button type="submit" name="status" value="remembered" class="btn btn-success rating-btn" aria-keyshortcuts="1">Remembered</button>
+                <button type="submit" name="status" value="forgot" class="btn btn-danger rating-btn" aria-keyshortcuts="2">Forgot</button>
             </div>
             <div class="form-text mt-2 kbd-hint">Shortcuts: <kbd>1</kbd> Remembered · <kbd>2</kbd> Forgot · <kbd>←</kbd> Back</div>
         </form>
 
-        {# Swipe left / right does the same on touch devices. #}
+        {# Swipe left / right does the same on touch devices. The aria-labels
+           keep the arrow glyphs out of the accessible name while still
+           containing the visible word, so voice control still matches. #}
         <div class="d-flex justify-content-between mt-2">
-            <button type="button" id="back-btn" class="btn btn-link btn-sm text-body-secondary p-0 text-decoration-none" style="visibility: hidden;">← Back</button>
-            <button type="button" id="skip-btn" class="btn btn-link btn-sm text-body-secondary p-0 text-decoration-none">Skip →</button>
+            <button type="button" id="back-btn" class="btn btn-link btn-sm text-body-secondary p-0 text-decoration-none" style="visibility: hidden;" aria-label="Back to the previous card" aria-keyshortcuts="ArrowLeft">← Back</button>
+            <button type="button" id="skip-btn" class="btn btn-link btn-sm text-body-secondary p-0 text-decoration-none" aria-label="Skip this card for now" aria-keyshortcuts="ArrowRight">Skip →</button>
         </div>
     </div>
 </div>
+
+{# Card swaps rewrite text in place, which nothing announces on its own —
+   this is the only signal a screen reader gets that the deck moved on. #}
+<p id="review-status" class="visually-hidden" role="status"></p>
 
 <!-- Store raw card data for JavaScript -->
 <script id="card-data" type="application/json">
@@ -127,7 +138,9 @@
         {% if streak %}
         <li class="list-group-item d-flex justify-content-between align-items-center">
             Day Streak
-            <span id="streak-badge" class="badge bg-danger rounded-pill">🔥 {{ streak.current }}</span>
+            {# The flame is decoration; inside the accessible name it read as
+               "Day Streak, fire, 5". #}
+            <span class="badge bg-danger rounded-pill"><span aria-hidden="true">🔥</span> <span id="streak-badge">{{ streak.current }}</span></span>
         </li>
         {% endif %}
     </ul>
@@ -151,6 +164,13 @@
         const backBtn = document.getElementById('back-btn');
         const skipBtn = document.getElementById('skip-btn');
         const ratingButtons = Array.from(reviewForm.querySelectorAll('.rating-btn'));
+        const statusRegion = document.getElementById('review-status');
+
+        // Everything below swaps card text in place, which is silent to a
+        // screen reader. One polite status region narrates the navigation.
+        function announce(message) {
+            if (statusRegion) statusRegion.textContent = message;
+        }
 
         let answerShown = false;
         let submitting = false;
@@ -211,6 +231,10 @@
                 typesetMath([questionContent]);
             }
             typesetMath([answerSection]);
+            // Focus the revealed region so it is read out and Tab continues
+            // into the rating buttons. preventScroll: the reveal animation
+            // already draws the eye and the answer is usually in view.
+            answerSection.focus({ preventScroll: true });
         }
 
         // Return the UI to the "question only" state for the next card.
@@ -227,7 +251,18 @@
             if (showAnswerHint) showAnswerHint.style.display = '';
             ratingButtons.forEach(btn => { btn.disabled = false; btn.classList.remove('btn-loading'); });
             backBtn.style.visibility = sessionHistory.length ? 'visible' : 'hidden';
-            window.scrollTo({ top: 0, behavior: 'smooth' });
+            // Rating buttons are hidden by the reset, which drops focus to
+            // <body> and strands keyboard users mid-deck. Hand it to the
+            // control that drives the next card. :focus-visible means mouse
+            // users still see no ring.
+            if (document.activeElement === document.body || reviewCard.contains(document.activeElement)) {
+                showAnswerBtn.focus({ preventScroll: true });
+            }
+            // Already at the top on most swaps — a no-op smooth scroll still
+            // costs a frame, and smooth motion is a vestibular trigger.
+            if (window.scrollY > 0) {
+                window.scrollTo({ top: 0, behavior: REDUCED_MOTION ? 'auto' : 'smooth' });
+            }
         }
 
         function updateStats(stats) {
@@ -240,9 +275,10 @@
             set('due-today-badge', stats.due_today);
             set('new-cards-badge', stats.new_cards);
             // The streak ticks up live on the first rating of the day; null
-            // means activity tracking is unavailable.
+            // means activity tracking is unavailable. The flame lives in its
+            // own aria-hidden span in the markup, so only the number is set.
             if (stats.streak !== null && stats.streak !== undefined) {
-                set('streak-badge', '🔥 ' + stats.streak);
+                set('streak-badge', stats.streak);
             }
         }
 
@@ -265,7 +301,7 @@
 
         // Swap the UI to whatever the server says comes next (shared by
         // rating and skipping, which return the same payload shape).
-        function applyReviewPayload(data, enterFrom) {
+        function applyReviewPayload(data, enterFrom, announcement) {
             updateStats(data && data.stats);
             if (data && data.next_card) {
                 currentCardId = data.next_card.id;
@@ -273,6 +309,8 @@
                 renderCard(data.next_card);
                 resetForNextCard();
                 enterCard(enterFrom || 'translateY(0.5rem)');
+                const due = data.stats && data.stats.due_today;
+                announce((announcement || 'Next card.') + (due ? ' ' + due + ' due.' : ''));
             } else {
                 // No cards left to review — let the server render "All Done".
                 window.location.href = '/review';
@@ -297,7 +335,7 @@
                 })
                 .then(data => {
                     navigating = false;
-                    applyReviewPayload(data, 'translateX(2rem)');
+                    applyReviewPayload(data, 'translateX(2rem)', 'Card skipped.');
                 })
                 .catch(error => {
                     console.error('Skip failed; reloading to recover:', error);
@@ -320,6 +358,7 @@
                 renderCard(last.card);
                 resetForNextCard();
                 enterCard('translateX(-2rem)');
+                announce('Previous card.');
                 return;
             }
 
@@ -336,6 +375,9 @@
                 renderCard(last.card);
                 resetForNextCard();
                 enterCard('translateX(-2rem)');
+                // Announce before showAnswer(), which moves focus into the
+                // answer — otherwise the two readings interleave.
+                announce('Rating undone. Previous card, answer shown.');
                 showAnswer();
             }).catch(error => {
                 console.error('Undo failed; reloading to recover:', error);

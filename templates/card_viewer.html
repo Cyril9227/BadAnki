@@ -39,7 +39,10 @@
                     <h5 class="card-title">Answer</h5>
                     <div class="card-text markdown-content" data-content="{{ card.answer }}"><span class="skeleton-line w-50"></span></div>
                 </div>
-                <div class="card-footer text-muted">
+                {# This page is where Telegram's /list and /card links land, so
+                   Edit is the action people actually arrive wanting. #}
+                <div class="card-footer text-muted d-flex flex-wrap gap-2">
+                    <a href="/edit-card/{{ card.id }}" class="btn btn-primary">{{ icon('pen', 14) }} Edit card</a>
                     <a href="{{ url_for('manage_cards') }}" class="btn btn-secondary">Back to Manage Cards</a>
                 </div>
             </div>
