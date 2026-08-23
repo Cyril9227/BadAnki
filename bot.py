@@ -60,6 +60,10 @@ def _redact_identifier(value) -> str:
     return f"***{text[-4:]}"
 
 
+def _plural(count: int, noun: str) -> str:
+    return f"{count} {noun}{'' if count == 1 else 's'}"
+
+
 # --- Card Message Building ---
 
 TELEGRAM_MESSAGE_LIMIT = 4096
@@ -443,16 +447,11 @@ async def card_by_id(update: Update, context: ContextTypes.DEFAULT_TYPE, user, c
     logger.info("Sent card %s to chat_id %s.", card_id, _redact_identifier(update.message.chat_id))
 
 
-def _plural(count: int, noun: str) -> str:
-    return f"{count} {noun}{'' if count == 1 else 's'}"
-
-
 @linked_command
 async def due_cards(update: Update, context: ContextTypes.DEFAULT_TYPE, user, conn):
     """How much is waiting, with a link straight into the session. The daily
     reminder answers this once a day; /due answers it on demand."""
-    stats = get_review_stats_for_user(conn, user['auth_user_id'])
-    due = stats['due_today'] if stats else 0
+    due = get_review_stats_for_user(conn, user['auth_user_id'])['due_today']
     if not due:
         await update.message.reply_text(
             "🎉 Nothing due right now — nice work.\n\nSend /random to jog your memory anyway."
@@ -469,14 +468,15 @@ async def deck_stats(update: Update, context: ContextTypes.DEFAULT_TYPE, user, c
     Streak tracking is best-effort in crud, so the streak lines are omitted
     rather than faked when it returns None."""
     stats = get_review_stats_for_user(conn, user['auth_user_id'])
-    streak = get_review_streak_for_user(conn, user['auth_user_id'])
-
-    if not stats or not stats['total_cards']:
+    if not stats['total_cards']:
         await update.message.reply_text(
             f"Your deck is empty. Add cards at {APP_URL}/new."
         )
         return
 
+    # After the early return: an empty deck was paying for a full
+    # review_activity scan and throwing the result away.
+    streak = get_review_streak_for_user(conn, user['auth_user_id'])
     lines = ["📊 Your deck", ""]
     if streak and streak['current']:
         best = f" (best: {streak['longest']})" if streak['longest'] > streak['current'] else ""
