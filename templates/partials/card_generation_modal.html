@@ -56,7 +56,7 @@ document.addEventListener('DOMContentLoaded', function () {
     ];
 
     let generateInFlight = false;
-    const SAVE_LABEL = saveCardsBtn.textContent;  // "Save Approved Cards", before any count
+    const SAVE_LABEL = 'Save Approved Cards';  // matches the button markup above
 
     // This function is now globally available
     window.handleGenerateCards = function(apiUrl, contentProvider, csrfToken, cardType = 'basic') {
@@ -85,8 +85,9 @@ document.addEventListener('DOMContentLoaded', function () {
         cardsModalBody.innerHTML = '';
         loadingSpinner.style.display = 'block';
         if(loadingMessage) loadingMessage.textContent = loadingMessages[0];
-        saveCardsBtn.disabled = true;
-        saveCardsBtn.textContent = SAVE_LABEL;  // a previous batch may have left a count on it
+        // Body is empty at this point, so this disables Save and restores the
+        // base label — a previous batch may have left a count on it.
+        refreshApproval();
         cardsModal.show();
         generateInFlight = true;
 
@@ -311,20 +312,31 @@ document.addEventListener('DOMContentLoaded', function () {
         refreshApproval();
     }
 
+    // The cards a Save right now would actually send. The counter, the button
+    // label and the save handler all read this one derivation — deriving the
+    // count separately let the label say "Save 3 cards" while 2 were sent,
+    // because a card can leave the batch without its checkbox being touched.
+    function approvedCards() {
+        return Array.from(cardsModalBody.querySelectorAll('.card'))
+            .filter(function (cardEl) { return cardEl.querySelector('.approve-checkbox').checked; })
+            .map(function (cardEl) { return generatedCardsData[parseInt(cardEl.dataset.cardIndex, 10)]; })
+            .filter(Boolean);
+    }
+
     // Single source of truth for the approve-all box, the counter and the
     // Save button, re-run whenever a checkbox flips or a card is deleted.
     function refreshApproval() {
-        const boxes = Array.from(cardsModalBody.querySelectorAll('.approve-checkbox'));
-        const approved = boxes.filter(function (box) { return box.checked; }).length;
+        const boxes = cardsModalBody.querySelectorAll('.approve-checkbox');
+        const approved = approvedCards().length;
 
-        const master = document.getElementById('approve-all');
+        const master = cardsModalBody.querySelector('#approve-all');
         if (master) {
             master.checked = boxes.length > 0 && approved === boxes.length;
             master.indeterminate = approved > 0 && approved < boxes.length;
         }
-        const toolbar = document.getElementById('approve-toolbar');
+        const toolbar = cardsModalBody.querySelector('#approve-toolbar');
         if (toolbar) toolbar.style.display = boxes.length ? '' : 'none';
-        const counter = document.getElementById('approve-count');
+        const counter = cardsModalBody.querySelector('#approve-count');
         if (counter) counter.textContent = approved + ' of ' + boxes.length + ' selected';
 
         saveCardsBtn.disabled = approved === 0;
@@ -360,7 +372,7 @@ document.addEventListener('DOMContentLoaded', function () {
             cardElement.remove();
             refreshApproval();
         } else if (target.classList.contains('edit-card-btn')) {
-            if (!cardData) { cardElement.remove(); return; }
+            if (!cardData) { cardElement.remove(); refreshApproval(); return; }
             cardElement.querySelector('.edit-question').value = cardData.question;
             cardElement.querySelector('.edit-answer').value = cardData.answer;
             cardElement.querySelector('.card-content').style.display = 'none';
@@ -369,7 +381,7 @@ document.addEventListener('DOMContentLoaded', function () {
             cardElement.querySelector('.card-content').style.display = 'block';
             cardElement.querySelector('.edit-form').style.display = 'none';
         } else if (target.classList.contains('save-edit-btn')) {
-            if (!cardData) { cardElement.remove(); return; }
+            if (!cardData) { cardElement.remove(); refreshApproval(); return; }
             const newQuestion = cardElement.querySelector('.edit-question').value;
             const newAnswer = cardElement.querySelector('.edit-answer').value;
 
@@ -392,17 +404,9 @@ document.addEventListener('DOMContentLoaded', function () {
     saveCardsBtn.addEventListener('click', function() {
         if (saveInFlight) return;
 
-        const approvedCards = [];
-        const cardElements = cardsModalBody.querySelectorAll('.card');
-        cardElements.forEach(cardElement => {
-            const index = parseInt(cardElement.dataset.cardIndex, 10);
-            const isApproved = cardElement.querySelector('.approve-checkbox').checked;
-            if (isApproved && generatedCardsData[index]) {
-                approvedCards.push(generatedCardsData[index]);
-            }
-        });
+        const approved = approvedCards();
 
-        if (approvedCards.length === 0) {
+        if (approved.length === 0) {
             window.toast('warning', 'No approved cards to save.');
             return;
         }
@@ -421,7 +425,7 @@ document.addEventListener('DOMContentLoaded', function () {
         window.fetchJson('/api/save-cards', {
             method: 'POST',
             headers: { 'X-CSRF-Token': csrfToken },
-            body: JSON.stringify({ cards: approvedCards })
+            body: JSON.stringify({ cards: approved })
         })
         .then(data => {
             generatedCardsData = []; // Saved — let the discard guard release the modal.

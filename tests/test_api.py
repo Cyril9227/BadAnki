@@ -508,8 +508,6 @@ def test_generation_modal_has_bulk_approval(mock_get_user, client, db_conn):
     assert 'id="approve-all"' in response.text
     assert 'id="approve-count"' in response.text
     assert "function refreshApproval()" in response.text
-    # The Save button grows a count, so its base label has to be captured.
-    assert "const SAVE_LABEL = saveCardsBtn.textContent;" in response.text
 
 @patch("main.supabase.auth.get_user")
 def test_create_card(mock_get_user, client, db_conn):
