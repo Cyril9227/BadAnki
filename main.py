@@ -325,6 +325,19 @@ def get_request_db(request: Request) -> psycopg2.extensions.connection:
         request.state.db = conn
     return conn
 
+
+def release_request_db(request: Request) -> None:
+    """Hand the pooled connection back mid-request, before a long wait.
+
+    The middleware releases in a finally block keyed on request.state.db, so
+    clearing the slot makes this idempotent — and a later get_request_db()
+    simply checks a fresh connection out, which that same finally will return.
+    """
+    conn = getattr(request.state, "db", None)
+    if conn is not None:
+        request.state.db = None
+        release_db_connection(conn)
+
 # --- Pydantic Models ---
 class User(BaseModel):
     auth_user_id: uuid.UUID
@@ -1501,11 +1514,17 @@ async def api_rename_course_item(item: CourseItemRename, conn: psycopg2.extensio
         raise HTTPException(status_code=404, detail="Item not found.")
     return {"success": True}
 
-async def _generate_cards_response(data: CourseContentForGeneration | TopicForGeneration, user: User, mode: str, api_key: Optional[str],
+async def _generate_cards_response(request: Request, data: CourseContentForGeneration | TopicForGeneration, user: User, mode: str, api_key: Optional[str],
                                     source: str = "text", max_cards: int = MAX_GENERATED_CARDS_PER_REQUEST):
     if not data.content.strip():
         raise HTTPException(status_code=400, detail="Content cannot be empty.")
     _check_llm_rate_limit(str(user.auth_user_id))
+    # The middleware opened a connection to resolve the user and would hold it
+    # until this handler returns — across a 10-60s provider call. Production
+    # runs DB_POOL_MAX=2, so two concurrent generations on one warm instance
+    # starved every other request on it. Nothing below here touches the
+    # database; saving the batch is a separate request.
+    release_request_db(request)
     generated_cards = await run_in_threadpool(
         generate_cards,
         data.content,
@@ -1535,12 +1554,12 @@ def _available_providers(user: User) -> list[str]:
     return [p for p in LLM_PROVIDERS if _provider_key(user, p)]
 
 @app.post("/api/generate-cards/{provider}")
-async def api_generate_cards(provider: LLMProvider, data: CourseContentForGeneration, user: User = Depends(get_current_active_user)):
-    return await _generate_cards_response(data, user, mode=provider, api_key=_provider_key(user, provider))
+async def api_generate_cards(provider: LLMProvider, data: CourseContentForGeneration, request: Request, user: User = Depends(get_current_active_user)):
+    return await _generate_cards_response(request, data, user, mode=provider, api_key=_provider_key(user, provider))
 
 @app.post("/api/generate-cards-from-topic/{provider}")
-async def api_generate_cards_from_topic(provider: LLMProvider, data: TopicForGeneration, user: User = Depends(get_current_active_user)):
-    return await _generate_cards_response(data, user, mode=provider, api_key=_provider_key(user, provider),
+async def api_generate_cards_from_topic(provider: LLMProvider, data: TopicForGeneration, request: Request, user: User = Depends(get_current_active_user)):
+    return await _generate_cards_response(request, data, user, mode=provider, api_key=_provider_key(user, provider),
                                           source="topic", max_cards=MAX_TOPIC_CARDS)
 
 @app.post("/api/save-cards")
@@ -1767,10 +1786,14 @@ async def next_review_card(
 
 
 def _review_state_payload(conn, user: User, exclude_ids=None) -> dict:
-    """The next due card plus deck stats, as consumed by the review page JS."""
-    next_card = crud.get_review_cards_for_user(conn, user.auth_user_id, exclude_ids)
-    stats = crud.get_review_stats_for_user(conn, user.auth_user_id)
-    streak = crud.get_review_streak_for_user(conn, user.auth_user_id)
+    """The next due card plus deck stats, as consumed by the review page JS.
+
+    One query, not three: every rating, skip and undo lands here, so each
+    round trip saved is paid back on the app's hottest path.
+    """
+    next_card, stats, streak_current = crud.get_review_state_for_user(
+        conn, user.auth_user_id, exclude_ids
+    )
 
     payload = {
         "next_card": None,
@@ -1780,7 +1803,7 @@ def _review_state_payload(conn, user: User, exclude_ids=None) -> dict:
             "total_cards": stats["total_cards"],
             # None when activity tracking is unavailable — the UI then leaves
             # the streak badge alone.
-            "streak": streak["current"] if streak else None,
+            "streak": streak_current,
         },
     }
     if next_card is not None:

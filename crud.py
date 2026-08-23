@@ -446,6 +446,92 @@ def get_review_stats_for_user(conn, auth_user_id: str):
         return cursor.fetchone()
 
 
+# The review loop reads only `current` off the streak, and a current streak is
+# by definition an unbroken run ending today or yesterday — so a bounded window
+# is all this call site can use, and array_agg stays bounded as history grows.
+REVIEW_STREAK_WINDOW_DAYS = 400
+
+_REVIEW_STATE_QUERY = """
+WITH counters AS (
+    SELECT
+        COUNT(*) AS total_cards,
+        COUNT(*) FILTER (WHERE due_date <= %(now)s) AS due_today,
+        COUNT(*) FILTER (WHERE due_date < %(week_end)s) AS due_week,
+        COUNT(*) FILTER (WHERE interval = 0) AS new_cards,
+        COUNT(*) FILTER (WHERE interval > 0 AND interval < %(mature)s) AS young,
+        COUNT(*) FILTER (WHERE interval >= %(mature)s) AS mature
+    FROM cards WHERE user_id = %(uid)s
+), next_card AS (
+    SELECT id, question, answer, card_type
+    FROM cards
+    WHERE user_id = %(uid)s
+      AND due_date <= %(now)s
+      AND NOT (id = ANY(%(exclude)s::int[]))
+    ORDER BY due_date
+    LIMIT 1
+), activity AS (
+    SELECT array_agg(day ORDER BY day DESC) AS days
+    FROM review_activity
+    WHERE user_id = %(uid)s AND day >= CURRENT_DATE - %(streak_window)s
+)
+SELECT counters.*, activity.days,
+       next_card.id AS card_id, next_card.question, next_card.answer, next_card.card_type
+FROM counters CROSS JOIN activity LEFT JOIN next_card ON true
+"""
+
+
+def get_review_state_for_user(conn, auth_user_id: str, exclude_ids=None):
+    """Everything one turn of the review loop needs, in a single round trip.
+
+    Returns (card_row_or_None, counters_row, current_streak_or_None). Rating,
+    skipping and undoing all re-run this, and it used to be three sequential
+    queries — three pooler round trips on the app's hottest path.
+
+    counters and next_card both scan `cards`, so they were always safe to
+    merge. review_activity is best-effort everywhere else in this module, and
+    folding it in means a missing table would take the card and the counters
+    down with it — hence the fallback, which defers to the three original
+    helpers and their own guards rather than repeating any SQL. The same
+    fallback covers a database old enough to lack the card_type column, which
+    this query names explicitly.
+    """
+    params = {
+        "uid": auth_user_id,
+        "now": datetime.now(),
+        "week_end": datetime.combine(date.today() + timedelta(days=8), datetime.min.time()),
+        "mature": MATURE_INTERVAL_DAYS,
+        # An empty array makes `id = ANY(...)` false for every row, so the
+        # clause needs no conditional assembly.
+        "exclude": list(exclude_ids or []),
+        "streak_window": REVIEW_STREAK_WINDOW_DAYS,
+    }
+    try:
+        with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
+            cursor.execute(_REVIEW_STATE_QUERY, params)
+            row = cursor.fetchone()
+    except Exception as e:
+        logger.info("Combined review-state query unavailable, falling back: %s", e)
+        _rollback_quietly(conn)
+        streak = get_review_streak_for_user(conn, auth_user_id)
+        return (
+            get_review_cards_for_user(conn, auth_user_id, exclude_ids),
+            get_review_stats_for_user(conn, auth_user_id),
+            streak["current"] if streak else None,
+        )
+
+    card = None
+    if row["card_id"] is not None:
+        card = {
+            "id": row["card_id"],
+            "question": row["question"],
+            "answer": row["answer"],
+            "card_type": row["card_type"],
+        }
+    # days is NULL for a user with no activity rows at all.
+    streak_current = _compute_streaks(list(row["days"] or []), date.today())["current"]
+    return card, row, streak_current
+
+
 def get_all_cards_for_user(conn, auth_user_id: str):
     with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
         cursor.execute("SELECT * FROM cards WHERE user_id = %s ORDER BY due_date", (auth_user_id,))
