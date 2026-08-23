@@ -712,6 +712,85 @@ def test_stats_page_unauthenticated(client):
     assert response.status_code == 303
     assert response.headers["location"] == "/auth"
 
+@patch("main.supabase.auth.get_user")
+def test_stats_page_shows_recall_and_deck_composition(mock_get_user, client, db_conn):
+    """The deck card counts new/learning/mature/due-this-week, and the recall
+    tile is present for the client-side computation off the heatmap payload."""
+    auth_client, user_id, _ = authenticate_client(mock_get_user, client, db_conn, email="deckstats@example.com")
+    # One never-rated card (interval 0), one young (interval 5), one mature
+    # (interval 30). Only the new one is due inside the week window.
+    create_test_card(db_conn, user_id, "new", "A")
+    young = create_test_card(db_conn, user_id, "young", "A", due_date=datetime.now() + timedelta(days=40))
+    mature = create_test_card(db_conn, user_id, "mature", "A", due_date=datetime.now() + timedelta(days=40))
+    with db_conn.cursor() as cur:
+        cur.execute("UPDATE cards SET interval = 5 WHERE id = %s", (young,))
+        cur.execute("UPDATE cards SET interval = 30 WHERE id = %s", (mature,))
+        db_conn.commit()
+
+    composition = crud.get_deck_composition_for_user(db_conn, user_id)
+    assert composition["total"] == 3
+    assert composition["new_cards"] == 1
+    assert composition["young"] == 1
+    assert composition["mature"] == 1
+    assert composition["due_week"] == 1  # the two 40-days-out cards are outside it
+
+    response = auth_client.get("/stats")
+    assert response.status_code == 200
+    assert ">Deck</div>" in response.text  # the deck card's header
+    assert 'id="stat-recall"' in response.text
+    assert "due this week" in response.text
+
+@patch("main.supabase.auth.get_user")
+def test_stats_deck_card_survives_missing_activity_table(mock_get_user, client, db_conn):
+    """Deck make-up reads `cards`, so it still renders when activity tracking
+    (and therefore the heatmap) is unavailable."""
+    auth_client, user_id, _ = authenticate_client(mock_get_user, client, db_conn, email="deckonly@example.com")
+    create_test_card(db_conn, user_id, "Q", "A")
+
+    with patch("crud.get_review_heatmap_for_user", return_value=None):
+        response = auth_client.get("/stats")
+    assert response.status_code == 200
+    assert "Review Heatmap" not in response.text
+    assert "due this week" in response.text
+
+@patch("main.supabase.auth.get_user")
+def test_home_shows_deck_status_when_signed_in(mock_get_user, client, db_conn):
+    """Signed-in visitors get the due count (hero copy + button badge), their
+    streak and the deck size; anonymous visitors keep the generic pitch."""
+    auth_client, user_id, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="deckhome@example.com")
+    card_id = create_test_card(db_conn, user_id, "Q", "A")
+    create_test_card(db_conn, user_id, "Q2", "A2", due_date=datetime.now() + timedelta(days=30))
+    auth_client.post(
+        f"/review/{card_id}",
+        data={"status": "remembered"},
+        headers={"X-CSRF-Token": csrf_token},
+        follow_redirects=False,
+    )
+
+    # Both cards are now scheduled ahead, so the deck reads as caught up.
+    response = auth_client.get("/")
+    assert response.status_code == 200
+    assert "all caught up" in response.text
+    assert "<strong>2</strong> cards in your deck" in response.text
+    assert "1</strong>-day streak" in response.text
+    assert "Welcome to your personal spaced repetition" not in response.text
+
+    auth_client.cookies.delete("access_token")
+    response = auth_client.get("/")
+    assert response.status_code == 200
+    assert "Welcome to your personal spaced repetition" in response.text
+    assert "in your deck" not in response.text
+
+@patch("main.supabase.auth.get_user")
+def test_home_counts_due_cards(mock_get_user, client, db_conn):
+    auth_client, user_id, _ = authenticate_client(mock_get_user, client, db_conn, email="duehome@example.com")
+    create_test_card(db_conn, user_id, "Q1", "A1")
+    create_test_card(db_conn, user_id, "Q2", "A2")
+
+    response = auth_client.get("/")
+    assert response.status_code == 200
+    assert "You have <strong>2</strong> cards due for review." in response.text
+
 # --- AI Card Generation Tests ---
 @patch("main.supabase.auth.get_user")
 @patch("main.generate_cards")

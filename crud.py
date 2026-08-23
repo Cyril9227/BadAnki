@@ -418,6 +418,37 @@ def get_review_stats_for_user(conn, auth_user_id: str):
         return cursor.fetchone()
 
 
+# Anki's convention: a card is "mature" once its interval reaches three weeks.
+MATURE_INTERVAL_DAYS = 21
+
+
+def get_deck_composition_for_user(conn, auth_user_id: str):
+    """Deck make-up for the stats page, in one pass over the user's cards.
+
+    `interval = 0` is exactly "never rated": every rating moves the interval
+    to at least INITIAL_INTERVAL. Kept separate from get_review_stats_for_user
+    rather than folded into it: that one sits on the review hot path (every
+    rating, skip and undo re-runs it), while this only renders on /stats.
+    """
+    query = """
+    SELECT
+        COUNT(*) AS total,
+        COUNT(*) FILTER (WHERE interval = 0) AS new_cards,
+        COUNT(*) FILTER (WHERE interval > 0 AND interval < %s) AS young,
+        COUNT(*) FILTER (WHERE interval >= %s) AS mature,
+        COUNT(*) FILTER (WHERE due_date < %s) AS due_week
+    FROM cards WHERE user_id = %s;
+    """
+    # A plain timestamp bound (not due_date::date) keeps the (user_id,
+    # due_date) index usable, as in get_review_heatmap_for_user. The window
+    # runs to the end of the seventh day ahead and counts anything already
+    # overdue, so the tile reads as "work waiting in the next week".
+    week_end = datetime.combine(date.today() + timedelta(days=8), datetime.min.time())
+    with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
+        cursor.execute(query, (MATURE_INTERVAL_DAYS, MATURE_INTERVAL_DAYS, week_end, auth_user_id))
+        return cursor.fetchone()
+
+
 def get_all_cards_for_user(conn, auth_user_id: str):
     with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
         cursor.execute("SELECT * FROM cards WHERE user_id = %s ORDER BY due_date", (auth_user_id,))

@@ -113,6 +113,34 @@
 <div class="container mt-4" style="max-width: 60rem;">
     <h2 class="mb-4">Stats</h2>
 
+    {# Deck make-up reads the cards table, so it renders whether or not
+       activity tracking (and therefore the heatmap below) is available. #}
+    {% if deck and deck.total %}
+    <div class="card mb-4">
+        <div class="card-header">Deck</div>
+        <div class="card-body">
+            <div class="row row-cols-2 row-cols-lg-4 text-center gy-3">
+                <div class="stat-tile" title="Cards you have never rated">
+                    <div class="stat-value">{{ deck.new_cards }}</div>
+                    <div class="stat-label">new</div>
+                </div>
+                <div class="stat-tile" title="Rated at least once, coming back within three weeks">
+                    <div class="stat-value">{{ deck.young }}</div>
+                    <div class="stat-label">learning</div>
+                </div>
+                <div class="stat-tile" title="Scheduled three weeks or further out — these are the ones that stuck">
+                    <div class="stat-value">{{ deck.mature }}</div>
+                    <div class="stat-label">mature</div>
+                </div>
+                <div class="stat-tile" title="Due now or within the next seven days">
+                    <div class="stat-value">{{ deck.due_week }}</div>
+                    <div class="stat-label">due this week</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     {% if heatmap is none %}
     <div class="card">
         <div class="card-body text-center text-muted py-5">
@@ -122,20 +150,28 @@
     {% else %}
     <div class="card mb-4">
         <div class="card-body">
-            <div class="row text-center gy-3">
-                <div class="col-6 col-sm-3 stat-tile">
+            {# row-cols rather than col-6 col-sm-3: five tiles need a grid that
+               divides cleanly at each breakpoint. justify-content-center only
+               bites on the ragged last row (one tile at 2- and 3-across), where
+               it centers the leftover instead of stranding it on the left. #}
+            <div class="row row-cols-2 row-cols-sm-3 row-cols-lg-5 justify-content-center text-center gy-3">
+                <div class="stat-tile">
                     <div class="stat-value" id="stat-average">–</div>
                     <div class="stat-label">daily average</div>
                 </div>
-                <div class="col-6 col-sm-3 stat-tile">
+                <div class="stat-tile" title="Share of your ratings answered Remembered, over the last 12 months">
+                    <div class="stat-value" id="stat-recall">–</div>
+                    <div class="stat-label">recall</div>
+                </div>
+                <div class="stat-tile">
                     <div class="stat-value" id="stat-learned">–</div>
                     <div class="stat-label">days learned</div>
                 </div>
-                <div class="col-6 col-sm-3 stat-tile">
+                <div class="stat-tile">
                     <div class="stat-value" id="stat-longest">–</div>
                     <div class="stat-label">longest streak</div>
                 </div>
-                <div class="col-6 col-sm-3 stat-tile">
+                <div class="stat-tile">
                     <div class="stat-value" id="stat-current">–</div>
                     <div class="stat-label">current streak</div>
                 </div>
@@ -211,15 +247,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Stat tiles: averages over the days since the first activity in the
     // window (so a new user isn't diluted by a year of empty days). ---
-    let totalReviews = 0, activeDays = 0, firstActive = null;
+    let totalReviews = 0, totalRemembered = 0, activeDays = 0, firstActive = null;
     for (const a of data.heatmap.activity) {
         totalReviews += a.reviews;
+        totalRemembered += a.remembered;
         activeDays += 1;
         if (firstActive === null) firstActive = toUtc(a.day);
     }
     const spanDays = firstActive === null ? 0 : Math.round((today - firstActive) / DAY_MS) + 1;
     document.getElementById('stat-average').textContent =
         spanDays ? (totalReviews / spanDays).toFixed(1) : '0';
+    // Recall needs no new query: the remembered count has been recorded
+    // alongside reviews all along and only ever surfaced in a cell tooltip.
+    document.getElementById('stat-recall').textContent =
+        totalReviews ? Math.round(totalRemembered / totalReviews * 100) + '%' : '–';
     // Percentage of days with at least one review — the Anki heatmap addon's
     // own "days learned" convention; the tooltip spells out the count.
     const learned = document.getElementById('stat-learned');
