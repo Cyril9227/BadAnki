@@ -877,6 +877,67 @@ def test_bulk_delete_cards_scoped_to_owner(mock_get_user, client, db_conn):
     cur.close()
     assert remaining == {keep, foreign}
 
+# --- Deck Export Tests ---
+@patch("main.supabase.auth.get_user")
+def test_export_cards_round_trips_the_deck(mock_get_user, client, db_conn):
+    """Export is a backup, so it carries scheduling as well as text, and has
+    to survive content that would break a naive CSV writer."""
+    import csv as _csv, io as _io
+
+    auth_client, user_id, _ = authenticate_client(mock_get_user, client, db_conn, email="exporter@example.com")
+    tricky_q = 'Line one, with a comma\nand a "quoted" second line: $e^{i\\pi}$'
+    card_id = create_test_card(db_conn, user_id, tricky_q, "The answer")
+    with db_conn.cursor() as cur:
+        cur.execute("UPDATE cards SET card_type = 'cloze', interval = 7 WHERE id = %s", (card_id,))
+        db_conn.commit()
+
+    response = auth_client.get("/api/export-cards")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert "attachment; filename=\"badanki-cards-" in response.headers["content-disposition"]
+
+    rows = list(_csv.DictReader(_io.StringIO(response.text, newline="")))
+    assert len(rows) == 1
+    assert rows[0]["question"] == tricky_q      # commas, quotes, newlines, LaTeX
+    assert rows[0]["answer"] == "The answer"
+    assert rows[0]["card_type"] == "cloze"
+    assert rows[0]["interval"] == "7"
+    assert rows[0]["ease_factor"] == "2.5"
+    assert rows[0]["due_date"]                  # scheduling rides along
+    assert "user_id" not in rows[0]             # same on every row, meaningless outside this DB
+
+@patch("main.supabase.auth.get_user")
+def test_export_cards_only_returns_your_own(mock_get_user, client, db_conn):
+    import csv as _csv, io as _io
+
+    auth_client, user_id, _ = authenticate_client(mock_get_user, client, db_conn, email="exportmine@example.com")
+    other_id = create_test_user(db_conn, email="exportnotmine@example.com")
+    create_test_card(db_conn, user_id, "Mine", "A")
+    create_test_card(db_conn, other_id, "Theirs", "A")
+
+    response = auth_client.get("/api/export-cards")
+    questions = [row["question"] for row in _csv.DictReader(_io.StringIO(response.text, newline=""))]
+    assert questions == ["Mine"]
+
+@patch("main.supabase.auth.get_user")
+def test_export_cards_on_an_empty_deck_is_a_header_only_file(mock_get_user, client, db_conn):
+    auth_client, _, _ = authenticate_client(mock_get_user, client, db_conn, email="exportempty@example.com")
+    response = auth_client.get("/api/export-cards")
+    assert response.status_code == 200
+    assert response.text.strip() == "id,card_type,question,answer,due_date,interval,ease_factor"
+
+def test_export_cards_requires_login(client):
+    response = client.get("/api/export-cards", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/auth"
+
+@patch("main.supabase.auth.get_user")
+def test_settings_offers_the_export(mock_get_user, client, db_conn):
+    auth_client, _, _ = authenticate_client(mock_get_user, client, db_conn, email="exportlink@example.com")
+    response = auth_client.get("/settings")
+    assert response.status_code == 200
+    assert 'href="/api/export-cards"' in response.text
+
 # --- Account Deletion Tests ---
 @patch("main.supabase.auth.get_user")
 def test_delete_account_requires_service_key(mock_get_user, client, db_conn, monkeypatch):

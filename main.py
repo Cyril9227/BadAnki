@@ -2,6 +2,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Standard library
+import csv
+import io
 import json
 import logging
 import os
@@ -1519,6 +1521,49 @@ async def api_delete_cards(data: CardIds, conn: psycopg2.extensions.connection =
     form endpoint remains as the no-JS path)."""
     deleted = crud.delete_cards_for_user(conn, data.ids, user.auth_user_id)
     return {"success": True, "deleted": deleted}
+
+# Question and answer are the deck; the scheduling columns ride along so an
+# export is a restorable backup and not just the text. user_id is deliberately
+# left out — it is the same value on every row and means nothing outside this
+# database.
+CARD_EXPORT_COLUMNS = ("id", "card_type", "question", "answer", "due_date", "interval", "ease_factor")
+
+
+@app.get("/api/export-cards")
+async def export_cards(conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
+    """The whole deck as CSV. Buffered rather than streamed on purpose: the
+    request-scoped connection is released by the middleware as soon as the
+    handler returns, which a lazy generator would outlive."""
+    cards = crud.get_all_cards_for_user(conn, user.auth_user_id)
+
+    # newline="" per the csv docs — csv.writer emits its own \r\n terminators.
+    buffer = io.StringIO(newline="")
+    writer = csv.writer(buffer)
+    writer.writerow(CARD_EXPORT_COLUMNS)
+    for card in cards:
+        row = dict(card)
+        due_date = row.get("due_date")
+        # Values go out verbatim. Prefixing a leading =/+/-/@ would defuse
+        # spreadsheet formula injection, but this is the user's own content
+        # coming back to them, and mangling it would break the round trip that
+        # is the entire point of the export.
+        writer.writerow([
+            row.get("id"),
+            row.get("card_type") or "basic",
+            row.get("question") or "",
+            row.get("answer") or "",
+            due_date.isoformat(sep=" ") if due_date else "",
+            row.get("interval"),
+            row.get("ease_factor"),
+        ])
+
+    filename = f"badanki-cards-{datetime.now():%Y-%m-%d}.csv"
+    return Response(
+        content=buffer.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
 
 @app.get("/api/tags")
 async def api_get_tags(conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
