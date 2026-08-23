@@ -190,7 +190,12 @@
                 renderMarkdown(questionContent, cardData.question);
             }
             renderMarkdown(answerContent, cardData.answer);
-            typesetMath([questionContent]);
+            // Typeset the answer now, not at reveal. hasMath reads textContent,
+            // which display:none doesn't affect, so a card whose math lives
+            // only in the answer used to start the ~1MB fetch on Show Answer —
+            // flashing raw LaTeX and reflowing the card under the user's thumb
+            // mid-rating.
+            typesetMath([questionContent, answerSection]);
         }
 
         function showAnswer() {

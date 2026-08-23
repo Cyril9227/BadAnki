@@ -287,7 +287,11 @@ document.addEventListener('DOMContentLoaded', function () {
         });
 
         cardsModalBody.appendChild(container);
-        window.typesetMath([cardsModalBody]);
+        // The batch just built, not the whole body: passing cardsModalBody
+        // re-scanned and re-typeset every earlier batch, and its textContent
+        // concatenates across cards with no separator, so a question ending in
+        // "$" next to an answer starting with "$" read as inline math.
+        window.typesetMath([container]);
     }
 
     cardsModalBody.addEventListener('click', function(e) {

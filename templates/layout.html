@@ -566,9 +566,18 @@
     // is a bare config object until the async bundle lands" guard, and content
     // rendered after load (next review card, generated cards, live previews)
     // no longer depends on MathJax's startup pass having happened to catch it.
+    // A LaTeX environment needs no delimiters: MathJax's processEnvironments
+    // is on by default, so \begin{pmatrix}...\end{pmatrix} written bare is
+    // typeset like any other math. The masking pass deliberately doesn't
+    // stash it (marked has always seen it, and changing that would change how
+    // it renders), so the *gate* below has to know about it separately —
+    // otherwise the bundle is never fetched and the card shows raw LaTeX.
+    // Verified against the pinned bundle: bare environments typeset, while
+    // bare \frac / \sum do not, so only environments belong here.
+    const MATH_ENVIRONMENT = /\\begin\{[a-zA-Z*]+\}/;
     // The same-source clone drops MATH_SEGMENT's /g flag, whose lastIndex would
     // make .test() alternate between true and false on repeated calls.
-    const MATH_PRESENT = new RegExp(MATH_SEGMENT.source);
+    const MATH_DELIMITED = new RegExp(MATH_SEGMENT.source);
     let mathJaxReady = null;
 
     function loadMathJax() {
@@ -585,16 +594,27 @@
             script.id = 'MathJax-script';
             script.src = 'https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js';
             script.onload = function () { resolve(window.MathJax.startup.promise); };
-            script.onerror = function () { reject(new Error('MathJax bundle failed to load')); };
+            script.onerror = function () {
+                // Clear the memo first: without this the rejected promise is
+                // what every later call gets back, so one flaky fetch leaves
+                // the rest of the session showing raw LaTeX with no retry.
+                mathJaxReady = null;
+                script.remove();
+                reject(new Error('MathJax bundle failed to load'));
+            };
             document.head.appendChild(script);
         });
         return mathJaxReady;
     }
 
-    // Does this text carry anything MathJax would typeset? Deliberately the
-    // same test the masking pass uses, so "we loaded the bundle" and "there was
-    // math to render" can't disagree.
-    window.hasMath = function (text) { return !!text && MATH_PRESENT.test(text); };
+    // Does this text carry anything MathJax would typeset? Delimited math is
+    // the masking pass's own test; environments are deliberately wider than it,
+    // because marked sees those unmasked but MathJax still typesets them. The
+    // question this answers is "will the bundle have work to do", which is not
+    // quite "what did we mask".
+    window.hasMath = function (text) {
+        return !!text && (MATH_DELIMITED.test(text) || MATH_ENVIRONMENT.test(text));
+    };
 
     // Typeset the given elements, loading MathJax first if this is the first
     // math on the page. A no-op — and no download — when none of them have any.
