@@ -109,6 +109,18 @@
     <div class="card mt-4">
         <div class="card-header">{{ icon('user') }} Account</div>
         <div class="card-body">
+            {# Export sits directly above delete on purpose: the way out of the
+               app should be next to the way to take your deck with you. #}
+            <div class="d-flex justify-content-between align-items-center gap-3 flex-wrap">
+                <span class="text-muted small">
+                    Download every card as CSV — question, answer and scheduling —
+                    to import into Anki or another app, or keep as a backup.
+                </span>
+                <a href="/api/export-cards" class="btn btn-outline-secondary text-nowrap" download>
+                    {{ icon('download', 14) }} Export deck
+                </a>
+            </div>
+            <hr>
             <div class="d-flex justify-content-between align-items-center gap-3 flex-wrap">
                 <span class="text-muted small">
                     Deleting your account permanently removes your login, courses,
