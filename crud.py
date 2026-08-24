@@ -148,9 +148,9 @@ def _exec_folders(conn, sql: str, params: tuple) -> int:
 
 def _get_folder_paths(conn, auth_user_id: str) -> list:
     try:
-        with conn.cursor() as cursor:
+        with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
             cursor.execute("SELECT path FROM folders WHERE user_id = %s", (auth_user_id,))
-            return [row[0] for row in cursor.fetchall()]
+            return [row["path"] for row in cursor.fetchall()]
     except Exception as e:
         logger.info("Folders table unavailable: %s", e)
         _rollback_quietly(conn)
@@ -825,12 +825,15 @@ def _compute_streaks(days: list, today: date) -> dict:
 def get_review_streak_for_user(conn, auth_user_id: str):
     """Returns the user's streak dict, or None when tracking is unavailable."""
     try:
-        with conn.cursor() as cursor:
+        # Name the cursor factory rather than inheriting the connection's:
+        # positional row access silently breaks on a dict-cursor connection,
+        # and the except below would report that as "tracking unavailable".
+        with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
             cursor.execute(
                 "SELECT day FROM review_activity WHERE user_id = %s ORDER BY day DESC",
                 (auth_user_id,),
             )
-            days = [row[0] for row in cursor.fetchall()]
+            days = [row["day"] for row in cursor.fetchall()]
     except Exception as e:
         logger.info("Review activity tracking unavailable: %s", e)
         _rollback_quietly(conn)
@@ -846,7 +849,10 @@ def get_review_heatmap_for_user(conn, auth_user_id: str, days: int = 371, foreca
     the query never scans past what the page can show. Returns None when
     activity tracking is unavailable, like the other gamification helpers."""
     try:
-        with conn.cursor() as cursor:
+        # Explicit cursor factory: positional row access silently breaks on a
+        # dict-cursor connection, which the except below would misreport as
+        # "tracking unavailable".
+        with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
             cursor.execute(
                 """
                 SELECT day, reviews, remembered FROM review_activity
@@ -856,14 +862,14 @@ def get_review_heatmap_for_user(conn, auth_user_id: str, days: int = 371, foreca
                 (auth_user_id, days),
             )
             activity = [
-                {"day": day.isoformat(), "reviews": reviews, "remembered": remembered}
-                for day, reviews, remembered in cursor.fetchall()
+                {"day": r["day"].isoformat(), "reviews": r["reviews"], "remembered": r["remembered"]}
+                for r in cursor.fetchall()
             ]
             # Plain timestamp comparisons (not `due_date::date > CURRENT_DATE`)
             # so the (user_id, due_date) index stays usable.
             cursor.execute(
                 """
-                SELECT due_date::date AS day, COUNT(*) FROM cards
+                SELECT due_date::date AS day, COUNT(*) AS due FROM cards
                 WHERE user_id = %s
                   AND due_date >= CURRENT_DATE + 1
                   AND due_date < CURRENT_DATE + 1 + %s
@@ -873,8 +879,8 @@ def get_review_heatmap_for_user(conn, auth_user_id: str, days: int = 371, foreca
                 (auth_user_id, forecast_days),
             )
             forecast = [
-                {"day": day.isoformat(), "due": due}
-                for day, due in cursor.fetchall()
+                {"day": r["day"].isoformat(), "due": r["due"]}
+                for r in cursor.fetchall()
             ]
     except Exception as e:
         logger.info("Review activity tracking unavailable: %s", e)
@@ -914,13 +920,13 @@ def get_leaderboard(conn, auth_user_id: str, days: int = 30, limit: int = 10):
     activity = {}
     if rows:
         try:
-            with conn.cursor() as cursor:
+            with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
                 cursor.execute(
                     "SELECT user_id, day FROM review_activity WHERE user_id = ANY(%s) ORDER BY day DESC",
                     ([row["user_id"] for row in rows],),
                 )
-                for user_id, day in cursor.fetchall():
-                    activity.setdefault(user_id, []).append(day)
+                for r in cursor.fetchall():
+                    activity.setdefault(r["user_id"], []).append(r["day"])
         except Exception as e:
             logger.info("Streaks unavailable, rendering leaderboard without them: %s", e)
             _rollback_quietly(conn)
