@@ -57,9 +57,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
     let generateInFlight = false;
     const SAVE_LABEL = 'Save Approved Cards';  // matches the button markup above
+    let batchTags = [];  // themes to stamp on this batch (see handleGenerateCards)
 
     // This function is now globally available
-    window.handleGenerateCards = function(apiUrl, contentProvider, csrfToken, cardType = 'basic') {
+    // seedTags: themes stamped on every card of this batch at save time. The
+    // course page passes its own frontmatter tags, so a generated deck arrives
+    // already themed instead of needing to be tagged by hand afterwards.
+    window.handleGenerateCards = function(apiUrl, contentProvider, csrfToken, cardType = 'basic', seedTags = []) {
         if (generateInFlight) return;  // Ignore re-entrant clicks while a request is pending.
 
         // Cookie is more reliable than a hidden input on cached pages.
@@ -75,7 +79,8 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
-        lastRequest = { apiUrl, contentProvider, csrfToken, cardType };
+        lastRequest = { apiUrl, contentProvider, csrfToken, cardType, seedTags };
+        batchTags = Array.isArray(seedTags) ? seedTags : [];
 
         // Clear any stale intervals from a previous run before starting a new one.
         if (messageInterval) clearInterval(messageInterval);
@@ -174,7 +179,8 @@ document.addEventListener('DOMContentLoaded', function () {
         retry.textContent = 'Try again';
         retry.addEventListener('click', function () {
             if (lastRequest) {
-                window.handleGenerateCards(lastRequest.apiUrl, lastRequest.contentProvider, lastRequest.csrfToken, lastRequest.cardType);
+                window.handleGenerateCards(lastRequest.apiUrl, lastRequest.contentProvider,
+                                           lastRequest.csrfToken, lastRequest.cardType, lastRequest.seedTags);
             }
         });
         cardsModalBody.append(message, retry);
@@ -425,7 +431,11 @@ document.addEventListener('DOMContentLoaded', function () {
         window.fetchJson('/api/save-cards', {
             method: 'POST',
             headers: { 'X-CSRF-Token': csrfToken },
-            body: JSON.stringify({ cards: approved })
+            body: JSON.stringify({
+                cards: batchTags.length
+                    ? approved.map(function (c) { return Object.assign({}, c, { tags: batchTags }); })
+                    : approved
+            })
         })
         .then(data => {
             generatedCardsData = []; // Saved — let the discard guard release the modal.

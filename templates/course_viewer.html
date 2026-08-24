@@ -238,6 +238,8 @@
 
         // --- Card Generation Logic ---
         const csrfToken = document.getElementById('csrf-token').value;
+        // This course's frontmatter tags become the generated cards' themes.
+        const COURSE_TAGS = {{ (metadata.get('tags') or []) | tojson }};
         function getSelectedCardType() {
             return document.querySelector('input[name="card-type"]:checked')?.value || 'basic';
         }
@@ -250,7 +252,8 @@
                 `/api/generate-cards/${item.dataset.provider}`,
                 () => document.getElementById('raw-content').textContent,
                 csrfToken,
-                getSelectedCardType()
+                getSelectedCardType(),
+                COURSE_TAGS
             );
         });
     });

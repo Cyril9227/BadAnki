@@ -77,6 +77,14 @@
                         <textarea name="answer" id="answer-input" class="form-control" rows="4" required></textarea>
                         <div id="cloze-answer-note" class="form-text" style="display: none;">Auto-filled from the cloze syntax — edit if needed.</div>
                     </div>
+                    {% if tags_enabled %}
+                    <div class="mb-3">
+                        <label for="tags-input" class="form-label fw-semibold">Themes <span class="text-body-secondary fw-normal">(optional)</span></label>
+                        <input type="text" name="tags" id="tags-input" class="form-control"
+                               placeholder="maths, algebra" autocomplete="off">
+                        <div class="form-text">Comma-separated. Themes let you review one subject at a time from the home page.</div>
+                    </div>
+                    {% endif %}
                     {# Desktop only — on mobile Save renders after the preview,
                        so the flow reads type → check → save without the
                        preview being pushed below the fold. #}
