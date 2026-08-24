@@ -839,7 +839,9 @@ def test_review_state_falls_back_when_the_combined_query_fails(pg_container, db_
     """review_activity is best-effort, so folding it into the same statement
     must not be able to take the card and counters down with it."""
     user_id, due = _seed_review_state(db_conn, "combinedfallback@example.com")
-    monkeypatch.setattr(crud, "_REVIEW_STATE_QUERY", "SELECT * FROM table_that_is_not_here")
+    # No placeholders, so .format(tag_clause=...) leaves it alone and the
+    # execute raises — which is the point.
+    monkeypatch.setattr(crud, "_REVIEW_STATE_QUERY_TEMPLATE", "SELECT * FROM table_that_is_not_here")
 
     card, counters, streak_current = crud.get_review_state_for_user(db_conn, user_id)
     assert card["id"] == due
