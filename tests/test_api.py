@@ -637,6 +637,22 @@ def test_review_page_submits_rating_via_ajax(mock_get_user, client, db_conn):
     assert 'action="/review/' in response.text
 
 @patch("main.supabase.auth.get_user")
+def test_sweetalert_is_not_shipped_to_pages_that_never_open_a_dialog(mock_get_user, client, db_conn):
+    """~26 KB of JS+CSS used to load on every page for the five that use it.
+    /review is the hot path and opens no dialogs."""
+    auth_client, user_id, _ = authenticate_client(mock_get_user, client, db_conn, email="noswal@example.com")
+    create_test_card(db_conn, user_id, "Q", "A")
+
+    for path in ("/review", "/"):
+        body = auth_client.get(path).text
+        assert '<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>' not in body
+        assert "sweetalert2.min.css\" rel=\"stylesheet\"" not in body
+        assert '<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11' not in body
+        # ...but the lazy entry point is there for anything that does need it.
+        assert "function loadSweetAlert()" in body
+        assert "window.swalClasses" in body
+
+@patch("main.supabase.auth.get_user")
 def test_review_page_is_screen_reader_navigable(mock_get_user, client, db_conn):
     """Card swaps rewrite text in place, so the loop needs a labelled region,
     a polite status region to narrate navigation, and shortcut hints that
@@ -772,6 +788,70 @@ def test_next_card_respects_exclude(mock_get_user, client, db_conn):
     assert response.status_code == 200
     assert response.json()["next_card"] is None
 
+
+def _seed_review_state(db_conn, email):
+    """A deck with one due card, one scheduled ahead, and two days of activity
+    ending yesterday — enough to exercise every branch of the combined query."""
+    user_id = create_test_user(db_conn, email=email)
+    due = create_test_card(db_conn, user_id, "Due now", "A")
+    later = create_test_card(db_conn, user_id, "Later", "A",
+                             due_date=datetime.now() + timedelta(days=40))
+    with db_conn.cursor() as cur:
+        cur.execute("UPDATE cards SET interval = 30 WHERE id = %s", (later,))
+        cur.execute(
+            "INSERT INTO review_activity (user_id, day, reviews, remembered) VALUES"
+            " (%s, CURRENT_DATE - 1, 4, 3), (%s, CURRENT_DATE - 2, 2, 2)",
+            (str(user_id), str(user_id)),
+        )
+        db_conn.commit()
+    return user_id, due
+
+def test_review_state_one_query_matches_the_three_helpers(pg_container, db_conn):
+    """The combined query has to be a drop-in for the three reads it replaced,
+    so assert it against them rather than against hand-written expectations."""
+    user_id, due = _seed_review_state(db_conn, "combined@example.com")
+
+    card, counters, streak_current = crud.get_review_state_for_user(db_conn, user_id)
+    want_card = crud.get_review_cards_for_user(db_conn, user_id)
+    want_counters = crud.get_review_stats_for_user(db_conn, user_id)
+    want_streak = crud.get_review_streak_for_user(db_conn, user_id)
+
+    assert card["id"] == want_card["id"] == due
+    assert card["question"] == want_card["question"]
+    assert card["answer"] == want_card["answer"]
+    assert card["card_type"] == want_card["card_type"]
+    for key in ("total_cards", "due_today", "due_week", "new_cards", "young", "mature"):
+        assert counters[key] == want_counters[key], key
+    # Activity ends yesterday, so the streak is alive but at risk: 2 days.
+    assert streak_current == want_streak["current"] == 2
+
+def test_review_state_excludes_skipped_cards(pg_container, db_conn):
+    user_id, due = _seed_review_state(db_conn, "combinedskip@example.com")
+
+    card, counters, _ = crud.get_review_state_for_user(db_conn, user_id, exclude_ids=[due])
+    assert card is None                 # the only due card was set aside
+    assert counters["due_today"] == 1   # ...but it is still counted as due
+    # An empty exclude list must not filter anything out.
+    card, _, _ = crud.get_review_state_for_user(db_conn, user_id, exclude_ids=[])
+    assert card["id"] == due
+
+def test_review_state_falls_back_when_the_combined_query_fails(pg_container, db_conn, monkeypatch):
+    """review_activity is best-effort, so folding it into the same statement
+    must not be able to take the card and counters down with it."""
+    user_id, due = _seed_review_state(db_conn, "combinedfallback@example.com")
+    monkeypatch.setattr(crud, "_REVIEW_STATE_QUERY", "SELECT * FROM table_that_is_not_here")
+
+    card, counters, streak_current = crud.get_review_state_for_user(db_conn, user_id)
+    assert card["id"] == due
+    assert counters["total_cards"] == 2
+    assert streak_current == 2
+
+def test_review_state_on_an_empty_deck(pg_container, db_conn):
+    user_id = create_test_user(db_conn, email="combinedempty@example.com")
+    card, counters, streak_current = crud.get_review_state_for_user(db_conn, user_id)
+    assert card is None
+    assert counters["total_cards"] == 0
+    assert streak_current == 0  # no activity rows at all -> array_agg is NULL
 
 @patch("main.supabase.auth.get_user")
 def test_all_done_page_shows_streak(mock_get_user, client, db_conn):
@@ -936,6 +1016,48 @@ def test_home_counts_due_cards(mock_get_user, client, db_conn):
     assert "You have <strong>2</strong> cards due for review." in response.text
 
 # --- AI Card Generation Tests ---
+@patch("main.supabase.auth.get_user")
+@patch("main.generate_cards")
+def test_generate_cards_releases_the_db_before_the_provider_call(mock_generate_cards, mock_get_user, client, db_conn):
+    """The middleware would otherwise hold a pooled connection for the whole
+    10-60s provider call. Production runs DB_POOL_MAX=2, so that starved
+    everything else on the instance."""
+    from database import get_db_pool
+
+    observed = {}
+
+    def record_pool_state(*args, **kwargs):
+        # Runs inside run_in_threadpool, i.e. exactly while the request is
+        # waiting on the provider. db_conn is a direct connect(), not pooled.
+        observed["checked_out"] = len(get_db_pool()._used)
+        return [{"question": "Q", "answer": "A"}]
+
+    mock_generate_cards.side_effect = record_pool_state
+    auth_client, _, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="poolrelease@example.com")
+
+    response = auth_client.post(
+        "/api/generate-cards/gemini",
+        json={"content": "Some course text"},
+        headers={"X-CSRF-Token": csrf_token},
+    )
+    assert response.status_code == 200
+    assert response.json()["cards"] == [{"question": "Q", "answer": "A"}]
+    assert observed["checked_out"] == 0, "connection was still held during the provider call"
+
+def test_release_request_db_is_idempotent():
+    """The middleware releases in a finally block keyed on request.state.db, so
+    releasing early must clear the slot or the connection goes back twice."""
+    from main import release_request_db
+    import types as _types
+
+    released = []
+    request = _types.SimpleNamespace(state=_types.SimpleNamespace(db="conn-sentinel"))
+    with patch("main.release_db_connection", side_effect=released.append):
+        release_request_db(request)
+        release_request_db(request)  # second call must be a no-op
+    assert released == ["conn-sentinel"]
+    assert request.state.db is None
+
 @patch("main.supabase.auth.get_user")
 @patch("main.generate_cards")
 def test_generate_cards_api_success(mock_generate_cards, mock_get_user, client, db_conn):
