@@ -264,7 +264,10 @@
             </thead>
             <tbody>
                 {% for card in cards %}
-                <tr data-question="{{ card.question }}" data-card-id="{{ card.id }}">
+                {# data-card-row is just a marker: the question already ships
+                   once in the cell below, and duplicating it here doubled the
+                   question bytes on every row of the page. #}
+                <tr data-card-row data-card-id="{{ card.id }}">
                     <td class="select-col">
                         <input type="checkbox" class="form-check-input row-select" aria-label="Select card">
                     </td>
@@ -311,7 +314,7 @@ document.addEventListener('DOMContentLoaded', function () {
     // column sorting still cover the whole deck — they read the raw data-*
     // attributes, which exist whether or not a row has been rendered yet.
     const PAGE_SIZE = 50;
-    const allRows = Array.from(document.querySelectorAll('tr[data-question]'));
+    const allRows = Array.from(document.querySelectorAll('tr[data-card-row]'));
     const tbody = document.querySelector('table tbody');
     const searchInput = document.getElementById('card-search');
     const typeFilter = document.getElementById('card-type-filter');
@@ -324,9 +327,17 @@ document.addEventListener('DOMContentLoaded', function () {
     let revealLimit = PAGE_SIZE;
 
     // Cheap upfront pass: the card type feeds the filter and the Type column
-    // sort, so every row needs it before any rendering happens.
+    // sort, so every row needs it before any rendering happens. The same pass
+    // builds the search index — refresh() used to re-read the answer cell and
+    // lowercase both fields for every row on every keystroke, which on a large
+    // deck is megabytes of string work per character typed.
     allRows.forEach(function (row) {
-        row.dataset.type = window.isClozeText(row.dataset.question) ? 'cloze' : 'basic';
+        const question = row.querySelector('.question-col').dataset.content || '';
+        const answer = row.querySelector('.answer-col').dataset.content || '';
+        row.dataset.type = window.isClozeText(question) ? 'cloze' : 'basic';
+        // A plain property, not a data-* attribute: writing this back into the
+        // DOM would undo the payload saving it exists to complement.
+        row._searchText = (question + ' ' + answer).toLowerCase();
         const typeCell = row.querySelector('.card-type-cell');
         if (typeCell) typeCell.dataset.sort = row.dataset.type;
     });
@@ -365,10 +376,7 @@ document.addEventListener('DOMContentLoaded', function () {
         let matched = 0;
         let shown = 0;
         order.forEach(function (row) {
-            const question = row.dataset.question || '';
-            const answerCell = row.querySelector('.answer-col');
-            const answer = answerCell ? (answerCell.dataset.content || '') : '';
-            const matchesText = !q || question.toLowerCase().includes(q) || answer.toLowerCase().includes(q);
+            const matchesText = !q || row._searchText.indexOf(q) !== -1;
             let show = false;
             if (matchesText && (type === 'all' || row.dataset.type === type)) {
                 matched++;

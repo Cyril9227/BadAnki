@@ -510,6 +510,28 @@ def test_generation_modal_has_bulk_approval(mock_get_user, client, db_conn):
     assert "function refreshApproval()" in response.text
 
 @patch("main.supabase.auth.get_user")
+def test_manage_page_ships_each_question_once(mock_get_user, client, db_conn):
+    """The question used to ride on the row as data-question AND in the cell as
+    data-content — double the question bytes on every row of the page."""
+    auth_client, user_id, _ = authenticate_client(mock_get_user, client, db_conn, email="onceonly@example.com")
+    create_test_card(db_conn, user_id, "A distinctive question string", "An answer")
+
+    body = auth_client.get("/manage").text
+    assert body.count("A distinctive question string") == 1
+    assert "data-question=" not in body
+    assert "data-card-row" in body
+
+def test_pinned_cdn_assets_are_versioned():
+    """An unpinned jsdelivr path gets a 7-day cache instead of a year, and
+    silently changes version — /npm/marked/ resolves by fallback, not to the
+    real latest."""
+    layout = open("templates/layout.html", encoding="utf-8").read()
+    render_card = open("templates/render_card.html", encoding="utf-8").read()
+    for body in (layout, render_card):
+        assert "npm/marked@" in body
+        assert "npm/marked/marked.min.js" not in body
+
+@patch("main.supabase.auth.get_user")
 def test_create_card(mock_get_user, client, db_conn):
     auth_client, user_id, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="cardcreator@example.com")
 

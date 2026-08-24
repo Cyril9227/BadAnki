@@ -19,11 +19,11 @@ import posixpath
 
 # Third-party
 import frontmatter
-from google import genai
 import httpx
 import psycopg2
-import anthropic
-import openai
+# The three provider SDKs are imported inside generate_cards, not here: each
+# one is heavy, only one is ever used per call, and on a serverless cold start
+# this module is imported to serve a page view that will never touch them.
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -793,6 +793,13 @@ def _check_llm_rate_limit(user_id: str) -> None:
     now = time.monotonic()
     window_start = now - _LLM_RATE_LIMIT_WINDOW_SECS
     with _llm_rate_limit_lock:
+        # Drop buckets that have aged out entirely: the dict is keyed by user
+        # and nothing ever removed entries, so a long-lived instance held one
+        # per user who had ever generated a card.
+        for uid in [u for u, b in _llm_rate_limit_state.items()
+                    if u != user_id and (not b or b[-1] < window_start)]:
+            del _llm_rate_limit_state[uid]
+
         bucket = _llm_rate_limit_state.setdefault(user_id, deque())
         while bucket and bucket[0] < window_start:
             bucket.popleft()
@@ -949,6 +956,7 @@ def generate_cards(text: str, mode="gemini", api_key: str = None, card_type: str
         if mode == "gemini":
             if not api_key:
                 raise ValueError("Gemini API key is required.")
+            from google import genai
             client = genai.Client(api_key=api_key)
             response = client.models.generate_content(
                 model='gemini-2.5-flash',
@@ -967,6 +975,7 @@ def generate_cards(text: str, mode="gemini", api_key: str = None, card_type: str
         elif mode == "anthropic":
             if not api_key:
                 raise ValueError("Anthropic API key is required.")
+            import anthropic
             client = anthropic.Anthropic(api_key=api_key)
             # Sonnet 5 thinks by default when `thinking` is omitted; card
             # generation is structured extraction, so keep the old no-thinking
@@ -991,6 +1000,7 @@ def generate_cards(text: str, mode="gemini", api_key: str = None, card_type: str
         elif mode == "openai":
             if not api_key:
                 raise ValueError("OpenAI API key is required.")
+            import openai
             client = openai.OpenAI(api_key=api_key)
             # gpt-5-mini with minimal reasoning: card generation is structured
             # extraction, so skip the thinking spend — the same cost choice as
