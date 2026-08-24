@@ -401,6 +401,12 @@
             ratingButtons.forEach(btn => { btn.disabled = true; });
             const activeBtn = ratingButtons.find(btn => btn.value === status);
             if (activeBtn) activeBtn.classList.add('btn-loading');
+            // Move the card immediately, the way skipping already does. Rating
+            // is the most frequent action in the loop and was the only one that
+            // stayed still while the network went out — so the whole round trip
+            // was exposed as dead time. The dim below stays as the
+            // reduced-motion fallback, where animateOut is a no-op.
+            animateOut(-1);
             cardBody.classList.add('rating-pending');
             const ratedCardId = currentCardId;
             const ratedCard = currentCardData;
