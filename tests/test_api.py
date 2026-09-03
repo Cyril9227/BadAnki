@@ -1759,3 +1759,23 @@ def test_change_password_success(mock_get_user, client, db_conn):
     # Verified against the account email, updated with the session's token.
     assert mock_grant.call_args.kwargs["json"]["email"] == "pw_user2@example.com"
     assert mock_put.call_args.kwargs["headers"]["Authorization"] == "Bearer fake-test-token"
+
+@patch("main.supabase.auth.get_user")
+def test_change_password_verifies_the_email_for_deduplicated_usernames(mock_get_user, client, db_conn):
+    """create_profile stores a colliding username as "email#authid8". The
+    current-password check must still go to GoTrue with the bare email, or
+    every attempt for such an account fails as "incorrect"."""
+    auth_client, user_id, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="pw_user3@example.com")
+    with db_conn.cursor() as cur:
+        cur.execute("UPDATE profiles SET username = %s WHERE auth_user_id = %s",
+                    (f"pw_user3@example.com#{user_id[:8]}", user_id))
+        db_conn.commit()
+    with patch("main.httpx.post", return_value=_fake_httpx_response(200)) as mock_grant, \
+         patch("main.httpx.put", return_value=_fake_httpx_response(200)):
+        response = auth_client.post(
+            "/auth/change-password",
+            data={"current_password": "oldpassword1", "new_password": "newpassword1"},
+            headers={"X-CSRF-Token": csrf_token},
+        )
+    assert response.json()["success"] is True
+    assert mock_grant.call_args.kwargs["json"]["email"] == "pw_user3@example.com"
