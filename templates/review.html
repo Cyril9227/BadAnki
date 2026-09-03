@@ -396,7 +396,10 @@
         // Record a rating without a full page reload, then swap in the next card.
         // Falls back to a normal navigation on any error so a rating is never lost.
         function rate(status) {
-            if (submitting || !answerShown) return;
+            // `navigating` too: the rating buttons stay enabled while a skip
+            // or undo is in flight, and a tap then rated the card being
+            // skipped, with the two payloads applied in arrival order.
+            if (submitting || navigating || !answerShown) return;
             submitting = true;
             ratingButtons.forEach(btn => { btn.disabled = true; });
             const activeBtn = ratingButtons.find(btn => btn.value === status);
@@ -431,12 +434,16 @@
         // Keyboard: Space/Enter reveals the answer; once shown, 1/R = remembered,
         // 2/F = forgot. Ignored while typing in a field.
         document.addEventListener('keydown', function(e) {
-            if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
+            const active = document.activeElement || document.body;
+            if (['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName)) return;
             if (e.ctrlKey || e.metaKey || e.altKey) return; // browser shortcuts, not ratings
             if (e.key === 'ArrowRight') { e.preventDefault(); skipCard(); return; }
             if (e.key === 'ArrowLeft') { e.preventDefault(); goBack(); return; }
             if (!answerShown) {
-                if (e.key === ' ' || e.key === 'Enter') {
+                // Enter/Space on a focused link or button (navbar, Skip, Back,
+                // the theme toggle) must activate that control, not reveal the
+                // answer. Show Answer is itself a button, so it still works.
+                if ((e.key === ' ' || e.key === 'Enter') && !['A', 'BUTTON'].includes(active.tagName)) {
                     e.preventDefault();
                     showAnswer();
                 }
