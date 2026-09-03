@@ -1090,12 +1090,13 @@ async def settings_form(request: Request, user: User = Depends(get_current_activ
     })
 
 @app.post("/api/delete-account")
-async def api_delete_account(request: Request, user: User = Depends(get_current_active_user)):
+async def api_delete_account(request: Request, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     """Permanently deletes the account. Removing the Supabase auth user via
     the admin API takes every app row with it — profiles, cards and courses
-    all cascade from auth.users. The shared client stays anon-scoped (see
-    the startup guards); the service-role key is read here, used for this
-    single call, and never attached to a client."""
+    all cascade from auth.users; the standalone review_activity and folders
+    tables have no FK and are cleared here afterwards. The shared client
+    stays anon-scoped (see the startup guards); the service-role key is read
+    here, used for this single call, and never attached to a client."""
     service_key = _clean_env_value("SUPABASE_SERVICE_ROLE_KEY")
     if not service_key:
         raise HTTPException(status_code=503, detail="Account deletion is not configured on this server.")
@@ -1115,6 +1116,9 @@ async def api_delete_account(request: Request, user: User = Depends(get_current_
         # format GoTrue doesn't accept as a bearer token).
         raise HTTPException(status_code=500, detail=f"Could not delete the account (auth service returned {response.status_code}).")
     logger.info("Account deleted: %s", user.auth_user_id)
+    # Only after the auth user is gone: if the admin call had failed, the
+    # account would still exist and must keep its streak history.
+    crud.delete_standalone_rows_for_user(conn, user.auth_user_id)
     # The client follows up with /logout → / ; the flash cookie survives that
     # redirect chain and surfaces as a toast on the landing page.
     json_response = JSONResponse(content={"success": True})

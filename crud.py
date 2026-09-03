@@ -115,6 +115,22 @@ def link_telegram_chat(conn, auth_user_id: str, chat_id: int):
         raise
 
 
+def delete_standalone_rows_for_user(conn, auth_user_id: str) -> None:
+    """Removes the user's rows from the standalone tables that no FK cascades
+    (review_activity, folders). Called right after the auth user is deleted,
+    so the leaderboard cannot keep a ghost "anonymous" reviewer for 30 days
+    and no folder names outlive the account. Best-effort per table, like
+    every other access to these tables: a missing table is not an error."""
+    for table in ("review_activity", "folders"):
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(f"DELETE FROM {table} WHERE user_id = %s", (auth_user_id,))
+            conn.commit()
+        except Exception as e:
+            logger.info("Could not clear %s for a deleted account: %s", table, e)
+            _rollback_quietly(conn)
+
+
 # --- Course & Folder CRUD Functions ---
 
 # Explicitly created folders live in the standalone folders table (see

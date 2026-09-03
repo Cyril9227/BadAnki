@@ -1348,12 +1348,23 @@ def test_delete_account_calls_supabase_admin(mock_delete, mock_get_user, client,
     monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "service-key")
     mock_delete.return_value = MagicMock(status_code=200)
     auth_client, user_id, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="deleter@example.com")
+    # Rows in the standalone tables have no FK to cascade from; the endpoint
+    # must clear them itself or the leaderboard keeps a ghost reviewer.
+    with db_conn.cursor() as cur:
+        cur.execute("INSERT INTO review_activity (user_id, day, reviews, remembered) VALUES (%s, CURRENT_DATE, 3, 2)", (user_id,))
+        cur.execute("INSERT INTO folders (user_id, path) VALUES (%s, 'maths')", (user_id,))
+        db_conn.commit()
     response = auth_client.post("/api/delete-account", headers={"X-CSRF-Token": csrf_token})
     assert response.status_code == 200
     assert response.json()["success"] is True
     called_url = mock_delete.call_args.args[0]
     assert called_url.endswith(f"/auth/v1/admin/users/{user_id}")
     assert mock_delete.call_args.kwargs["headers"]["apikey"] == "service-key"
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) AS n FROM review_activity WHERE user_id = %s", (user_id,))
+        assert cur.fetchone()["n"] == 0
+        cur.execute("SELECT COUNT(*) AS n FROM folders WHERE user_id = %s", (user_id,))
+        assert cur.fetchone()["n"] == 0
 
 @patch("main.supabase.auth.get_user")
 @patch("main.httpx.delete")
