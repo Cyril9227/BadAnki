@@ -1430,6 +1430,29 @@ def test_trigger_scheduler_success(mock_run_scheduler, mock_ensure_webhook, clie
     mock_ensure_webhook.assert_called_once()
     mock_run_scheduler.assert_called_once()
 
+@patch("main._ensure_webhook")
+@patch("main.run_scheduler")
+def test_trigger_scheduler_runs_when_the_webhook_check_fails(mock_run_scheduler, mock_ensure_webhook, client):
+    """A Telegram hiccup on getWebhookInfo must not cancel the day's reminders."""
+    mock_ensure_webhook.side_effect = RuntimeError("telegram unreachable")
+    mock_run_scheduler.return_value = "Scheduler finished."
+    response = client.get(
+        "/api/trigger-scheduler",
+        headers={"X-Scheduler-Secret": os.environ.get("SCHEDULER_SECRET")},
+    )
+    assert response.status_code == 200
+    assert response.json()["webhook_status"]["status"] == "check failed"
+    mock_run_scheduler.assert_called_once()
+
+def test_scheduler_db_failure_is_not_reported_as_success():
+    """A database error while listing users used to be swallowed, so the run
+    reported "No users found" and the cron logged a green day with no
+    reminders sent. It must propagate."""
+    import scheduler
+    with patch("scheduler.get_db_connection", side_effect=RuntimeError("pool exhausted")):
+        with pytest.raises(RuntimeError):
+            scheduler.get_users_with_due_cards()
+
 def test_trigger_scheduler_invalid_secret(client):
     """Test the scheduler endpoint with an invalid secret."""
     response = client.get("/api/trigger-scheduler", headers={"X-Scheduler-Secret": "wrongsecret"})
