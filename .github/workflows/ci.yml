@@ -12,10 +12,12 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Set up Python 3.10
+    # Same interpreter Vercel's Python runtime uses, so the pinned set in
+    # requirements.txt is tested on the version that runs it.
+    - name: Set up Python 3.12
       uses: actions/setup-python@v4
       with:
-        python-version: '3.10'
+        python-version: '3.12'
 
     - name: Install Dependencies
       run: |

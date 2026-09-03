@@ -65,7 +65,7 @@
 
 {% block scripts %}
 <script type="module">
-    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.114.0/+esm';
 
     const supabase = createClient('{{ supabase_url }}', '{{ supabase_key }}');
 
