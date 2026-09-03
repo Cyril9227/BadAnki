@@ -59,25 +59,38 @@ def _restore_control_chars(parsed: Any) -> Any:
     else:
         return parsed
 
+def _latex_escapes_broken(raw: str, parsed) -> bool:
+    """Whether control characters in a successfully parsed document are the
+    remains of unescaped LaTeX ("\\frac" decodes as form-feed + "rac") rather
+    than genuine newlines and tabs. A producer that escaped a backslash
+    anywhere (a literal \\\\ in the raw text) escaped them everywhere, so its
+    control characters are real; one that never did, yet mixes control
+    characters with math delimiters, was writing raw LaTeX inside JSON strings.
+    """
+    return _has_control_chars(parsed) and '\\\\' not in raw and '$' in raw
+
+
 def robust_json_loads(raw: str) -> Any:
     """
     Robust JSON parsing for LLM responses containing LaTeX.
     Strategy:
-      1) try json.loads(raw)
-      2) if that fails or control chars are detected -> pre-escape single backslashes before letters and parse
+      1) try json.loads(raw); a valid document is returned untouched unless its
+         control characters betray unescaped LaTeX (see _latex_escapes_broken)
+      2) otherwise pre-escape single backslashes before letters and parse
       3) if parsed contains control chars, restore them to literal backslash-letter sequences
     """
     s = _strip_fences(raw)
 
-    # try plain parse first (fast path)
     try:
         parsed = json.loads(s)
-        # if plain parsing succeeded and there are no control chars, return
-        if not _has_control_chars(parsed):
-            return parsed
-        # else continue to fallback (we'll restore control chars below)
     except json.JSONDecodeError:
         parsed = None
+    else:
+        # This used to fall through on *any* control character, which sent
+        # every correctly escaped "\n" through the repair below and saved
+        # multi-line answers with literal backslash-n text.
+        if not _latex_escapes_broken(s, parsed):
+            return parsed
 
     # Fallback: pre-escape single backslashes that precede letters.
     # This handles cases like "\frac", "\theta", "\times" (including those that start with f,t,...)
