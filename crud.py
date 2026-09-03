@@ -889,9 +889,19 @@ def get_review_heatmap_for_user(conn, auth_user_id: str, days: int = 371, foreca
     return {"activity": activity, "forecast": forecast, "today": date.today().isoformat()}
 
 
+def _leaderboard_name(username, is_me: bool) -> str:
+    """Only your own row shows your email's local part. Everyone else is
+    reduced to an initial: with open signup the local part is a stranger's
+    personal data (often a real name), and the board still reads as "you
+    against the field"."""
+    local = (username or "anonymous").split("@")[0]
+    return local if is_me else f"{local[:1] or '?'}…"
+
+
 def get_leaderboard(conn, auth_user_id: str, days: int = 30, limit: int = 10):
     """Most active reviewers over the last `days` days, or None when
-    unavailable. Usernames are emails, so only the local part is exposed."""
+    unavailable. Names go through _leaderboard_name: full local part for the
+    caller, an initial for everyone else."""
     try:
         with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
             cursor.execute(
@@ -931,9 +941,13 @@ def get_leaderboard(conn, auth_user_id: str, days: int = 30, limit: int = 10):
             logger.info("Streaks unavailable, rendering leaderboard without them: %s", e)
             _rollback_quietly(conn)
     today = date.today()
-    return [{
-        "name": (row["username"] or "anonymous").split("@")[0],
-        "reviews": row["reviews"],
-        "streak": _compute_streaks(activity.get(row["user_id"], []), today)["current"],
-        "is_me": str(row["user_id"]) == str(auth_user_id),
-    } for row in rows]
+    board = []
+    for row in rows:
+        is_me = str(row["user_id"]) == str(auth_user_id)
+        board.append({
+            "name": _leaderboard_name(row["username"], is_me),
+            "reviews": row["reviews"],
+            "streak": _compute_streaks(activity.get(row["user_id"], []), today)["current"],
+            "is_me": is_me,
+        })
+    return board

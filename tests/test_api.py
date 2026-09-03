@@ -875,8 +875,9 @@ def test_all_done_page_shows_streak(mock_get_user, client, db_conn):
 
 @patch("main.supabase.auth.get_user")
 def test_home_leaderboard_members_only_local_part(mock_get_user, client, db_conn):
-    """The home page shows the leaderboard to logged-in users only, with the
-    email local part and never the full address."""
+    """The home page shows the leaderboard to logged-in users only. The
+    caller's own row shows their email local part (never the full address);
+    every other reviewer is reduced to an initial."""
     auth_client, user_id, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="boarduser2@example.com")
     card_id = create_test_card(db_conn, user_id, "Q", "A")
     auth_client.post(
@@ -885,12 +886,18 @@ def test_home_leaderboard_members_only_local_part(mock_get_user, client, db_conn
         headers={"X-CSRF-Token": csrf_token},
         follow_redirects=False,
     )
+    other_id = create_test_user(db_conn, email="otherperson@example.com")
+    with db_conn.cursor() as cur:
+        cur.execute("INSERT INTO review_activity (user_id, day, reviews, remembered) VALUES (%s, CURRENT_DATE, 5, 5)", (str(other_id),))
+        db_conn.commit()
 
     response = auth_client.get("/")
     assert response.status_code == 200
     assert "Top Reviewers" in response.text
     assert "boarduser2" in response.text
     assert "boarduser2@example.com" not in response.text
+    assert "otherperson" not in response.text
+    assert "o…" in response.text
 
     # Anonymous visitors get the public page without the leaderboard.
     auth_client.cookies.delete("access_token")
