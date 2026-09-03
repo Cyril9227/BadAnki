@@ -1660,9 +1660,17 @@ async def trigger_scheduler(request: Request):
     if not scheduler_secret_is_valid(submitted_secret):
         raise HTTPException(status_code=403, detail="Invalid secret")
     
-    webhook_status = await _ensure_webhook()
+    try:
+        webhook_status = await _ensure_webhook()
+    except HTTPException:
+        raise  # not configured at all — worth failing loudly
+    except Exception as e:
+        # A Telegram hiccup on getWebhookInfo must not cancel the day's
+        # reminders; the run below needs nothing from it.
+        logger.warning("Webhook check failed; running the scheduler anyway: %s", e)
+        webhook_status = {"status": "check failed"}
     logger.info(f"Webhook status: {webhook_status}")
-    
+
     result = await run_scheduler()
     return JSONResponse(content={"status": "completed", "result": result, "webhook_status": webhook_status})
 
