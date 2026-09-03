@@ -925,6 +925,35 @@ def _topic_prompt(text: str, card_type: str) -> str:
         """
 
 
+class GenerationError(Exception):
+    """A provider call failed in a way the user can act on. Carries the HTTP
+    status and message the generation endpoints hand back verbatim; anything
+    unclassified stays a generic failure so provider internals never reach
+    the UI."""
+
+    def __init__(self, status_code: int, detail: str):
+        super().__init__(detail)
+        self.status_code = status_code
+        self.detail = detail
+
+
+_PROVIDER_NAMES = {"gemini": "Gemini", "anthropic": "Anthropic", "openai": "OpenAI"}
+
+
+def _provider_error(mode: str, exc: Exception) -> GenerationError:
+    """Maps a provider SDK exception to what the user should hear. The SDKs
+    expose the upstream HTTP status differently (anthropic/openai:
+    status_code, google-genai: code), and Gemini answers 400 rather than 401
+    for a malformed key, hence the message sniff."""
+    name = _PROVIDER_NAMES.get(mode, mode)
+    status = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+    if status in (401, 403) or (status == 400 and "api key" in str(exc).lower()):
+        return GenerationError(400, f"{name} rejected the API key. Check it in Settings.")
+    if status == 429:
+        return GenerationError(429, f"{name} is rate-limiting this key (quota exhausted?). Try again later.")
+    return GenerationError(502, f"The {name} request failed. Try again in a moment.")
+
+
 def generate_cards(text: str, mode="gemini", api_key: str = None, card_type: str = "basic", source: str = "text") -> list[dict]:
     # Topic mode is capped at MAX_TOPIC_CARDS cards, so cap the provider-side
     # output budget too — otherwise a model that ignores the count rule bills
@@ -965,10 +994,11 @@ def generate_cards(text: str, mode="gemini", api_key: str = None, card_type: str
         ---
         """
 
+    if not api_key:
+        raise GenerationError(400, f"No {_PROVIDER_NAMES.get(mode, mode)} API key is configured. Add one in Settings.")
+
     try:
         if mode == "gemini":
-            if not api_key:
-                raise ValueError("Gemini API key is required.")
             from google import genai
             client = genai.Client(api_key=api_key)
             response = client.models.generate_content(
@@ -986,8 +1016,6 @@ def generate_cards(text: str, mode="gemini", api_key: str = None, card_type: str
             response_text = response.text.strip()
 
         elif mode == "anthropic":
-            if not api_key:
-                raise ValueError("Anthropic API key is required.")
             import anthropic
             client = anthropic.Anthropic(api_key=api_key)
             # Sonnet 5 thinks by default when `thinking` is omitted; card
@@ -1011,8 +1039,6 @@ def generate_cards(text: str, mode="gemini", api_key: str = None, card_type: str
             response_text = next((b.text for b in message.content if b.type == "text"), "")
 
         elif mode == "openai":
-            if not api_key:
-                raise ValueError("OpenAI API key is required.")
             import openai
             client = openai.OpenAI(api_key=api_key)
             # gpt-5-mini with minimal reasoning: card generation is structured
@@ -1041,8 +1067,11 @@ def generate_cards(text: str, mode="gemini", api_key: str = None, card_type: str
         return normalize_cards(cards)
 
     except Exception as e:
+        # Every failure used to collapse into an empty list and a generic 500:
+        # a wrong key, an exhausted quota and a timeout all read as "Failed to
+        # generate cards." The user can act on the first two.
         logger.error(f"An error occurred during {mode} API call: {e}")
-        return []
+        raise _provider_error(mode, e)
 
 
 @app.get("/settings", response_class=HTMLResponse)
@@ -1535,14 +1564,17 @@ async def _generate_cards_response(request: Request, data: CourseContentForGener
     # starved every other request on it. Nothing below here touches the
     # database; saving the batch is a separate request.
     release_request_db(request)
-    generated_cards = await run_in_threadpool(
-        generate_cards,
-        data.content,
-        mode=mode,
-        api_key=api_key,
-        card_type=data.card_type,
-        source=source,
-    )
+    try:
+        generated_cards = await run_in_threadpool(
+            generate_cards,
+            data.content,
+            mode=mode,
+            api_key=api_key,
+            card_type=data.card_type,
+            source=source,
+        )
+    except GenerationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
     if not generated_cards:
         # Topic mode returns empty for nonsense/off-task requests by design
         # (prompt rule 6) — steer the user instead of claiming a failure.

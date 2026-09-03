@@ -1084,6 +1084,50 @@ def test_generate_cards_api_empty_content(mock_get_user, client, db_conn):
 
 @patch("main.supabase.auth.get_user")
 @patch("main.generate_cards")
+def test_generate_cards_api_surfaces_provider_errors(mock_generate_cards, mock_get_user, client, db_conn):
+    """A rejected key must come back as a 400 carrying a message the user can
+    act on, not as the generic 500 every failure used to collapse into."""
+    from main import GenerationError
+    mock_generate_cards.side_effect = GenerationError(400, "Gemini rejected the API key. Check it in Settings.")
+    auth_client, _, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="ai_user_badkey@example.com")
+    response = auth_client.post(
+        "/api/generate-cards/gemini",
+        json={"content": "Some text"},
+        headers={"X-CSRF-Token": csrf_token}
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Gemini rejected the API key. Check it in Settings."
+
+def test_generate_cards_without_a_key_is_a_client_error():
+    from main import GenerationError, generate_cards
+    with pytest.raises(GenerationError) as excinfo:
+        generate_cards("Some text", mode="anthropic", api_key=None)
+    assert excinfo.value.status_code == 400
+    assert "Anthropic" in excinfo.value.detail
+
+def test_provider_error_classification():
+    from main import _provider_error
+
+    class FakeStatusError(Exception):
+        def __init__(self, status_code, message="boom"):
+            super().__init__(message)
+            self.status_code = status_code
+
+    class FakeGeminiError(Exception):
+        def __init__(self, code, message):
+            super().__init__(message)
+            self.code = code
+
+    assert _provider_error("anthropic", FakeStatusError(401)).status_code == 400
+    assert _provider_error("openai", FakeStatusError(429)).status_code == 429
+    # Gemini reports a malformed key as 400, not 401.
+    rejected = _provider_error("gemini", FakeGeminiError(400, "API key not valid. Please pass a valid API key."))
+    assert rejected.status_code == 400 and "rejected" in rejected.detail
+    assert _provider_error("gemini", FakeGeminiError(400, "invalid argument")).status_code == 502
+    assert _provider_error("openai", TimeoutError("read timed out")).status_code == 502
+
+@patch("main.supabase.auth.get_user")
+@patch("main.generate_cards")
 def test_generate_cards_from_topic_api_success(mock_generate_cards, mock_get_user, client, db_conn):
     mock_generate_cards.return_value = [{"question": "Q", "answer": "A", "card_type": "basic"}]
     auth_client, _, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="topic_user@example.com")
