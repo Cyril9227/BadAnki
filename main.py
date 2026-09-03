@@ -1347,9 +1347,11 @@ async def change_password(
     if policy_error:
         return _auth_error(policy_error)
 
-    # user.username is the auth email (profiles are created from it). OAuth-only
-    # accounts have no password to verify — they set one via the reset email.
-    verified = await run_in_threadpool(_verify_password_sync, user.username, current_password)
+    # Verify against the auth email, not the raw username: create_profile
+    # de-dupes a taken username as "email#authid8", and that suffixed form is
+    # not a login. OAuth-only accounts have no password to verify — they set
+    # one via the reset email.
+    verified = await run_in_threadpool(_verify_password_sync, user.email, current_password)
     if not verified:
         return _auth_error("Current password is incorrect.")
 
