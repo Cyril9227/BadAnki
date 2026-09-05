@@ -573,6 +573,11 @@ document.addEventListener('DOMContentLoaded', function () {
     let quickSave = false; // Ctrl+S saves in place; the Save button leads to the rendered course
     editorForm.addEventListener('submit', function (e) {
         e.preventDefault();
+        // Consume the Ctrl+S flag whether or not this submit proceeds: a
+        // save already in flight used to leave it set, so the next Save
+        // button click saved in place instead of opening the course.
+        const inPlace = quickSave;
+        quickSave = false;
         if (saveInFlight) return;
 
         const path = currentFilePathInput.value;
@@ -593,7 +598,7 @@ document.addEventListener('DOMContentLoaded', function () {
         .then(() => {
             isDirty = false;
             clearDraft(path);
-            if (!quickSave) {
+            if (!inPlace) {
                 // Complete the view → edit → save loop on the rendered course.
                 window.location.href = '/courses/' + path.split('/').map(encodeURIComponent).join('/');
                 return;
@@ -603,7 +608,6 @@ document.addEventListener('DOMContentLoaded', function () {
         })
         .catch(handleError)
         .finally(() => {
-            quickSave = false;
             saveInFlight = false;
             saveBtn.disabled = false;
             saveBtn.textContent = originalLabel;
@@ -742,11 +746,17 @@ document.addEventListener('DOMContentLoaded', function () {
         const isNotFound = error.status === 404 || /not found/i.test(error.message);
 
         if (isNotFound) {
-            // A freshly deleted file (e.g. from another tab) — reset quietly.
+            // A freshly deleted file (e.g. from another tab). Drop the buffer
+            // and the dirty flag with it — a silent reset used to leave
+            // isDirty set, so beforeunload and the next file click kept
+            // warning about edits to a file that no longer exists.
             editorContainer.style.display = 'none';
             noFileSelected.style.display = 'block';
             currentFilePathInput.value = '';
             markdownEditor.value = '';
+            isDirty = false;
+            window.toast('warning', 'That file no longer exists.');
+            loadFileTree();
         } else {
             window.toast('error', error.message || 'Something went wrong.');
         }
@@ -775,41 +785,55 @@ document.addEventListener('DOMContentLoaded', function () {
     // save or explicit discard.
     const DRAFT_DEBOUNCE_MS = 1000;
     let draftSaveTimeout = null;
-    const draftKey = path => 'draft:' + path;
+    // Keyed per account: on a shared browser, user B used to be offered
+    // user A's unsaved draft of a same-named file.
+    const draftKey = path => 'draft:' + {{ request.state.user.auth_user_id | string | tojson }} + ':' + path;
+    // Every localStorage access can throw (storage blocked, private mode);
+    // only the write used to be guarded, so a read threw inside the load
+    // chain and skipped the rest of it.
+    const draftStore = {
+        get: key => { try { return localStorage.getItem(key); } catch (e) { return null; } },
+        set: (key, value) => { try { localStorage.setItem(key, value); } catch (e) { /* storage unavailable */ } },
+        remove: key => { try { localStorage.removeItem(key); } catch (e) { /* storage unavailable */ } },
+    };
 
     function scheduleDraftSave() {
         clearTimeout(draftSaveTimeout);
         draftSaveTimeout = setTimeout(() => {
             const path = currentFilePathInput.value;
-            if (path && isDirty) {
-                try { localStorage.setItem(draftKey(path), markdownEditor.value); } catch (e) { /* storage unavailable */ }
-            }
+            if (path && isDirty) draftStore.set(draftKey(path), markdownEditor.value);
         }, DRAFT_DEBOUNCE_MS);
     }
 
     function clearDraft(path) {
         clearTimeout(draftSaveTimeout);
-        localStorage.removeItem(draftKey(path));
+        draftStore.remove(draftKey(path));
     }
 
     function offerDraftRestore(path, loadedContent) {
-        const draft = localStorage.getItem(draftKey(path));
+        const draft = draftStore.get(draftKey(path));
         if (draft === null) return;
-        if (draft === loadedContent) { localStorage.removeItem(draftKey(path)); return; }
+        if (draft === loadedContent) { draftStore.remove(draftKey(path)); return; }
+        // Restore is the primary action; discarding is the explicit deny
+        // button, and Cancel/Esc keep the draft for next time — the
+        // secondary button used to be the destructive one.
         Swal.fire({
             title: 'Restore unsaved draft?',
             text: 'This file has an unsaved draft from a previous session.',
             icon: 'question',
             showCancelButton: true,
+            showDenyButton: true,
             confirmButtonText: 'Restore',
-            cancelButtonText: 'Discard draft'
+            denyButtonText: 'Discard draft',
+            cancelButtonText: 'Not now',
+            customClass: Object.assign(window.swalClasses(), { denyButton: 'btn btn-outline-danger' })
         }).then(result => {
             if (result.isConfirmed) {
                 markdownEditor.value = draft;
                 isDirty = true;
                 updatePreview();
-            } else if (result.dismiss === Swal.DismissReason.cancel) {
-                localStorage.removeItem(draftKey(path)); // Esc keeps it for next time
+            } else if (result.isDenied) {
+                draftStore.remove(draftKey(path));
             }
         });
     }
