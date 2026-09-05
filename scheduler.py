@@ -56,9 +56,12 @@ def get_users_with_due_cards():
         GROUP BY
             p.auth_user_id, p.telegram_chat_id;
     """
-    conn = None
+    # A database failure here used to be logged and swallowed: run_scheduler
+    # then reported "No users found" and the cron logged a green run on a day
+    # nobody got a reminder. Let it propagate — the endpoint 500s and the
+    # cron's raise_for_status surfaces it.
+    conn = get_db_connection()
     try:
-        conn = get_db_connection()
         with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
             cursor.execute(query, (datetime.now(),))
             rows = cursor.fetchall()
@@ -70,12 +73,8 @@ def get_users_with_due_cards():
                 )
                 for r in rows
             ]
-    except Exception as e:
-        logger.error(f"Database error: {e}")
-        return []
     finally:
-        if conn:
-            release_db_connection(conn)
+        release_db_connection(conn)
 
 
 async def run_scheduler():

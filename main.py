@@ -938,6 +938,35 @@ def _topic_prompt(text: str, card_type: str) -> str:
         """
 
 
+class GenerationError(Exception):
+    """A provider call failed in a way the user can act on. Carries the HTTP
+    status and message the generation endpoints hand back verbatim; anything
+    unclassified stays a generic failure so provider internals never reach
+    the UI."""
+
+    def __init__(self, status_code: int, detail: str):
+        super().__init__(detail)
+        self.status_code = status_code
+        self.detail = detail
+
+
+_PROVIDER_NAMES = {"gemini": "Gemini", "anthropic": "Anthropic", "openai": "OpenAI"}
+
+
+def _provider_error(mode: str, exc: Exception) -> GenerationError:
+    """Maps a provider SDK exception to what the user should hear. The SDKs
+    expose the upstream HTTP status differently (anthropic/openai:
+    status_code, google-genai: code), and Gemini answers 400 rather than 401
+    for a malformed key, hence the message sniff."""
+    name = _PROVIDER_NAMES.get(mode, mode)
+    status = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+    if status in (401, 403) or (status == 400 and "api key" in str(exc).lower()):
+        return GenerationError(400, f"{name} rejected the API key. Check it in Settings.")
+    if status == 429:
+        return GenerationError(429, f"{name} is rate-limiting this key (quota exhausted?). Try again later.")
+    return GenerationError(502, f"The {name} request failed. Try again in a moment.")
+
+
 def generate_cards(text: str, mode="gemini", api_key: str = None, card_type: str = "basic", source: str = "text") -> list[dict]:
     # Topic mode is capped at MAX_TOPIC_CARDS cards, so cap the provider-side
     # output budget too — otherwise a model that ignores the count rule bills
@@ -978,10 +1007,11 @@ def generate_cards(text: str, mode="gemini", api_key: str = None, card_type: str
         ---
         """
 
+    if not api_key:
+        raise GenerationError(400, f"No {_PROVIDER_NAMES.get(mode, mode)} API key is configured. Add one in Settings.")
+
     try:
         if mode == "gemini":
-            if not api_key:
-                raise ValueError("Gemini API key is required.")
             from google import genai
             client = genai.Client(api_key=api_key)
             response = client.models.generate_content(
@@ -999,8 +1029,6 @@ def generate_cards(text: str, mode="gemini", api_key: str = None, card_type: str
             response_text = response.text.strip()
 
         elif mode == "anthropic":
-            if not api_key:
-                raise ValueError("Anthropic API key is required.")
             import anthropic
             client = anthropic.Anthropic(api_key=api_key)
             # Sonnet 5 thinks by default when `thinking` is omitted; card
@@ -1024,8 +1052,6 @@ def generate_cards(text: str, mode="gemini", api_key: str = None, card_type: str
             response_text = next((b.text for b in message.content if b.type == "text"), "")
 
         elif mode == "openai":
-            if not api_key:
-                raise ValueError("OpenAI API key is required.")
             import openai
             client = openai.OpenAI(api_key=api_key)
             # gpt-5-mini with minimal reasoning: card generation is structured
@@ -1054,8 +1080,11 @@ def generate_cards(text: str, mode="gemini", api_key: str = None, card_type: str
         return normalize_cards(cards)
 
     except Exception as e:
+        # Every failure used to collapse into an empty list and a generic 500:
+        # a wrong key, an exhausted quota and a timeout all read as "Failed to
+        # generate cards." The user can act on the first two.
         logger.error(f"An error occurred during {mode} API call: {e}")
-        return []
+        raise _provider_error(mode, e)
 
 
 @app.get("/settings", response_class=HTMLResponse)
@@ -1074,12 +1103,13 @@ async def settings_form(request: Request, user: User = Depends(get_current_activ
     })
 
 @app.post("/api/delete-account")
-async def api_delete_account(request: Request, user: User = Depends(get_current_active_user)):
+async def api_delete_account(request: Request, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     """Permanently deletes the account. Removing the Supabase auth user via
     the admin API takes every app row with it — profiles, cards and courses
-    all cascade from auth.users. The shared client stays anon-scoped (see
-    the startup guards); the service-role key is read here, used for this
-    single call, and never attached to a client."""
+    all cascade from auth.users; the standalone review_activity and folders
+    tables have no FK and are cleared here afterwards. The shared client
+    stays anon-scoped (see the startup guards); the service-role key is read
+    here, used for this single call, and never attached to a client."""
     service_key = _clean_env_value("SUPABASE_SERVICE_ROLE_KEY")
     if not service_key:
         raise HTTPException(status_code=503, detail="Account deletion is not configured on this server.")
@@ -1099,6 +1129,9 @@ async def api_delete_account(request: Request, user: User = Depends(get_current_
         # format GoTrue doesn't accept as a bearer token).
         raise HTTPException(status_code=500, detail=f"Could not delete the account (auth service returned {response.status_code}).")
     logger.info("Account deleted: %s", user.auth_user_id)
+    # Only after the auth user is gone: if the admin call had failed, the
+    # account would still exist and must keep its streak history.
+    crud.delete_standalone_rows_for_user(conn, user.auth_user_id)
     # The client follows up with /logout → / ; the flash cookie survives that
     # redirect chain and surfaces as a toast on the landing page.
     json_response = JSONResponse(content={"success": True})
@@ -1122,13 +1155,6 @@ async def save_secrets(telegram_chat_id: str = Form(None), conn: psycopg2.extens
 
     crud.save_secrets_for_user(conn, user.auth_user_id, None)
     return JSONResponse(content={"success": True})
-
-
-@app.get("/sentry-debug")
-async def sentry_debug(user: User = Depends(get_current_active_user)):
-    """Deliberate error to verify Sentry end-to-end. Login-gated so it
-    can't be used to spam the error quota."""
-    raise RuntimeError("Sentry verification: this error is expected.")
 
 
 # --- Auth Routes (Supabase email-based login/register) ---
@@ -1360,9 +1386,11 @@ async def change_password(
     if policy_error:
         return _auth_error(policy_error)
 
-    # user.username is the auth email (profiles are created from it). OAuth-only
-    # accounts have no password to verify — they set one via the reset email.
-    verified = await run_in_threadpool(_verify_password_sync, user.username, current_password)
+    # Verify against the auth email, not the raw username: create_profile
+    # de-dupes a taken username as "email#authid8", and that suffixed form is
+    # not a login. OAuth-only accounts have no password to verify — they set
+    # one via the reset email.
+    verified = await run_in_threadpool(_verify_password_sync, user.email, current_password)
     if not verified:
         return _auth_error("Current password is incorrect.")
 
@@ -1553,14 +1581,17 @@ async def _generate_cards_response(request: Request, data: CourseContentForGener
     # starved every other request on it. Nothing below here touches the
     # database; saving the batch is a separate request.
     release_request_db(request)
-    generated_cards = await run_in_threadpool(
-        generate_cards,
-        data.content,
-        mode=mode,
-        api_key=api_key,
-        card_type=data.card_type,
-        source=source,
-    )
+    try:
+        generated_cards = await run_in_threadpool(
+            generate_cards,
+            data.content,
+            mode=mode,
+            api_key=api_key,
+            card_type=data.card_type,
+            source=source,
+        )
+    except GenerationError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
     if not generated_cards:
         # Topic mode returns empty for nonsense/off-task requests by design
         # (prompt rule 6) — steer the user instead of claiming a failure.
@@ -1680,9 +1711,17 @@ async def trigger_scheduler(request: Request):
     if not scheduler_secret_is_valid(submitted_secret):
         raise HTTPException(status_code=403, detail="Invalid secret")
     
-    webhook_status = await _ensure_webhook()
+    try:
+        webhook_status = await _ensure_webhook()
+    except HTTPException:
+        raise  # not configured at all — worth failing loudly
+    except Exception as e:
+        # A Telegram hiccup on getWebhookInfo must not cancel the day's
+        # reminders; the run below needs nothing from it.
+        logger.warning("Webhook check failed; running the scheduler anyway: %s", e)
+        webhook_status = {"status": "check failed"}
     logger.info(f"Webhook status: {webhook_status}")
-    
+
     result = await run_scheduler()
     return JSONResponse(content={"status": "completed", "result": result, "webhook_status": webhook_status})
 

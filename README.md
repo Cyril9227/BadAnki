@@ -72,6 +72,7 @@ The same set is used locally (`.env`) and in the Vercel project settings:
 | `DATABASE_URL` | Supabase PostgreSQL connection string |
 | `SUPABASE_URL` | Your Supabase project URL |
 | `SUPABASE_ANON_KEY` | Supabase anon/publishable key (see note below) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Service-role key, used only by self-serve account deletion (the endpoint answers 503 without it) |
 | `SCHEDULER_SECRET` | Secret for triggering the scheduler |
 | `CRON_SECRET` | Secret protecting the Vercel cron endpoint |
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token from BotFather |

@@ -877,8 +877,9 @@ def test_all_done_page_shows_streak(mock_get_user, client, db_conn):
 
 @patch("main.supabase.auth.get_user")
 def test_home_leaderboard_members_only_local_part(mock_get_user, client, db_conn):
-    """The home page shows the leaderboard to logged-in users only, with the
-    email local part and never the full address."""
+    """The home page shows the leaderboard to logged-in users only. The
+    caller's own row shows their email local part (never the full address);
+    every other reviewer is reduced to an initial."""
     auth_client, user_id, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="boarduser2@example.com")
     card_id = create_test_card(db_conn, user_id, "Q", "A")
     auth_client.post(
@@ -887,12 +888,18 @@ def test_home_leaderboard_members_only_local_part(mock_get_user, client, db_conn
         headers={"X-CSRF-Token": csrf_token},
         follow_redirects=False,
     )
+    other_id = create_test_user(db_conn, email="otherperson@example.com")
+    with db_conn.cursor() as cur:
+        cur.execute("INSERT INTO review_activity (user_id, day, reviews, remembered) VALUES (%s, CURRENT_DATE, 5, 5)", (str(other_id),))
+        db_conn.commit()
 
     response = auth_client.get("/")
     assert response.status_code == 200
     assert "Top Reviewers" in response.text
     assert "boarduser2" in response.text
     assert "boarduser2@example.com" not in response.text
+    assert "otherperson" not in response.text
+    assert "o…" in response.text
 
     # Anonymous visitors get the public page without the leaderboard.
     auth_client.cookies.delete("access_token")
@@ -1083,6 +1090,50 @@ def test_generate_cards_api_empty_content(mock_get_user, client, db_conn):
         headers={"X-CSRF-Token": csrf_token}
     )
     assert response.status_code == 400
+
+@patch("main.supabase.auth.get_user")
+@patch("main.generate_cards")
+def test_generate_cards_api_surfaces_provider_errors(mock_generate_cards, mock_get_user, client, db_conn):
+    """A rejected key must come back as a 400 carrying a message the user can
+    act on, not as the generic 500 every failure used to collapse into."""
+    from main import GenerationError
+    mock_generate_cards.side_effect = GenerationError(400, "Gemini rejected the API key. Check it in Settings.")
+    auth_client, _, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="ai_user_badkey@example.com")
+    response = auth_client.post(
+        "/api/generate-cards/gemini",
+        json={"content": "Some text"},
+        headers={"X-CSRF-Token": csrf_token}
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Gemini rejected the API key. Check it in Settings."
+
+def test_generate_cards_without_a_key_is_a_client_error():
+    from main import GenerationError, generate_cards
+    with pytest.raises(GenerationError) as excinfo:
+        generate_cards("Some text", mode="anthropic", api_key=None)
+    assert excinfo.value.status_code == 400
+    assert "Anthropic" in excinfo.value.detail
+
+def test_provider_error_classification():
+    from main import _provider_error
+
+    class FakeStatusError(Exception):
+        def __init__(self, status_code, message="boom"):
+            super().__init__(message)
+            self.status_code = status_code
+
+    class FakeGeminiError(Exception):
+        def __init__(self, code, message):
+            super().__init__(message)
+            self.code = code
+
+    assert _provider_error("anthropic", FakeStatusError(401)).status_code == 400
+    assert _provider_error("openai", FakeStatusError(429)).status_code == 429
+    # Gemini reports a malformed key as 400, not 401.
+    rejected = _provider_error("gemini", FakeGeminiError(400, "API key not valid. Please pass a valid API key."))
+    assert rejected.status_code == 400 and "rejected" in rejected.detail
+    assert _provider_error("gemini", FakeGeminiError(400, "invalid argument")).status_code == 502
+    assert _provider_error("openai", TimeoutError("read timed out")).status_code == 502
 
 @patch("main.supabase.auth.get_user")
 @patch("main.generate_cards")
@@ -1299,12 +1350,23 @@ def test_delete_account_calls_supabase_admin(mock_delete, mock_get_user, client,
     monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "service-key")
     mock_delete.return_value = MagicMock(status_code=200)
     auth_client, user_id, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="deleter@example.com")
+    # Rows in the standalone tables have no FK to cascade from; the endpoint
+    # must clear them itself or the leaderboard keeps a ghost reviewer.
+    with db_conn.cursor() as cur:
+        cur.execute("INSERT INTO review_activity (user_id, day, reviews, remembered) VALUES (%s, CURRENT_DATE, 3, 2)", (user_id,))
+        cur.execute("INSERT INTO folders (user_id, path) VALUES (%s, 'maths')", (user_id,))
+        db_conn.commit()
     response = auth_client.post("/api/delete-account", headers={"X-CSRF-Token": csrf_token})
     assert response.status_code == 200
     assert response.json()["success"] is True
     called_url = mock_delete.call_args.args[0]
     assert called_url.endswith(f"/auth/v1/admin/users/{user_id}")
     assert mock_delete.call_args.kwargs["headers"]["apikey"] == "service-key"
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) AS n FROM review_activity WHERE user_id = %s", (user_id,))
+        assert cur.fetchone()["n"] == 0
+        cur.execute("SELECT COUNT(*) AS n FROM folders WHERE user_id = %s", (user_id,))
+        assert cur.fetchone()["n"] == 0
 
 @patch("main.supabase.auth.get_user")
 @patch("main.httpx.delete")
@@ -1431,6 +1493,29 @@ def test_trigger_scheduler_success(mock_run_scheduler, mock_ensure_webhook, clie
     
     mock_ensure_webhook.assert_called_once()
     mock_run_scheduler.assert_called_once()
+
+@patch("main._ensure_webhook")
+@patch("main.run_scheduler")
+def test_trigger_scheduler_runs_when_the_webhook_check_fails(mock_run_scheduler, mock_ensure_webhook, client):
+    """A Telegram hiccup on getWebhookInfo must not cancel the day's reminders."""
+    mock_ensure_webhook.side_effect = RuntimeError("telegram unreachable")
+    mock_run_scheduler.return_value = "Scheduler finished."
+    response = client.get(
+        "/api/trigger-scheduler",
+        headers={"X-Scheduler-Secret": os.environ.get("SCHEDULER_SECRET")},
+    )
+    assert response.status_code == 200
+    assert response.json()["webhook_status"]["status"] == "check failed"
+    mock_run_scheduler.assert_called_once()
+
+def test_scheduler_db_failure_is_not_reported_as_success():
+    """A database error while listing users used to be swallowed, so the run
+    reported "No users found" and the cron logged a green day with no
+    reminders sent. It must propagate."""
+    import scheduler
+    with patch("scheduler.get_db_connection", side_effect=RuntimeError("pool exhausted")):
+        with pytest.raises(RuntimeError):
+            scheduler.get_users_with_due_cards()
 
 def test_trigger_scheduler_invalid_secret(client):
     """Test the scheduler endpoint with an invalid secret."""
@@ -1782,3 +1867,23 @@ def test_change_password_success(mock_get_user, client, db_conn):
     # Verified against the account email, updated with the session's token.
     assert mock_grant.call_args.kwargs["json"]["email"] == "pw_user2@example.com"
     assert mock_put.call_args.kwargs["headers"]["Authorization"] == "Bearer fake-test-token"
+
+@patch("main.supabase.auth.get_user")
+def test_change_password_verifies_the_email_for_deduplicated_usernames(mock_get_user, client, db_conn):
+    """create_profile stores a colliding username as "email#authid8". The
+    current-password check must still go to GoTrue with the bare email, or
+    every attempt for such an account fails as "incorrect"."""
+    auth_client, user_id, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="pw_user3@example.com")
+    with db_conn.cursor() as cur:
+        cur.execute("UPDATE profiles SET username = %s WHERE auth_user_id = %s",
+                    (f"pw_user3@example.com#{user_id[:8]}", user_id))
+        db_conn.commit()
+    with patch("main.httpx.post", return_value=_fake_httpx_response(200)) as mock_grant, \
+         patch("main.httpx.put", return_value=_fake_httpx_response(200)):
+        response = auth_client.post(
+            "/auth/change-password",
+            data={"current_password": "oldpassword1", "new_password": "newpassword1"},
+            headers={"X-CSRF-Token": csrf_token},
+        )
+    assert response.json()["success"] is True
+    assert mock_grant.call_args.kwargs["json"]["email"] == "pw_user3@example.com"
