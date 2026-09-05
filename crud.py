@@ -425,7 +425,7 @@ def get_review_cards_for_user(conn, auth_user_id: str, exclude_ids=None, tag=Non
         query += " AND NOT (id = ANY(%s))"
         params.append(list(exclude_ids))
     if tag and has_card_tags(conn):
-        query += " AND tags && ARRAY[%s]"
+        query += " AND %s = ANY(tags)"
         params.append(tag)
     with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
         cursor.execute(query + " ORDER BY due_date LIMIT 1", params)
@@ -503,7 +503,7 @@ SELECT counters.*, activity.days,
        next_card.id AS card_id, next_card.question, next_card.answer, next_card.card_type
 FROM counters CROSS JOIN activity LEFT JOIN next_card ON true
 """
-_TAG_CLAUSE = "AND tags && ARRAY[%(tag)s]"
+_TAG_CLAUSE = "AND %(tag)s = ANY(tags)"
 
 
 def get_due_tag_counts_for_user(conn, auth_user_id: str):

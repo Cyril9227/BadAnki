@@ -815,6 +815,16 @@ def _validate_card_tags(raw) -> list:
     return [t[:MAX_CARD_TAG_LEN] for t in sanitize_tags(raw)][:MAX_CARD_TAGS]
 
 
+def _active_tag(conn, tag: str | None) -> str | None:
+    """The theme a review request is scoped to, or None for the full queue.
+    Unknown or malformed input falls back to the full queue rather than an
+    empty session, and nothing is scoped until the tags column exists."""
+    if not tag or not crud.has_card_tags(conn):
+        return None
+    cleaned = _validate_card_tags(tag)
+    return cleaned[0] if cleaned else None
+
+
 def _check_llm_rate_limit(user_id: str) -> None:
     now = time.monotonic()
     window_start = now - _LLM_RATE_LIMIT_WINDOW_SECS
@@ -1769,7 +1779,9 @@ async def review(request: Request, tag: str = None, conn: psycopg2.extensions.co
         "due_today_count": stats['due_today'],
         "new_cards_count": stats['new_cards'],
         "total_cards": stats['total_cards'],
-        "streak": crud.get_review_streak_for_user(conn, user.auth_user_id),
+        # From the same round trip as the card; None when activity tracking
+        # is unavailable, which hides the badge as the old dict did.
+        "streak_current": streak_current,
         "tag": tag,
         "csrf_token": csrf_token
     })
@@ -1849,15 +1861,6 @@ async def undo_review_ajax(
         payload.interval, payload.ease_factor, payload.due_date,
     )
     return JSONResponse(content=_review_state_payload(conn, user, tag=_active_tag(conn, tag)))
-
-
-def _active_tag(conn, tag: str | None) -> str | None:
-    """Normalize a requested theme, or None. An unknown or malformed tag
-    simply falls back to the full queue rather than an empty session."""
-    if not tag or not crud.has_card_tags(conn):
-        return None
-    cleaned = _validate_card_tags(tag)
-    return cleaned[0] if cleaned else None
 
 
 def _parse_exclude(exclude: str | None) -> list[int]:

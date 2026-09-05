@@ -431,10 +431,11 @@ document.addEventListener('DOMContentLoaded', function () {
         window.fetchJson('/api/save-cards', {
             method: 'POST',
             headers: { 'X-CSRF-Token': csrfToken },
+            // Always stamp the batch's themes, even when there are none: the
+            // cards are raw model output, and a stray "tags" key in it must
+            // not decide what gets saved.
             body: JSON.stringify({
-                cards: batchTags.length
-                    ? approved.map(function (c) { return Object.assign({}, c, { tags: batchTags }); })
-                    : approved
+                cards: approved.map(function (c) { return Object.assign({}, c, { tags: batchTags }); })
             })
         })
         .then(data => {

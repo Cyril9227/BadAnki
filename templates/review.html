@@ -144,12 +144,12 @@
             New Cards
             <span id="new-cards-badge" class="badge bg-info text-dark rounded-pill">{{ new_cards_count }}</span>
         </li>
-        {% if streak %}
+        {% if streak_current is not none %}
         <li class="list-group-item d-flex justify-content-between align-items-center">
             Day Streak
             {# The flame is decoration; inside the accessible name it read as
                "Day Streak, fire, 5". #}
-            <span class="badge bg-danger rounded-pill"><span aria-hidden="true">🔥</span> <span id="streak-badge">{{ streak.current }}</span></span>
+            <span class="badge bg-danger rounded-pill"><span aria-hidden="true">🔥</span> <span id="streak-badge">{{ streak_current }}</span></span>
         </li>
         {% endif %}
     </ul>

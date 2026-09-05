@@ -1563,6 +1563,9 @@ def test_card_themes_round_trip(mock_get_user, client, db_conn):
         cur.execute("SELECT tags FROM cards WHERE id = %s", (row["id"],))
         assert cur.fetchone()["tags"] == ["maths"]
 
+    # Manage shows the theme as a chip and feeds it to the search index.
+    assert 'data-tags="maths"' in auth_client.get("/manage").text
+
 @patch("main.supabase.auth.get_user")
 def test_themed_review_narrows_the_same_due_queue(mock_get_user, client, db_conn):
     """A theme filters what is due — it never surfaces cards that aren't due,
@@ -1598,8 +1601,10 @@ def test_themed_session_running_dry_does_not_claim_you_are_done(mock_get_user, c
     response = auth_client.get("/review?tag=maths")
     assert response.status_code == 200
     assert "No maths cards due" in response.text
-    assert "still due in other themes" in response.text
+    assert "still due elsewhere in your deck" in response.text
     assert "All Done!" not in response.text
+    # Manage grows a Themes column only once some card carries a theme.
+    assert 'class="tags-col"' not in auth_client.get("/manage").text
 
 @patch("main.supabase.auth.get_user")
 def test_focus_chips_only_offer_themes_with_work_waiting(mock_get_user, client, db_conn):
@@ -1614,7 +1619,7 @@ def test_focus_chips_only_offer_themes_with_work_waiting(mock_get_user, client, 
     assert crud.get_due_tag_counts_for_user(db_conn, user_id) == [("maths", 1)]
     body = auth_client.get("/").text
     assert "/review?tag=maths" in body
-    assert "history" not in body          # nothing due there, so it isn't offered
+    assert "/review?tag=history" not in body   # nothing due there, so it isn't offered
 
 @patch("main.supabase.auth.get_user")
 def test_generated_cards_inherit_the_courses_themes(mock_get_user, client, db_conn):
@@ -1633,15 +1638,16 @@ def test_themes_hide_entirely_without_the_column(mock_get_user, client, db_conn,
     """Same best-effort contract as folders and review_activity: the feature
     disappears rather than erroring when the migration hasn't run."""
     auth_client, user_id, _ = authenticate_client(mock_get_user, client, db_conn, email="notags@example.com")
-    create_test_card(db_conn, user_id, "Q", "A")
+    create_test_card(db_conn, user_id, "Only card here", "A")
     monkeypatch.setitem(crud._column_presence, ("cards", "tags"), False)
 
     assert crud.get_due_tag_counts_for_user(db_conn, user_id) == []
     assert 'name="tags"' not in auth_client.get("/new").text
+    assert 'class="tags-col"' not in auth_client.get("/manage").text
     # A tag in the URL is ignored rather than yielding an empty session.
     response = auth_client.get("/review?tag=maths")
     assert response.status_code == 200
-    assert "Q" in response.text
+    assert "Only card here" in response.text
 
 # --- Telegram Command Tests ---
 # The handlers open their own pooled connection through linked_command, so

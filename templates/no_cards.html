@@ -11,7 +11,7 @@
     <div class="display-3 mb-3" aria-hidden="true">{{ '👏' if due_elsewhere else '🎉' }}</div>
     <h1 class="display-5 fw-bold">No {{ tag }} cards due</h1>
     {% if due_elsewhere %}
-    <p class="lead">You've cleared <strong>{{ tag }}</strong> — but <strong>{{ due_elsewhere }}</strong> card{{ 's' if due_elsewhere != 1 else '' }} {{ 'are' if due_elsewhere != 1 else 'is' }} still due in other themes.</p>
+    <p class="lead">You've cleared <strong>{{ tag }}</strong> — but <strong>{{ due_elsewhere }}</strong> card{{ 's' if due_elsewhere != 1 else '' }} {{ 'are' if due_elsewhere != 1 else 'is' }} still due elsewhere in your deck.</p>
     {% else %}
     <p class="lead">Nothing due in <strong>{{ tag }}</strong>, and nothing due anywhere else either.</p>
     {% endif %}
