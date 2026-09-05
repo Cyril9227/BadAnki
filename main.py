@@ -21,6 +21,7 @@ import posixpath
 import frontmatter
 import httpx
 import psycopg2
+from psycopg2.pool import PoolError
 # The three provider SDKs are imported inside generate_cards, not here: each
 # one is heavy, only one is ever used per call, and on a serverless cold start
 # this module is imported to serve a page view that will never touch them.
@@ -197,7 +198,9 @@ async def webhook(request: Request, secret: str):
     if not TELEGRAM_WEBHOOK_SECRET:
         logger.error("TELEGRAM_WEBHOOK_SECRET is not configured; rejecting webhook.")
         raise HTTPException(status_code=503, detail="Webhook is not configured")
-    if not secrets.compare_digest(secret, TELEGRAM_WEBHOOK_SECRET):
+    # Compare bytes: compare_digest raises TypeError on non-ASCII str input,
+    # which turned a guessed "/webhook/é" into a 500 instead of a 403.
+    if not secrets.compare_digest(secret.encode(), TELEGRAM_WEBHOOK_SECRET.encode()):
         logger.warning("Invalid secret received in webhook request.")
         raise HTTPException(status_code=403, detail="Invalid secret")
 
@@ -324,7 +327,17 @@ async def db_session_middleware(request: Request, call_next):
 def get_request_db(request: Request) -> psycopg2.extensions.connection:
     conn = getattr(request.state, "db", None)
     if conn is None:
-        conn = get_db_connection()
+        try:
+            conn = get_db_connection()
+        except PoolError:
+            # getconn() raises immediately when the pool is exhausted (no
+            # waiting), which surfaced as a 500 from every handler's get_db
+            # dependency. It's a capacity condition, not a bug: say so.
+            raise HTTPException(
+                status_code=503,
+                detail="The database is busy. Please retry in a moment.",
+                headers={"Retry-After": "2"},
+            )
         request.state.db = conn
     return conn
 
@@ -473,7 +486,10 @@ def set_flash_cookie(response: Response, request: Request, value: str) -> None:
     response.set_cookie(
         key="flash",
         value=quote(value),
-        max_age=5,
+        # The flash JS deletes the cookie as soon as it reads it, so this only
+        # has to outlive the redirect. 5s was too tight on a serverless cold
+        # start and the login/registration toast was sometimes never shown.
+        max_age=30,
         samesite="lax",
         secure=should_use_secure_cookies(request),
     )
@@ -482,7 +498,8 @@ def scheduler_secret_is_valid(candidate: str | None) -> bool:
     return bool(
         SCHEDULER_SECRET
         and candidate
-        and secrets.compare_digest(candidate, SCHEDULER_SECRET)
+        # Bytes, not str: compare_digest rejects non-ASCII str with TypeError.
+        and secrets.compare_digest(candidate.encode(), SCHEDULER_SECRET.encode())
     )
 
 # --- Authentication ---
@@ -695,6 +712,14 @@ async def _try_refresh_session(request: Request) -> Optional[tuple[str, str]]:
     return identity
 
 
+def _profile_username(email: Optional[str], auth_user_id) -> str:
+    """Usernames are emails, but an OAuth provider can withhold the address
+    (GitHub with a private email). Fall back to a stable, obviously synthetic
+    name instead of the string "None" the f-string in create_profile would
+    otherwise store and the navbar would display."""
+    return email or f"user-{str(auth_user_id)[:8]}"
+
+
 async def get_current_user(request: Request, conn: psycopg2.extensions.connection) -> Optional[User]:
     token = request.cookies.get("access_token")
     identity = None
@@ -730,7 +755,7 @@ async def get_current_user(request: Request, conn: psycopg2.extensions.connectio
     # get a profile created here.
     profile = crud.get_profile_by_auth_id(conn, auth_user_id)
     if profile is None:
-        crud.create_profile(conn, username=auth_email, auth_user_id=auth_user_id)
+        crud.create_profile(conn, username=_profile_username(auth_email, auth_user_id), auth_user_id=auth_user_id)
         profile = crud.get_profile_by_auth_id(conn, auth_user_id)
     if profile:
         return User(**profile)
@@ -1303,7 +1328,7 @@ async def auth_callback(
         # Create a profile if it doesn't exist. Without one, every request
         # treats the session as logged out — fail loudly rather than set
         # cookies that produce an invisible login loop.
-        crud.create_profile(conn, username=auth_user.email, auth_user_id=auth_user.id)
+        crud.create_profile(conn, username=_profile_username(auth_user.email, auth_user.id), auth_user_id=auth_user.id)
         if not crud.get_profile_by_auth_id(conn, auth_user.id):
             raise HTTPException(status_code=500, detail="Could not initialize your profile. Please try again.")
 
@@ -1483,10 +1508,12 @@ def _course_text(content: str) -> str:
 async def view_course(request: Request, course_path: str, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     course_path = _validate_course_path(course_path)
     course = crud.get_course_content_for_user(conn, course_path, auth_user_id=user.auth_user_id)
-    if not course or not course['content']:
+    if course is None:
         raise HTTPException(status_code=404, detail="Course not found")
 
-    content = _course_text(course['content'])
+    # An empty file is still a file: the editor lists it, and its Save button
+    # lands here. Treating "" as missing 404'd a course the user just cleared.
+    content = _course_text(course['content'] or "")
 
     # Hand-edited frontmatter can be invalid YAML (or parse to a non-dict) —
     # render the file raw rather than 500; the crud helpers already tolerate
@@ -1867,7 +1894,8 @@ def _parse_exclude(exclude: str | None) -> list[int]:
     """Comma-separated card ids the client has set aside this session."""
     if not exclude:
         return []
-    return [int(part) for part in exclude.split(",")[:200] if part.strip().isdigit()]
+    # isdecimal, not isdigit: "²".isdigit() is True and int("²") raises.
+    return [int(part) for part in exclude.split(",")[:200] if part.strip().isdecimal()]
 
 
 @app.get("/api/review/next", response_class=JSONResponse)

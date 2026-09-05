@@ -120,8 +120,10 @@ class CSRFMiddleware:
             await self.app(scope, receive, send)
             return
 
-        # For GET requests, generate and set the token (only if not already present)
-        if method == "GET":
+        # For GET (and HEAD, which Starlette serves through the GET handlers —
+        # a page reading request.state.csrf_token otherwise 500s on HEAD),
+        # generate and set the token (only if not already present)
+        if method in ("GET", "HEAD"):
             existing_csrf_token = _cookie_value(scope, "csrf_token")
 
             # Use existing token or generate a new one
