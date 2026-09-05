@@ -20,6 +20,13 @@ CREATE TABLE IF NOT EXISTS cards (
     user_id UUID NOT NULL REFERENCES auth.users (id) ON DELETE CASCADE
 );
 
+-- Themes. A card carries zero or more lowercase tags, which scope a review
+-- session ("only maths today") without changing what is due. Generating from
+-- a course seeds these from its frontmatter tags. Additive and best-effort:
+-- crud hides the whole feature when the column is absent, so the app runs
+-- unchanged until this ALTER is applied.
+ALTER TABLE cards ADD COLUMN IF NOT EXISTS tags TEXT[] NOT NULL DEFAULT '{}';
+
 -- Every review-loop query filters on user_id + due_date; without this the
 -- whole table is scanned per request. Applied to prod 2026-07-12 (with
 -- CONCURRENTLY there; plain here because this script runs in one transaction).

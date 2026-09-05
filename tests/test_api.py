@@ -839,7 +839,9 @@ def test_review_state_falls_back_when_the_combined_query_fails(pg_container, db_
     """review_activity is best-effort, so folding it into the same statement
     must not be able to take the card and counters down with it."""
     user_id, due = _seed_review_state(db_conn, "combinedfallback@example.com")
-    monkeypatch.setattr(crud, "_REVIEW_STATE_QUERY", "SELECT * FROM table_that_is_not_here")
+    # No placeholders, so .format(tag_clause=...) leaves it alone and the
+    # execute raises — which is the point.
+    monkeypatch.setattr(crud, "_REVIEW_STATE_QUERY_TEMPLATE", "SELECT * FROM table_that_is_not_here")
 
     card, counters, streak_current = crud.get_review_state_for_user(db_conn, user_id)
     assert card["id"] == due
@@ -1534,6 +1536,118 @@ def test_photo_cache_roundtrip_and_upsert(db_conn):
     # Re-rendering the same content upserts the newer file_id.
     crud.cache_photo_file_id(db_conn, content_hash, "file-2", card_id=123)
     assert crud.get_cached_photo_file_id(db_conn, content_hash) == "file-2"
+
+# --- Card Theme (tag) Tests ---
+def test_sanitize_tags_drops_blanks():
+    from parsing import sanitize_tags
+    assert sanitize_tags("maths, , physics,") == ["maths", "physics"]
+    assert sanitize_tags(["Maths", "MATHS", " physics "]) == ["maths", "physics"]
+    assert sanitize_tags(",,") == []
+
+@patch("main.supabase.auth.get_user")
+def test_card_themes_round_trip(mock_get_user, client, db_conn):
+    auth_client, user_id, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="themes@example.com")
+
+    auth_client.post("/new", data={"question": "2+2?", "answer": "4",
+                                   "tags": "Maths, , ALGEBRA"},
+                     headers={"X-CSRF-Token": csrf_token}, follow_redirects=False)
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT id, tags FROM cards WHERE user_id = %s", (str(user_id),))
+        row = cur.fetchone()
+    # Lowercased, de-duped, blanks dropped.
+    assert row["tags"] == ["algebra", "maths"]
+
+    auth_client.post(f"/edit-card/{row['id']}", data={"question": "2+2?", "answer": "4", "tags": "maths"},
+                     headers={"X-CSRF-Token": csrf_token}, follow_redirects=False)
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT tags FROM cards WHERE id = %s", (row["id"],))
+        assert cur.fetchone()["tags"] == ["maths"]
+
+    # Manage shows the theme as a chip and feeds it to the search index.
+    assert 'data-tags="maths"' in auth_client.get("/manage").text
+
+@patch("main.supabase.auth.get_user")
+def test_themed_review_narrows_the_same_due_queue(mock_get_user, client, db_conn):
+    """A theme filters what is due — it never surfaces cards that aren't due,
+    so the schedule is untouched."""
+    auth_client, user_id, _ = authenticate_client(mock_get_user, client, db_conn, email="themedreview@example.com")
+    maths = create_test_card(db_conn, user_id, "Maths due", "A")
+    create_test_card(db_conn, user_id, "Physics due", "A")
+    ahead = create_test_card(db_conn, user_id, "Maths not due", "A",
+                             due_date=datetime.now() + timedelta(days=9))
+    with db_conn.cursor() as cur:
+        cur.execute("UPDATE cards SET tags = ARRAY['maths'] WHERE id IN (%s, %s)", (maths, ahead))
+        db_conn.commit()
+
+    card, counters, _ = crud.get_review_state_for_user(db_conn, user_id, tag="maths")
+    assert card["id"] == maths                 # the due maths card
+    assert counters["due_today"] == 1          # counters are scoped to the theme
+    assert counters["total_cards"] == 2        # both maths cards, not the physics one
+
+    # Unscoped, everything due is still there.
+    _, all_counters, _ = crud.get_review_state_for_user(db_conn, user_id)
+    assert all_counters["due_today"] == 2
+
+    response = auth_client.get("/review?tag=maths")
+    assert response.status_code == 200
+    assert "Maths due" in response.text
+    assert "Physics due" not in response.text
+
+@patch("main.supabase.auth.get_user")
+def test_themed_session_running_dry_does_not_claim_you_are_done(mock_get_user, client, db_conn):
+    auth_client, user_id, _ = authenticate_client(mock_get_user, client, db_conn, email="themedone@example.com")
+    create_test_card(db_conn, user_id, "Physics due", "A")  # due, untagged
+
+    response = auth_client.get("/review?tag=maths")
+    assert response.status_code == 200
+    assert "No maths cards due" in response.text
+    assert "still due elsewhere in your deck" in response.text
+    assert "All Done!" not in response.text
+    # Manage grows a Themes column only once some card carries a theme.
+    assert 'class="tags-col"' not in auth_client.get("/manage").text
+
+@patch("main.supabase.auth.get_user")
+def test_focus_chips_only_offer_themes_with_work_waiting(mock_get_user, client, db_conn):
+    auth_client, user_id, _ = authenticate_client(mock_get_user, client, db_conn, email="focuschips@example.com")
+    due = create_test_card(db_conn, user_id, "Q", "A")
+    later = create_test_card(db_conn, user_id, "Q2", "A2", due_date=datetime.now() + timedelta(days=9))
+    with db_conn.cursor() as cur:
+        cur.execute("UPDATE cards SET tags = ARRAY['maths'] WHERE id = %s", (due,))
+        cur.execute("UPDATE cards SET tags = ARRAY['history'] WHERE id = %s", (later,))
+        db_conn.commit()
+
+    assert crud.get_due_tag_counts_for_user(db_conn, user_id) == [("maths", 1)]
+    body = auth_client.get("/").text
+    assert "/review?tag=maths" in body
+    assert "/review?tag=history" not in body   # nothing due there, so it isn't offered
+
+@patch("main.supabase.auth.get_user")
+def test_generated_cards_inherit_the_courses_themes(mock_get_user, client, db_conn):
+    auth_client, user_id, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="seedtags@example.com")
+    auth_client.post(
+        "/api/save-cards",
+        json={"cards": [{"question": "Q", "answer": "A", "tags": ["Calculus", "maths"]}]},
+        headers={"X-CSRF-Token": csrf_token},
+    )
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT tags FROM cards WHERE user_id = %s", (str(user_id),))
+        assert cur.fetchone()["tags"] == ["calculus", "maths"]
+
+@patch("main.supabase.auth.get_user")
+def test_themes_hide_entirely_without_the_column(mock_get_user, client, db_conn, monkeypatch):
+    """Same best-effort contract as folders and review_activity: the feature
+    disappears rather than erroring when the migration hasn't run."""
+    auth_client, user_id, _ = authenticate_client(mock_get_user, client, db_conn, email="notags@example.com")
+    create_test_card(db_conn, user_id, "Only card here", "A")
+    monkeypatch.setitem(crud._column_presence, ("cards", "tags"), False)
+
+    assert crud.get_due_tag_counts_for_user(db_conn, user_id) == []
+    assert 'name="tags"' not in auth_client.get("/new").text
+    assert 'class="tags-col"' not in auth_client.get("/manage").text
+    # A tag in the URL is ignored rather than yielding an empty session.
+    response = auth_client.get("/review?tag=maths")
+    assert response.status_code == 200
+    assert "Only card here" in response.text
 
 # --- Telegram Command Tests ---
 # The handlers open their own pooled connection through linked_command, so

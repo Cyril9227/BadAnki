@@ -416,13 +416,17 @@ def get_courses_by_tag_for_user(conn, tag: str, auth_user_id: str):
 
 # --- Card CRUD Functions ---
 
-def get_review_cards_for_user(conn, auth_user_id: str, exclude_ids=None):
-    """Earliest due card, minus any the client set aside this session."""
+def get_review_cards_for_user(conn, auth_user_id: str, exclude_ids=None, tag=None):
+    """Earliest due card, minus any the client set aside this session, and
+    optionally scoped to one theme."""
     query = "SELECT * FROM cards WHERE user_id = %s AND due_date <= %s"
     params = [auth_user_id, datetime.now()]
     if exclude_ids:
         query += " AND NOT (id = ANY(%s))"
         params.append(list(exclude_ids))
+    if tag and has_card_tags(conn):
+        query += " AND %s = ANY(tags)"
+        params.append(tag)
     with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
         cursor.execute(query + " ORDER BY due_date LIMIT 1", params)
         return cursor.fetchone()
@@ -467,7 +471,11 @@ def get_review_stats_for_user(conn, auth_user_id: str):
 # is all this call site can use, and array_agg stays bounded as history grows.
 REVIEW_STREAK_WINDOW_DAYS = 400
 
-_REVIEW_STATE_QUERY = """
+# {tag_clause} is empty unless a theme is active, so the SQL never names the
+# tags column on a database where the migration hasn't run. When a theme IS
+# active it scopes the counters too: "Due Today 7 / Total 45" then reads as
+# 45 cards in this theme, which is what the badge above it says you are in.
+_REVIEW_STATE_QUERY_TEMPLATE = """
 WITH counters AS (
     SELECT
         COUNT(*) AS total_cards,
@@ -476,13 +484,14 @@ WITH counters AS (
         COUNT(*) FILTER (WHERE interval = 0) AS new_cards,
         COUNT(*) FILTER (WHERE interval > 0 AND interval < %(mature)s) AS young,
         COUNT(*) FILTER (WHERE interval >= %(mature)s) AS mature
-    FROM cards WHERE user_id = %(uid)s
+    FROM cards WHERE user_id = %(uid)s {tag_clause}
 ), next_card AS (
     SELECT id, question, answer, card_type
     FROM cards
     WHERE user_id = %(uid)s
       AND due_date <= %(now)s
       AND NOT (id = ANY(%(exclude)s::int[]))
+      {tag_clause}
     ORDER BY due_date
     LIMIT 1
 ), activity AS (
@@ -494,9 +503,38 @@ SELECT counters.*, activity.days,
        next_card.id AS card_id, next_card.question, next_card.answer, next_card.card_type
 FROM counters CROSS JOIN activity LEFT JOIN next_card ON true
 """
+_TAG_CLAUSE = "AND %(tag)s = ANY(tags)"
 
 
-def get_review_state_for_user(conn, auth_user_id: str, exclude_ids=None):
+def get_due_tag_counts_for_user(conn, auth_user_id: str):
+    """[(tag, due_count)] over cards due right now, busiest theme first.
+
+    Drives the Focus chips: a theme is only offered when it actually has work
+    waiting, so the row disappears on a day with nothing tagged due rather
+    than presenting empty choices.
+    """
+    if not has_card_tags(conn):
+        return []
+    try:
+        with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
+            cursor.execute(
+                """
+                SELECT tag, COUNT(*) AS due
+                FROM cards, unnest(tags) AS tag
+                WHERE user_id = %s AND due_date <= %s
+                GROUP BY tag
+                ORDER BY due DESC, tag
+                """,
+                (auth_user_id, datetime.now()),
+            )
+            return [(r["tag"], r["due"]) for r in cursor.fetchall()]
+    except Exception as e:
+        logger.info("Card tags unavailable: %s", e)
+        _rollback_quietly(conn)
+        return []
+
+
+def get_review_state_for_user(conn, auth_user_id: str, exclude_ids=None, tag=None):
     """Everything one turn of the review loop needs, in a single round trip.
 
     Returns (card_row_or_None, counters_row, current_streak_or_None). Rating,
@@ -520,17 +558,21 @@ def get_review_state_for_user(conn, auth_user_id: str, exclude_ids=None):
         # clause needs no conditional assembly.
         "exclude": list(exclude_ids or []),
         "streak_window": REVIEW_STREAK_WINDOW_DAYS,
+        "tag": tag,
     }
+    # A theme only reaches the SQL when the column is there to support it.
+    active_tag = tag if (tag and has_card_tags(conn)) else None
+    query = _REVIEW_STATE_QUERY_TEMPLATE.format(tag_clause=_TAG_CLAUSE if active_tag else "")
     try:
         with conn.cursor(cursor_factory=extras.DictCursor) as cursor:
-            cursor.execute(_REVIEW_STATE_QUERY, params)
+            cursor.execute(query, params)
             row = cursor.fetchone()
     except Exception as e:
         logger.info("Combined review-state query unavailable, falling back: %s", e)
         _rollback_quietly(conn)
         streak = get_review_streak_for_user(conn, auth_user_id)
         return (
-            get_review_cards_for_user(conn, auth_user_id, exclude_ids),
+            get_review_cards_for_user(conn, auth_user_id, exclude_ids, tag=active_tag),
             get_review_stats_for_user(conn, auth_user_id),
             streak["current"] if streak else None,
         )
@@ -600,18 +642,44 @@ def restore_card_schedule_for_user(conn, card_id: int, auth_user_id: str, interv
     conn.commit()
     return updated
 
-def create_card_for_user(conn, question: str, answer: str, auth_user_id: str, card_type: str = "basic"):
+_CARD_BASE_COLUMNS = ("question", "answer", "due_date", "user_id")
+
+
+def _card_optional_columns(conn) -> list:
+    """The optional card columns this database actually has, in insert order.
+
+    card_type and tags both shipped ahead of their migrations, and branching
+    per column would need one INSERT per combination — this collapses that to
+    one. Names come from this module, never from input, so the f-string below
+    interpolates no user data.
+    """
+    present = []
+    if _check_card_type_column(conn):
+        present.append("card_type")
+    if has_card_tags(conn):
+        present.append("tags")
+    return present
+
+
+def _card_insert_sql(conn, optional: list, bulk: bool) -> str:
+    columns = list(_CARD_BASE_COLUMNS) + optional
+    values = "%s" if bulk else "(" + ", ".join(["%s"] * len(columns)) + ")"
+    return f"INSERT INTO cards ({', '.join(columns)}) VALUES {values}"
+
+
+def _card_row(question, answer, auth_user_id, optional, card_type, tags) -> tuple:
+    extra = {"card_type": card_type, "tags": list(tags or [])}
+    return (question, answer, datetime.now(), auth_user_id) + tuple(extra[c] for c in optional)
+
+
+def create_card_for_user(conn, question: str, answer: str, auth_user_id: str,
+                         card_type: str = "basic", tags=None):
+    optional = _card_optional_columns(conn)
     with conn.cursor() as cursor:
-        if _check_card_type_column(conn):
-            cursor.execute(
-                "INSERT INTO cards (question, answer, card_type, due_date, user_id) VALUES (%s, %s, %s, %s, %s)",
-                (question, answer, card_type, datetime.now(), auth_user_id)
-            )
-        else:
-            cursor.execute(
-                "INSERT INTO cards (question, answer, due_date, user_id) VALUES (%s, %s, %s, %s)",
-                (question, answer, datetime.now(), auth_user_id)
-            )
+        cursor.execute(
+            _card_insert_sql(conn, optional, bulk=False),
+            _card_row(question, answer, auth_user_id, optional, card_type, tags),
+        )
     conn.commit()
 
 def get_card_for_user(conn, card_id: int, auth_user_id: str):
@@ -647,9 +715,19 @@ def cache_photo_file_id(conn, content_hash: str, telegram_file_id: str, card_id:
         )
     conn.commit()
 
-def update_card_content_for_user(conn, card_id: int, auth_user_id: str, question: str, answer: str):
+def update_card_content_for_user(conn, card_id: int, auth_user_id: str, question: str, answer: str, tags=None):
+    """tags=None leaves them untouched, so callers that don't manage themes
+    (and databases without the column) are unaffected."""
+    assignments, params = ["question = %s", "answer = %s"], [question, answer]
+    if tags is not None and has_card_tags(conn):
+        assignments.append("tags = %s")
+        params.append(list(tags))
+    params += [card_id, auth_user_id]
     with conn.cursor() as cursor:
-        cursor.execute("UPDATE cards SET question = %s, answer = %s WHERE id = %s AND user_id = %s", (question, answer, card_id, auth_user_id))
+        cursor.execute(
+            f"UPDATE cards SET {', '.join(assignments)} WHERE id = %s AND user_id = %s",
+            params,
+        )
     conn.commit()
 
 def delete_card_for_user(conn, card_id: int, auth_user_id: str):
@@ -704,39 +782,52 @@ def get_random_card_for_user(conn, auth_user_id: str):
         )
         return cursor.fetchone()
 
-_has_card_type_column = None
+_column_presence: dict = {}
 
-def _check_card_type_column(conn):
-    """Check once whether the cards table has a card_type column."""
-    global _has_card_type_column
-    if _has_card_type_column is None:
+def _has_column(conn, table: str, column: str) -> bool:
+    """Whether a column exists, probed once per process.
+
+    Two additive columns have shipped ahead of their migration now
+    (cards.card_type, cards.tags), so this is the shared probe rather than a
+    global per column.
+    """
+    key = (table, column)
+    if key not in _column_presence:
         with conn.cursor() as cursor:
             cursor.execute(
-                "SELECT 1 FROM information_schema.columns WHERE table_name = 'cards' AND column_name = 'card_type'"
+                "SELECT 1 FROM information_schema.columns"
+                " WHERE table_name = %s AND column_name = %s",
+                (table, column),
             )
-            _has_card_type_column = cursor.fetchone() is not None
-    return _has_card_type_column
+            _column_presence[key] = cursor.fetchone() is not None
+    return _column_presence[key]
+
+def _check_card_type_column(conn):
+    return _has_column(conn, "cards", "card_type")
+
+def has_card_tags(conn) -> bool:
+    """Themes are hidden entirely until the tags column exists — same
+    best-effort contract as folders and review_activity."""
+    try:
+        return _has_column(conn, "cards", "tags")
+    except Exception as e:
+        logger.info("Card tags unavailable: %s", e)
+        _rollback_quietly(conn)
+        return False
 
 def save_generated_cards_for_user(conn, cards: list, auth_user_id: str):
+    optional = _card_optional_columns(conn)
     try:
         with conn.cursor() as cursor:
-            if _check_card_type_column(conn):
-                card_data = [
-                    (card.question, card.answer, getattr(card, 'card_type', 'basic'), datetime.now(), auth_user_id)
+            extras.execute_values(
+                cursor,
+                _card_insert_sql(conn, optional, bulk=True),
+                [
+                    _card_row(card.question, card.answer, auth_user_id, optional,
+                              getattr(card, "card_type", "basic"), getattr(card, "tags", None))
                     for card in cards
-                ]
-                extras.execute_values(
-                    cursor,
-                    "INSERT INTO cards (question, answer, card_type, due_date, user_id) VALUES %s",
-                    card_data
-                )
-            else:
-                card_data = [(card.question, card.answer, datetime.now(), auth_user_id) for card in cards]
-                extras.execute_values(
-                    cursor,
-                    "INSERT INTO cards (question, answer, due_date, user_id) VALUES %s",
-                    card_data
-                )
+                ],
+            )
         conn.commit()
     except Exception:
         conn.rollback()

@@ -5,7 +5,21 @@
 
 {% block content %}
 <div class="text-center py-5">
-    {% if total_cards %}
+    {% if tag %}
+    {# A themed session running dry is NOT "done for the day" — say what is
+       still waiting before congratulating anyone. #}
+    <div class="display-3 mb-3" aria-hidden="true">{{ '👏' if due_elsewhere else '🎉' }}</div>
+    <h1 class="display-5 fw-bold">No {{ tag }} cards due</h1>
+    {% if due_elsewhere %}
+    <p class="lead">You've cleared <strong>{{ tag }}</strong> — but <strong>{{ due_elsewhere }}</strong> card{{ 's' if due_elsewhere != 1 else '' }} {{ 'are' if due_elsewhere != 1 else 'is' }} still due elsewhere in your deck.</p>
+    {% else %}
+    <p class="lead">Nothing due in <strong>{{ tag }}</strong>, and nothing due anywhere else either.</p>
+    {% endif %}
+    <div class="d-grid gap-2 d-sm-flex justify-content-sm-center mt-4">
+        <a href="/review" class="btn btn-primary">{{ 'Review everything due' if due_elsewhere else 'Back to all cards' }}</a>
+        <a href="/" class="btn btn-outline-secondary">Home</a>
+    </div>
+    {% elif total_cards %}
     <div class="display-3 mb-3" aria-hidden="true">🎉</div>
     <h1 class="display-5 fw-bold">All Done!</h1>
     <p class="lead">Nothing due right now — all {{ total_cards }} card{{ 's' if total_cards != 1 else '' }} in your deck are scheduled for later.</p>
@@ -18,6 +32,7 @@
     <h1 class="display-5 fw-bold">Your deck is empty</h1>
     <p class="lead">Create your first card, or generate a whole deck from your course notes.</p>
     {% endif %}
+    {% if not tag %}
     <div class="d-grid gap-2 d-sm-flex justify-content-sm-center mt-4">
         <a href="/new" class="btn btn-primary">Create a New Card</a>
         <a href="/courses" class="btn btn-outline-primary">Browse Courses</a>
@@ -25,6 +40,7 @@
         <a href="/manage" class="btn btn-outline-secondary">Manage Cards</a>
         {% endif %}
     </div>
+    {% endif %}
 </div>
 
 {# The leaderboard lives on the home page now. #}

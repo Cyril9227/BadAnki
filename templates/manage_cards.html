@@ -98,6 +98,10 @@
             font-size: 0.875rem;
         }
 
+        /* A card with no theme drops the cell, or every card grows an empty
+           "Themes" heading. */
+        .table td.tags-col:empty { display: none; }
+
         /* Content styling for better readability */
         .question-col, .answer-col {
             line-height: 1.5;
@@ -247,6 +251,11 @@
 
 <div class="card">
     <div class="table-responsive">
+        {# The Themes column appears once a card actually carries one. Before
+           that it is dead width on desktop and an empty heading per card on
+           mobile; on a database without the column, card.tags is undefined
+           and this stays false. #}
+        {% set show_themes = cards | selectattr('tags') | list %}
         <table class="table table-striped mb-0">
             <thead>
                 <tr>
@@ -256,6 +265,7 @@
                     <th data-sort-type="text" data-sort-key="type">Type</th>
                     <th class="question-col">Question</th>
                     <th class="answer-col">Answer</th>
+                    {% if show_themes %}<th class="tags-col">Themes</th>{% endif %}
                     <th data-sort-type="date" data-sort-key="due">Due</th>
                     <th data-sort-type="number" data-sort-key="ease">Ease</th>
                     <th data-sort-type="number" data-sort-key="interval">Interval</th>
@@ -274,6 +284,9 @@
                     <td data-label="Type" class="card-type-cell"></td>
                     <td data-label="Question" class="question-col markdown-content" data-content="{{ card.question }}"></td>
                     <td data-label="Answer" class="answer-col markdown-content" data-content="{{ card.answer }}"></td>
+                    {# One line on purpose: an untagged card leaves this cell truly
+                       empty, which is what lets the mobile layout drop it. #}
+                    {% if show_themes %}<td data-label="Themes" class="tags-col" data-tags="{{ (card.tags or []) | join(' ') }}">{% for t in card.tags or [] %}<span class="badge rounded-pill text-bg-secondary me-1">{{ t }}</span>{% endfor %}</td>{% endif %}
                     <td data-label="Due Date" data-sort="{{ card.due_date.isoformat() if card.due_date else '' }}">{{ card.due_date.strftime('%Y-%m-%d') if card.due_date else 'N/A' }}</td>
                     <td data-label="Ease Factor" data-sort="{{ card.ease_factor }}">{{ "%.2f"|format(card.ease_factor) }}</td>
                     <td data-label="Interval" data-sort="{{ card.interval }}">{{ card.interval }} days</td>
@@ -337,7 +350,11 @@ document.addEventListener('DOMContentLoaded', function () {
         row.dataset.type = window.isClozeText(question) ? 'cloze' : 'basic';
         // A plain property, not a data-* attribute: writing this back into the
         // DOM would undo the payload saving it exists to complement.
-        row._searchText = (question + ' ' + answer).toLowerCase();
+        // Themes join the index, so typing "maths" in the search box filters
+        // to that theme without a separate control.
+        const tagsCell = row.querySelector('.tags-col');
+        const tags = tagsCell ? (tagsCell.dataset.tags || '') : '';
+        row._searchText = (question + ' ' + answer + ' ' + tags).toLowerCase();
         const typeCell = row.querySelector('.card-type-cell');
         if (typeCell) typeCell.dataset.sort = row.dataset.type;
     });

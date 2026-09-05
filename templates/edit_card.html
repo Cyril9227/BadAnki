@@ -45,6 +45,14 @@
                     <div class="card-body markdown-content" id="answer-preview"></div>
                 </div>
             </div>
+            {% if tags_enabled %}
+            <div class="col-12">
+                <label for="tags-input" class="form-label fw-semibold">Themes <span class="text-body-secondary fw-normal">(optional)</span></label>
+                <input type="text" name="tags" id="tags-input" class="form-control"
+                       value="{{ (card.tags or []) | join(', ') }}" placeholder="maths, algebra" autocomplete="off">
+                <div class="form-text">Comma-separated. Clearing this removes the card from its themes.</div>
+            </div>
+            {% endif %}
         </div>
         <div class="mt-4">
             <button type="submit" class="btn btn-primary">Update Card</button>

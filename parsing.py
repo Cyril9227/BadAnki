@@ -160,4 +160,6 @@ def sanitize_tags(tags):
         tag_list = [str(t).strip().lower() for t in tags]
     elif isinstance(tags, str):
         tag_list = [t.strip().lower() for t in tags.split(',')]
-    return sorted(list(set(tag_list)))
+    # Drop blanks: "maths, , physics," used to yield an empty tag, which
+    # renders as an empty chip and, for card themes, an unselectable filter.
+    return sorted({t for t in tag_list if t})

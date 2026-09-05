@@ -97,6 +97,9 @@ MAX_COURSE_CONTENT_LEN = 1_000_000
 MAX_CARD_QUESTION_LEN = 10_000
 MAX_CARD_ANSWER_LEN = 50_000
 MAX_GENERATED_CARDS_PER_REQUEST = 100
+# A theme name is a tag; the cap keeps one card from carrying a wall of them.
+MAX_CARD_TAGS = 10
+MAX_CARD_TAG_LEN = 40
 MAX_SECRET_INPUT_LEN = 512
 # Topic-mode generation takes a free-text request instead of course material.
 # Enough for a rich topic description, cramped for prompt-injection essays.
@@ -374,6 +377,10 @@ class GeneratedCard(BaseModel):
     question: str = Field(..., min_length=1, max_length=MAX_CARD_QUESTION_LEN)
     answer: str = Field(..., min_length=1, max_length=MAX_CARD_ANSWER_LEN)
     card_type: str = Field(default="basic", pattern="^(basic|cloze)$")
+    # Seeded from the source course's frontmatter tags so a generated batch
+    # arrives already themed — hand-tagging a back catalogue is what kills
+    # this kind of feature. Re-sanitized on save, never trusted as sent.
+    tags: list[str] = Field(default_factory=list, max_length=MAX_CARD_TAGS)
 
 class CourseContentForGeneration(BaseModel):
     content: str = Field(..., max_length=MAX_COURSE_CONTENT_LEN)
@@ -800,6 +807,22 @@ _LLM_RATE_LIMIT_MAX = 10
 _LLM_RATE_LIMIT_WINDOW_SECS = 60
 _llm_rate_limit_state: dict[str, deque] = {}
 _llm_rate_limit_lock = Lock()
+
+
+def _validate_card_tags(raw) -> list:
+    """Comma-separated field (or list) -> the stored tag list. sanitize_tags
+    already lowercases, trims, de-dupes and drops blanks; this only bounds it."""
+    return [t[:MAX_CARD_TAG_LEN] for t in sanitize_tags(raw)][:MAX_CARD_TAGS]
+
+
+def _active_tag(conn, tag: str | None) -> str | None:
+    """The theme a review request is scoped to, or None for the full queue.
+    Unknown or malformed input falls back to the full queue rather than an
+    empty session, and nothing is scoped until the tags column exists."""
+    if not tag or not crud.has_card_tags(conn):
+        return None
+    cleaned = _validate_card_tags(tag)
+    return cleaned[0] if cleaned else None
 
 
 def _check_llm_rate_limit(user_id: str) -> None:
@@ -1404,12 +1427,16 @@ async def root(request: Request):
     # show them to. Returning users landed on generic copy before this and had
     # to open /review to find out whether anything was waiting for them.
     leaderboard = deck = streak = None
+    due_tags = []
     if request.state.user:
         conn = get_request_db(request)
         auth_user_id = request.state.user.auth_user_id
         leaderboard = crud.get_leaderboard(conn, auth_user_id)
         deck = crud.get_review_stats_for_user(conn, auth_user_id)
         streak = crud.get_review_streak_for_user(conn, auth_user_id)
+        # Only themes with work waiting; [] hides the Focus row entirely, so
+        # the page is unchanged for anyone not using themes.
+        due_tags = crud.get_due_tag_counts_for_user(conn, auth_user_id)
     return templates.TemplateResponse(request, "home.html", {
         "telegram_bot_username": TELEGRAM_BOT_USERNAME,
         "supabase_url": SUPABASE_URL,
@@ -1417,6 +1444,7 @@ async def root(request: Request):
         "leaderboard": leaderboard,
         "deck": deck,
         "streak": streak,
+        "due_tags": due_tags,
     })
 
 @app.get("/courses", response_class=HTMLResponse)
@@ -1605,6 +1633,8 @@ async def api_generate_cards_from_topic(provider: LLMProvider, data: TopicForGen
 
 @app.post("/api/save-cards")
 async def api_save_cards(data: GeneratedCards, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
+    for card in data.cards:
+        card.tags = _validate_card_tags(card.tags)
     crud.save_generated_cards_for_user(conn, data.cards, user.auth_user_id)
     return {"success": True, "message": f"{len(data.cards)} cards saved successfully."}
 
@@ -1726,14 +1756,21 @@ async def view_card(request: Request, card_id: int, conn: psycopg2.extensions.co
     return templates.TemplateResponse(request, "card_viewer.html", {"card": card})
 
 @app.get("/review", response_class=HTMLResponse)
-async def review(request: Request, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
-    card = crud.get_review_cards_for_user(conn, user.auth_user_id)
-    stats = crud.get_review_stats_for_user(conn, user.auth_user_id)
+async def review(request: Request, tag: str = None, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
+    """?tag=maths scopes the session to one theme. It narrows the same due
+    queue — it never surfaces cards that aren't due — so the schedule is
+    untouched and skipping a theme today just leaves that work due."""
+    tag = _active_tag(conn, tag)
+    card, stats, streak_current = crud.get_review_state_for_user(conn, user.auth_user_id, tag=tag)
 
     if card is None:
         return templates.TemplateResponse(request, "no_cards.html", {
             "total_cards": stats['total_cards'],
             "streak": crud.get_review_streak_for_user(conn, user.auth_user_id),
+            "tag": tag,
+            # A themed session that runs dry must not read as "done for the
+            # day" — say what is still waiting elsewhere.
+            "due_elsewhere": crud.get_review_stats_for_user(conn, user.auth_user_id)['due_today'] if tag else 0,
         })
 
     csrf_token = request.state.csrf_token
@@ -1742,7 +1779,10 @@ async def review(request: Request, conn: psycopg2.extensions.connection = Depend
         "due_today_count": stats['due_today'],
         "new_cards_count": stats['new_cards'],
         "total_cards": stats['total_cards'],
-        "streak": crud.get_review_streak_for_user(conn, user.auth_user_id),
+        # From the same round trip as the card; None when activity tracking
+        # is unavailable, which hides the badge as the old dict did.
+        "streak_current": streak_current,
+        "tag": tag,
         "csrf_token": csrf_token
     })
 
@@ -1761,10 +1801,14 @@ async def stats(request: Request, conn: psycopg2.extensions.connection = Depends
 
 
 @app.post("/review/{card_id}")
-async def update_review(card_id: int, status: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
+async def update_review(card_id: int, status: str = Form(...), tag: str = Form(None), conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     if crud.update_card_for_user(conn, card_id, user.auth_user_id, status == "remembered"):
         crud.record_review_activity(conn, user.auth_user_id, status == "remembered")
-    return RedirectResponse(url="/review", status_code=303)
+    # Carry the theme across the redirect, or the no-JS path silently drops
+    # the user back into the full queue after one rating.
+    active = _active_tag(conn, tag)
+    destination = f"/review?tag={quote(active)}" if active else "/review"
+    return RedirectResponse(url=destination, status_code=303)
 
 
 @app.post("/api/review/{card_id}", response_class=JSONResponse)
@@ -1772,6 +1816,7 @@ async def update_review_ajax(
     card_id: int,
     status: str = Form(...),
     exclude: str = Form(None),
+    tag: str = Form(None),
     conn: psycopg2.extensions.connection = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
@@ -1787,7 +1832,7 @@ async def update_review_ajax(
     if result:
         crud.record_review_activity(conn, user.auth_user_id, status == "remembered")
 
-    payload = _review_state_payload(conn, user, _parse_exclude(exclude))
+    payload = _review_state_payload(conn, user, _parse_exclude(exclude), _active_tag(conn, tag))
     if result:
         payload["review"] = {
             "interval": result["interval"],
@@ -1804,6 +1849,7 @@ async def update_review_ajax(
 async def undo_review_ajax(
     card_id: int,
     payload: ReviewUndo,
+    tag: str = None,
     conn: psycopg2.extensions.connection = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
@@ -1814,7 +1860,7 @@ async def undo_review_ajax(
         conn, card_id, user.auth_user_id,
         payload.interval, payload.ease_factor, payload.due_date,
     )
-    return JSONResponse(content=_review_state_payload(conn, user))
+    return JSONResponse(content=_review_state_payload(conn, user, tag=_active_tag(conn, tag)))
 
 
 def _parse_exclude(exclude: str | None) -> list[int]:
@@ -1827,21 +1873,22 @@ def _parse_exclude(exclude: str | None) -> list[int]:
 @app.get("/api/review/next", response_class=JSONResponse)
 async def next_review_card(
     exclude: str = None,
+    tag: str = None,
     conn: psycopg2.extensions.connection = Depends(get_db),
     user: User = Depends(get_current_active_user),
 ):
     """Next due card minus skipped ids — powers swipe-to-skip."""
-    return JSONResponse(content=_review_state_payload(conn, user, _parse_exclude(exclude)))
+    return JSONResponse(content=_review_state_payload(conn, user, _parse_exclude(exclude), _active_tag(conn, tag)))
 
 
-def _review_state_payload(conn, user: User, exclude_ids=None) -> dict:
+def _review_state_payload(conn, user: User, exclude_ids=None, tag=None) -> dict:
     """The next due card plus deck stats, as consumed by the review page JS.
 
     One query, not three: every rating, skip and undo lands here, so each
     round trip saved is paid back on the app's hottest path.
     """
     next_card, stats, streak_current = crud.get_review_state_for_user(
-        conn, user.auth_user_id, exclude_ids
+        conn, user.auth_user_id, exclude_ids, tag=tag
     )
 
     payload = {
@@ -1872,18 +1919,20 @@ async def manage_cards(request: Request, conn: psycopg2.extensions.connection = 
     return templates.TemplateResponse(request, "manage_cards.html", {"cards": cards, "csrf_token": csrf_token})
 
 @app.get("/new", response_class=HTMLResponse)
-async def new_card_form(request: Request, card_type: str = "basic", user: User = Depends(get_current_active_user)):
+async def new_card_form(request: Request, card_type: str = "basic", conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     csrf_token = request.state.csrf_token
     return templates.TemplateResponse(request, "new_card.html", {
         "csrf_token": csrf_token,
         "card_type": card_type if card_type in ("basic", "cloze") else "basic",
         "available_providers": _available_providers(user),
+        "tags_enabled": crud.has_card_tags(conn),
     })
 
 @app.post("/new")
-async def create_new_card(request: Request, question: str = Form(...), answer: str = Form(...), card_type: str = Form("basic"), conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
+async def create_new_card(request: Request, question: str = Form(...), answer: str = Form(...), card_type: str = Form("basic"), tags: str = Form(""), conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     question, answer, card_type = _validate_card_input(question, answer, card_type)
-    crud.create_card_for_user(conn, question, answer, user.auth_user_id, card_type=card_type)
+    crud.create_card_for_user(conn, question, answer, user.auth_user_id, card_type=card_type,
+                              tags=_validate_card_tags(tags))
     # Card creation is repetitive — return to a fresh form of the same type.
     response = RedirectResponse(url=f"/new?card_type={card_type}", status_code=303)
     set_flash_cookie(response, request, "success:Card created successfully!")
@@ -1895,12 +1944,17 @@ async def edit_card_form(request: Request, card_id: int, conn: psycopg2.extensio
     if card is None:
         raise HTTPException(status_code=404, detail="Card not found")
     csrf_token = request.state.csrf_token
-    return templates.TemplateResponse(request, "edit_card.html", {"card": card, "csrf_token": csrf_token})
+    return templates.TemplateResponse(request, "edit_card.html", {
+        "card": card,
+        "tags_enabled": crud.has_card_tags(conn),
+        "csrf_token": csrf_token,
+    })
 
 @app.post("/edit-card/{card_id}")
-async def update_existing_card(request: Request, card_id: int, question: str = Form(...), answer: str = Form(...), conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
+async def update_existing_card(request: Request, card_id: int, question: str = Form(...), answer: str = Form(...), tags: str = Form(""), conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
     question, answer, _ = _validate_card_input(question, answer)
-    crud.update_card_content_for_user(conn, card_id, user.auth_user_id, question, answer)
+    crud.update_card_content_for_user(conn, card_id, user.auth_user_id, question, answer,
+                                      tags=_validate_card_tags(tags))
     response = RedirectResponse(url="/manage", status_code=303)
     set_flash_cookie(response, request, "success:Card updated!")
     return response

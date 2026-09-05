@@ -42,6 +42,22 @@
                 <span><strong>{{ deck.total_cards }}</strong> card{{ 's' if deck.total_cards != 1 }} in your deck</span>
             </div>
             {% endif %}
+
+            {# Focus: narrow today's queue to one theme. Rendered only when a
+               theme actually has cards due, so this row is absent for anyone
+               not using themes and the default path above is untouched. #}
+            {% if due_tags %}
+            <div class="d-flex flex-wrap justify-content-center align-items-center gap-2 mt-3">
+                <span class="small text-body-secondary me-1">Focus</span>
+                {% for tag, due in due_tags %}
+                <a href="/review?tag={{ tag | urlencode }}"
+                   class="btn btn-sm btn-outline-primary rounded-pill"
+                   aria-label="Review only {{ tag }} — {{ due }} due">
+                    {{ tag }} <span class="badge text-bg-secondary ms-1">{{ due }}</span>
+                </a>
+                {% endfor %}
+            </div>
+            {% endif %}
         </div>
     </div>
 </div>
