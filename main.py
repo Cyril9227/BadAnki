@@ -25,10 +25,12 @@ import psycopg2
 # one is heavy, only one is ever used per call, and on a serverless cold start
 # this module is imported to serve a page view that will never touch them.
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from supabase import create_client, Client, ClientOptions
 from jose import jwt
 from pydantic import BaseModel, Field
@@ -150,6 +152,59 @@ def relative_time(value: Optional[datetime]) -> str:
 
 
 templates.env.filters["relative_time"] = relative_time
+
+
+# --- HTML error pages ---
+# A browser navigation (Accept: text/html) that ends in an error used to get
+# FastAPI's raw {"detail": ...} JSON — for a mistyped URL, a deleted card's
+# link, or a plain-form validation failure. Those now render a themed page.
+# fetch() callers (fetchJson sends Accept: application/json, the other
+# wrappers send */*), the API prefixes and the Telegram/render endpoints keep
+# the JSON their consumers parse.
+_ERROR_HEADINGS = {
+    400: "That request didn't go through",
+    401: "Please log in",
+    403: "Not allowed",
+    404: "Page not found",
+    405: "Page not found",
+    413: "That upload is too large",
+    429: "Slow down a little",
+    503: "Temporarily unavailable",
+}
+
+
+def _wants_html(request: Request) -> bool:
+    if request.url.path.startswith(("/api/", "/webhook/", "/render/")):
+        return False
+    return "text/html" in request.headers.get("accept", "")
+
+
+def _error_page(request: Request, status_code: int, detail: str):
+    return templates.TemplateResponse(request, "error.html", {
+        "status_code": status_code,
+        "heading": _ERROR_HEADINGS.get(status_code, "Something went wrong"),
+        "detail": detail,
+    }, status_code=status_code)
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_as_page(request: Request, exc: StarletteHTTPException):
+    # Redirects (the login 303) and non-browser clients keep the default.
+    if 300 <= exc.status_code < 400 or not _wants_html(request):
+        return await http_exception_handler(request, exc)
+    detail = exc.detail
+    if exc.status_code == 404:
+        detail = "There's nothing at this address — it may have moved, or the link may be mistyped."
+    return _error_page(request, exc.status_code, str(detail))
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_as_page(request: Request, exc: Exception):
+    # Starlette's ServerErrorMiddleware still logs the traceback (and Sentry
+    # still captures it) after this response goes out.
+    if _wants_html(request):
+        return _error_page(request, 500, "Something went wrong on our side. The error has been logged.")
+    return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
 
 
 def should_resolve_user_for_request(request: Request) -> bool:

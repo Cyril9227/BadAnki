@@ -249,6 +249,41 @@ def test_health_check(client):
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
 
+# --- Error pages: browsers get HTML, everything else keeps JSON ---
+def test_unknown_page_renders_html_for_browsers(client):
+    response = client.get("/no/such/page", headers={"Accept": "text/html"})
+    assert response.status_code == 404
+    assert "text/html" in response.headers["content-type"]
+    assert "Page not found" in response.text
+
+def test_unknown_api_path_stays_json_even_for_browsers(client):
+    response = client.get("/api/no-such-endpoint", headers={"Accept": "text/html"})
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not Found"}
+
+def test_unknown_page_stays_json_for_non_browser_clients(client):
+    response = client.get("/no/such/page", headers={"Accept": "application/json"})
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not Found"}
+
+@patch("main.supabase.auth.get_user")
+def test_plain_form_validation_error_renders_html(mock_get_user, client, db_conn):
+    """The no-JS card form used to answer a blank answer with raw JSON."""
+    auth_client, _, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="formerr@example.com")
+    response = auth_client.post(
+        "/new",
+        data={"question": "Q", "answer": "   ", "card_type": "basic"},
+        headers={"X-CSRF-Token": csrf_token, "Accept": "text/html"},
+    )
+    assert response.status_code == 400
+    assert "text/html" in response.headers["content-type"]
+    assert "Question and answer are required." in response.text
+
+def test_login_redirect_is_not_turned_into_a_page(client):
+    response = client.get("/review", headers={"Accept": "text/html"}, follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/auth"
+
 
 
 def create_test_card(db_conn, user_id, question, answer, due_date=None):
