@@ -704,6 +704,26 @@
         return match ? decodeURIComponent(match[1]) : null;
     };
 
+    // One rendering of an API error body for every fetch wrapper. FastAPI's
+    // own `detail` is a string, but a validation failure (422) sends a list
+    // of {loc, msg} objects — String()-ing that gave toasts reading
+    // "[object Object]". Non-JSON bodies (Vercel's HTML 5xx pages) fall back
+    // to the status line rather than a page of markup.
+    window.describeApiError = function(payload, response) {
+        const detail = payload && typeof payload === 'object' ? payload.detail : payload;
+        if (Array.isArray(detail)) {
+            const lines = detail.map(d => {
+                if (!d || typeof d !== 'object') return String(d);
+                const field = Array.isArray(d.loc) ? d.loc.filter(p => typeof p === 'string' && p !== 'body').pop() : null;
+                return field ? `${field}: ${d.msg}` : d.msg;
+            }).filter(Boolean);
+            if (lines.length) return lines.join(' · ');
+        } else if (typeof detail === 'string' && detail && !detail.trimStart().startsWith('<')) {
+            return detail;
+        }
+        return `HTTP ${response.status}: ${response.statusText}`;
+    };
+
     // Centralised JSON fetch helper: enforces r.ok, parses JSON safely, and
     // surfaces server-sent `detail` fields as error messages. Callers get a
     // resolved body on success or a rejected promise with a useful message.
@@ -733,8 +753,7 @@
             try { payload = await response.text(); } catch (_) { payload = null; }
         }
         if (!response.ok) {
-            const detail = payload && typeof payload === 'object' ? payload.detail : payload;
-            const err = new Error(detail || `HTTP ${response.status}: ${response.statusText}`);
+            const err = new Error(window.describeApiError(payload, response));
             err.status = response.status;
             err.payload = payload;
             throw err;
