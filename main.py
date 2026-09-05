@@ -42,7 +42,7 @@ from env_utils import clean_env_value
 from render_auth import make_telegram_link_token, verify_render_request
 from database import get_db_connection, release_db_connection
 from scheduler import run_scheduler
-from parsing import normalize_cards, robust_json_loads, sanitize_tags
+from parsing import CLOZE_PATTERN, normalize_cards, robust_json_loads, sanitize_tags
 from middleware import CSRFMiddleware, SecurityHeadersMiddleware
 
 
@@ -877,6 +877,11 @@ def _validate_generated_cards(cards) -> list[dict]:
             continue
         card_type = card.get("card_type", "basic")
         if card_type not in ("basic", "cloze"):
+            card_type = "basic"
+        # A "cloze" card with no {{cN::...}} marker has nothing to hide: the
+        # web showed "Fill in the blank" over a plain question and Telegram
+        # printed the answer in the open. It is a basic card.
+        if card_type == "cloze" and not CLOZE_PATTERN.search(question):
             card_type = "basic"
         valid.append({"question": question, "answer": answer, "card_type": card_type})
     return valid

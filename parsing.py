@@ -147,6 +147,12 @@ def normalize_cards(cards: list[dict]) -> list[dict]:
         out.append(new)
     return out
 
+# Cloze markers: {{c1::answer}}. The blank may hold LaTeX, so balanced braces
+# nest up to two levels ({{c1::\frac{\sqrt{2}}{2}}} works; deeper does not).
+# Mirrored by CLOZE_PATTERN in templates/layout.html — keep the two in sync.
+CLOZE_PATTERN = re.compile(r"\{\{c\d+::((?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})+)\}\}")
+
+
 def sanitize_tags(tags):
     """
     Sanitizes a list of tags by converting them to lowercase,
