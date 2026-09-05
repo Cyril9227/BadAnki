@@ -1114,6 +1114,14 @@ def test_generate_cards_without_a_key_is_a_client_error():
     assert excinfo.value.status_code == 400
     assert "Anthropic" in excinfo.value.detail
 
+def test_generated_cloze_without_a_marker_is_saved_as_basic():
+    from main import _validate_generated_cards
+    cards = _validate_generated_cards([
+        {"question": "No blank here", "answer": "a", "card_type": "cloze"},
+        {"question": r"Half is {{c1::\frac{1}{2}}}", "answer": r"\frac{1}{2}", "card_type": "cloze"},
+    ])
+    assert [c["card_type"] for c in cards] == ["basic", "cloze"]
+
 def test_provider_error_classification():
     from main import _provider_error
 

@@ -664,8 +664,11 @@
     };
 
     // Cloze helpers (used by multiple templates - must be global, not inside DOMContentLoaded)
-    window.CLOZE_PATTERN = /\{\{c\d+::([^}]+)\}\}/;
-    window.CLOZE_PATTERN_GLOBAL = /\{\{c\d+::([^}]+)\}\}/g;
+    // The blank may hold LaTeX, so balanced braces nest up to two levels
+    // (a c1::\frac{\sqrt{2}}{2} marker works; deeper nesting does not).
+    // Mirrored by parsing.CLOZE_PATTERN on the Python side — keep in sync.
+    window.CLOZE_PATTERN = /\{\{c\d+::((?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})+)\}\}/;
+    window.CLOZE_PATTERN_GLOBAL = /\{\{c\d+::((?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})+)\}\}/g;
     window.isClozeText = function(text) { return window.CLOZE_PATTERN.test(text); };
     window.formatClozeForDisplay = function(text) {
         return text.replace(window.CLOZE_PATTERN_GLOBAL, '<span class="cloze-blank">[...]</span>');
