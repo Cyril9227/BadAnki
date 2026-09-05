@@ -28,7 +28,11 @@
 // pages that include this partial ship it.
 document.addEventListener('DOMContentLoaded', function () {
     const cardsModalEl = document.getElementById('cards-modal');
-    const cardsModal = new bootstrap.Modal(cardsModalEl);
+    // focus: false — the "Discard generated cards?" SweetAlert opens while
+    // this modal is showing, and Bootstrap's focus trap yanked focus back on
+    // every focusin outside the modal, so Enter/Esc/Tab never reached the
+    // dialog (mouse only). Focus still lands in the modal via show().
+    const cardsModal = new bootstrap.Modal(cardsModalEl, { focus: false });
     const cardsModalBody = document.getElementById('cards-modal-body-content');
     const saveCardsBtn = document.getElementById('save-cards-btn');
     const loadingSpinner = document.getElementById('loading-spinner');
@@ -396,7 +400,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
             const questionSpan = cardElement.querySelector('.card-question');
             const answerSpan = cardElement.querySelector('.card-answer');
-            questionSpan.innerHTML = window.safeMarkdownInline(newQuestion);
+            // Same rendering as displayGeneratedCards: a cloze card's blanks
+            // show as [...] — an edited one used to come back as raw markup.
+            const questionDisplay = cardData.card_type === 'cloze'
+                ? window.formatClozeForDisplay(newQuestion) : newQuestion;
+            questionSpan.innerHTML = window.safeMarkdownInline(questionDisplay);
             answerSpan.innerHTML = window.safeMarkdownInline(newAnswer);
 
             window.typesetMath([questionSpan, answerSpan]);
