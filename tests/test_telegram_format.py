@@ -263,3 +263,31 @@ def test_card_preview_collapses_whitespace_and_truncates():
     preview = _card_preview(long_question)
     assert len(preview) <= 65
     assert preview.endswith("…")
+
+
+# --- Bot handler registration ---
+
+def test_command_handlers_ignore_edited_messages(monkeypatch):
+    """An edited command arrives as edited_message with update.message None;
+    the handlers read update.message before their try blocks, so the default
+    (new + edited) CommandHandler filter crashed with no reply at all."""
+    from datetime import datetime
+    from telegram import Chat, Message, MessageEntity, Update, User
+    from telegram.ext import CommandHandler
+    from bot import get_bot_application
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123456:TEST-TOKEN")
+    app = get_bot_application()
+    handlers = [h for h in app.handlers[0] if isinstance(h, CommandHandler)]
+    assert len(handlers) == 7
+
+    def message():
+        return Message(
+            message_id=1, date=datetime.now(), chat=Chat(id=1, type="private"),
+            from_user=User(id=1, first_name="a", is_bot=False),
+            text="/start", entities=[MessageEntity(type="bot_command", offset=0, length=6)],
+        )
+
+    start = next(h for h in handlers if "start" in h.commands)
+    assert start.check_update(Update(update_id=1, message=message()))
+    assert not start.check_update(Update(update_id=2, edited_message=message()))

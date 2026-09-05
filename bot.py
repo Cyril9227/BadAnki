@@ -16,7 +16,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, LinkPre
 from telegram.helpers import escape_markdown
 from telegram.constants import ChatAction, ParseMode
 from telegram.error import BadRequest
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, filters
 from database import get_db_connection, release_db_connection
 from crud import (
     cache_photo_file_id,
@@ -335,7 +335,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         await update.message.reply_text(
-            "Welcome to the Anki Clone bot! Use /due to see what's waiting, /stats for your streak "
+            "Welcome to the Bad Anki bot! Use /due to see what's waiting, /stats for your streak "
             "and deck counters, /review for a link to your next session, /random for a random card, "
             "/list to browse your cards, or /card <id> for a specific one."
         )
@@ -554,14 +554,16 @@ def get_bot_application():
 
     application = Application.builder().token(token).build()
 
-    # Register the command handlers
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("review", review))
-    application.add_handler(CommandHandler("random", random_card))
-    application.add_handler(CommandHandler("list", list_cards))
-    application.add_handler(CommandHandler("card", card_by_id))
-    application.add_handler(CommandHandler("due", due_cards))
-    application.add_handler(CommandHandler("stats", deck_stats))
+    # New messages only: CommandHandler also fires for *edited* messages by
+    # default, and those updates carry edited_message instead of message —
+    # the handlers read update.message.chat_id before their try blocks, so
+    # editing "/card 5" into "/card 6" crashed with no reply at all.
+    commands = [
+        ("start", start), ("review", review), ("random", random_card), ("list", list_cards),
+        ("card", card_by_id), ("due", due_cards), ("stats", deck_stats),
+    ]
+    for name, handler in commands:
+        application.add_handler(CommandHandler(name, handler, filters=filters.UpdateType.MESSAGE))
     application.add_handler(CallbackQueryHandler(show_answer, pattern=r"^ans:\d+$"))
 
     return application
