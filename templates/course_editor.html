@@ -723,8 +723,13 @@ document.addEventListener('DOMContentLoaded', function () {
             throw new Error('Your session has expired. Please log in again.');
         }
         if (!response.ok) {
-            return response.json().then(err => {
-                const error = new Error(err.detail || `HTTP error! status: ${response.status}`);
+            // Error bodies aren't always JSON (FastAPI's unhandled-exception
+            // body is plain text, Vercel's 5xx/413 pages are HTML); parsing
+            // those threw a SyntaxError that became the toast text.
+            const contentType = response.headers.get('content-type') || '';
+            const body = contentType.includes('application/json') ? response.json() : response.text();
+            return body.catch(() => null).then(payload => {
+                const error = new Error(window.describeApiError(payload, response));
                 error.status = response.status;
                 throw error;
             });

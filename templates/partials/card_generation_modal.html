@@ -131,9 +131,9 @@ document.addEventListener('DOMContentLoaded', function () {
             if (!response.ok) {
                 const contentType = response.headers.get('content-type') || '';
                 if (contentType.includes('application/json')) {
-                    return response.json().then(err => { throw new Error(err.detail || `HTTP error! status: ${response.status}`) });
+                    return response.json().then(err => { throw new Error(window.describeApiError(err, response)) });
                 }
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                throw new Error(window.describeApiError(null, response));
             }
             return response.json();
         })
