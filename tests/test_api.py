@@ -249,6 +249,15 @@ def test_health_check(client):
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
 
+def test_root_favicon_and_robots_are_served(client):
+    """Browsers request /favicon.ico on their own; both used to be 404s."""
+    favicon = client.get("/favicon.ico")
+    assert favicon.status_code == 200
+    assert favicon.headers["content-type"].startswith("image/")
+    robots = client.get("/robots.txt")
+    assert robots.status_code == 200
+    assert "Disallow: /api/" in robots.text
+
 # --- Error pages: browsers get HTML, everything else keeps JSON ---
 def test_unknown_page_renders_html_for_browsers(client):
     response = client.get("/no/such/page", headers={"Accept": "text/html"})

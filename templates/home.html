@@ -34,7 +34,7 @@
             {% if deck and deck.total_cards %}
             <div class="d-flex flex-wrap justify-content-center gap-3 mt-4 small text-body-secondary">
                 {% if streak and streak.current %}
-                <span>🔥 <strong>{{ streak.current }}</strong>-day streak</span>
+                <span><span aria-hidden="true">🔥</span> <strong>{{ streak.current }}</strong>-day streak</span>
                 {% endif %}
                 {% if deck.new_cards %}
                 <span><strong>{{ deck.new_cards }}</strong> new</span>
@@ -105,7 +105,7 @@
                     {% for entry in leaderboard %}
                     <li class="list-group-item d-flex justify-content-between align-items-center{{ ' fw-bold' if entry.is_me }}">
                         <span class="fs-5">{{ loop.index }}. {{ entry.name }}{{ ' (you)' if entry.is_me }}</span>
-                        <span class="text-muted">🔥 {{ entry.streak }} · {{ entry.reviews }} review{{ 's' if entry.reviews != 1 }}</span>
+                        <span class="text-muted"><span aria-hidden="true">🔥</span> {{ entry.streak }} · {{ entry.reviews }} review{{ 's' if entry.reviews != 1 }}</span>
                     </li>
                     {% endfor %}
                 </ul>

@@ -24,7 +24,7 @@
     <h1 class="display-5 fw-bold">All Done!</h1>
     <p class="lead">Nothing due right now — all {{ total_cards }} card{{ 's' if total_cards != 1 else '' }} in your deck are scheduled for later.</p>
     {% if streak and streak.current %}
-    <p class="fs-5">🔥 <strong>{{ streak.current }}-day streak</strong>{% if streak.longest > streak.current %} <span class="text-muted">(best: {{ streak.longest }})</span>{% endif %} — see you tomorrow!</p>
+    <p class="fs-5"><span aria-hidden="true">🔥</span> <strong>{{ streak.current }}-day streak</strong>{% if streak.longest > streak.current %} <span class="text-muted">(best: {{ streak.longest }})</span>{% endif %} — see you tomorrow!</p>
     {% endif %}
     <p class="text-muted">Come back later or keep building your deck.</p>
     {% else %}
