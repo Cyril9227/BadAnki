@@ -1647,7 +1647,8 @@ def test_themes_hide_entirely_without_the_column(mock_get_user, client, db_conn,
     disappears rather than erroring when the migration hasn't run."""
     auth_client, user_id, _ = authenticate_client(mock_get_user, client, db_conn, email="notags@example.com")
     create_test_card(db_conn, user_id, "Only card here", "A")
-    monkeypatch.setitem(crud._column_presence, ("cards", "tags"), False)
+    # Pinned as "missing, probed at +inf" so the once-a-minute re-probe never fires.
+    monkeypatch.setitem(crud._column_presence, ("cards", "tags"), (False, float("inf")))
 
     assert crud.get_due_tag_counts_for_user(db_conn, user_id) == []
     assert 'name="tags"' not in auth_client.get("/new").text
