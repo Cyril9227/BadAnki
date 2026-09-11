@@ -1675,7 +1675,9 @@ def test_theme_picker_offers_card_themes_and_course_tags(mock_get_user, client, 
         card_id = cur.fetchone()["id"]
 
     options = 'id="theme-options">["maths", "physics"]</script>'
-    assert options in auth_client.get("/new").text
+    new_page = auth_client.get("/new").text
+    assert options in new_page
+    assert 'id="batch-tags-input"' in new_page  # the generation modal's batch picker
     assert options in auth_client.get(f"/edit-card/{card_id}").text
 
 @patch("main.supabase.auth.get_user")

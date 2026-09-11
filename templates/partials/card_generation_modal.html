@@ -7,6 +7,15 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
+                {% if tags_enabled %}
+                {# Themes for the whole batch — the same picker as the card
+                   forms, seeded from the course's tags (empty in topic mode).
+                   Shown once there are cards to save. #}
+                <div id="batch-themes" class="mb-3" style="display: none;">
+                    <label for="batch-tags-input" class="form-label fw-semibold mb-1">Themes <span class="text-body-secondary fw-normal">(optional, applied to every saved card)</span></label>
+                    <input type="text" id="batch-tags-input" class="form-control" placeholder="maths, algebra" autocomplete="off" data-theme-picker>
+                </div>
+                {% endif %}
                 <div id="cards-modal-body-content"></div>
                 <div id="loading-spinner" class="text-center" style="display: none;">
                     <div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div>
@@ -62,6 +71,11 @@ document.addEventListener('DOMContentLoaded', function () {
     let generateInFlight = false;
     const SAVE_LABEL = 'Save Approved Cards';  // matches the button markup above
     let batchTags = [];  // themes to stamp on this batch (see handleGenerateCards)
+    // The picker over #batch-tags-input when the page has themes enabled;
+    // theme_picker.html builds it at parse time, before this handler runs.
+    const batchThemes = document.getElementById('batch-themes');
+    const batchTagsInput = document.getElementById('batch-tags-input');
+    const batchPicker = () => (batchTagsInput && batchTagsInput.themePicker) || null;
 
     // This function is now globally available
     // seedTags: themes stamped on every card of this batch at save time. The
@@ -85,6 +99,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
         lastRequest = { apiUrl, contentProvider, csrfToken, cardType, seedTags };
         batchTags = Array.isArray(seedTags) ? seedTags : [];
+        if (batchPicker()) batchPicker().set(batchTags);
+        if (batchThemes) batchThemes.style.display = 'none';
 
         // Clear any stale intervals from a previous run before starting a new one.
         if (messageInterval) clearInterval(messageInterval);
@@ -145,6 +161,7 @@ document.addEventListener('DOMContentLoaded', function () {
             generatedCardsData = data.cards || [];
             if (generatedCardsData.length > 0) {
                 displayGeneratedCards(generatedCardsData);  // ends in refreshApproval()
+                if (batchThemes) batchThemes.style.display = '';
             } else {
                 cardsModalBody.innerHTML = '<p>No cards were generated. Try refining your course content.</p>';
             }
@@ -436,6 +453,9 @@ document.addEventListener('DOMContentLoaded', function () {
         const originalLabel = saveCardsBtn.textContent;
         saveCardsBtn.textContent = 'Saving...';
 
+        // What the picker shows is what gets saved; without a picker the
+        // batch keeps the seed tags.
+        const saveTags = batchPicker() ? batchPicker().get() : batchTags;
         window.fetchJson('/api/save-cards', {
             method: 'POST',
             headers: { 'X-CSRF-Token': csrfToken },
@@ -443,7 +463,7 @@ document.addEventListener('DOMContentLoaded', function () {
             // cards are raw model output, and a stray "tags" key in it must
             // not decide what gets saved.
             body: JSON.stringify({
-                cards: approved.map(function (c) { return Object.assign({}, c, { tags: batchTags }); })
+                cards: approved.map(function (c) { return Object.assign({}, c, { tags: saveTags }); })
             })
         })
         .then(data => {

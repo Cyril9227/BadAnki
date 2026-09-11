@@ -81,8 +81,7 @@
                     <div class="mb-3">
                         <label for="tags-input" class="form-label fw-semibold">Themes <span class="text-body-secondary fw-normal">(optional)</span></label>
                         <input type="text" name="tags" id="tags-input" class="form-control"
-                               placeholder="maths, algebra" autocomplete="off">
-                        {% include 'partials/theme_picker.html' %}
+                               placeholder="maths, algebra" autocomplete="off" data-theme-picker>
                         <div class="form-text">Pick from your themes or type to create one. Themes let you review one subject at a time from the home page.</div>
                     </div>
                     {% endif %}
@@ -118,6 +117,8 @@
 </div>
 
 {% include 'partials/card_generation_modal.html' %}
+{# After the modal so the picker also builds around the batch themes input. #}
+{% if tags_enabled %}{% include 'partials/theme_picker.html' %}{% endif %}
 {% endblock %}
 
 {% block scripts %}

@@ -1594,6 +1594,8 @@ async def view_course(request: Request, course_path: str, conn: psycopg2.extensi
         "content": body,
         "course_path": course_path,
         "available_providers": _available_providers(user),
+        "tags_enabled": crud.has_card_tags(conn),
+        "theme_options": crud.get_card_theme_options_for_user(conn, user.auth_user_id),
         "csrf_token": request.state.csrf_token
     })
 
