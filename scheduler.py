@@ -8,10 +8,11 @@ load_dotenv()
 import asyncio
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from psycopg2 import extras
 from telegram import Bot
+from telegram.error import Forbidden, RetryAfter
 from telegram.request import HTTPXRequest
 
 import crud
@@ -77,6 +78,18 @@ def get_users_with_due_cards():
         release_db_connection(conn)
 
 
+async def _send(bot: Bot, chat_id, text: str) -> None:
+    """One retry when Telegram asks us to slow down: the batch goes out
+    concurrently, so a big enough user base trips the global send rate."""
+    try:
+        await bot.send_message(chat_id=chat_id, text=text)
+    except RetryAfter as e:
+        delay = e.retry_after  # int, or timedelta depending on PTB's setting
+        seconds = delay.total_seconds() if isinstance(delay, timedelta) else float(delay)
+        await asyncio.sleep(seconds + 0.5)
+        await bot.send_message(chat_id=chat_id, text=text)
+
+
 async def run_scheduler():
     """
     Checks for users with due cards and sends them a notification.
@@ -130,8 +143,13 @@ async def run_scheduler():
             )
 
         try:
-            await bot.send_message(chat_id=chat_id, text=message)
+            await _send(bot, chat_id, message)
             return True
+        except Forbidden:
+            # The user blocked the bot or deleted their Telegram account:
+            # expected churn, not a failure worth an error-level alert.
+            logger.info(f"chat_id {redacted_chat_id} has blocked the bot; skipping.")
+            return False
         except Exception as e:
             logger.error(f"Failed to send Telegram message to chat_id {redacted_chat_id}: {e}")
             return False
