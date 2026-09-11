@@ -290,7 +290,7 @@ def test_login_redirect_remembers_the_page_and_only_same_site_paths_are_honoured
     response = client.get("/review?tag=maths", follow_redirects=False)
     assert response.headers["location"] == "/auth?next=%2Freview%3Ftag%3Dmaths"
     # API routes keep the plain redirect: nothing to return to.
-    assert client.get("/api/review/next", follow_redirects=False).headers["location"] == "/auth"
+    assert client.get("/api/review/next", follow_redirects=False).headers["location"] == "/auth?next=%2Fapi%2Freview%2Fnext"
 
     from main import _safe_next
     assert _safe_next("/card/12") == "/card/12"
@@ -490,7 +490,7 @@ def test_relative_time_filter():
 def test_get_courses_page_unauthenticated(client):
     response = client.get("/courses", follow_redirects=False)
     assert response.status_code == 303
-    assert response.headers["location"] == "/auth"
+    assert response.headers["location"] == "/auth?next=%2Fcourses"
 
 @patch("main.supabase.auth.get_user")
 def test_get_courses_tree_empty(mock_get_user, client, db_conn):
@@ -1061,7 +1061,7 @@ def test_stats_page_empty_deck_still_renders(mock_get_user, client, db_conn):
 def test_stats_page_unauthenticated(client):
     response = client.get("/stats", follow_redirects=False)
     assert response.status_code == 303
-    assert response.headers["location"] == "/auth"
+    assert response.headers["location"] == "/auth?next=%2Fstats"
 
 @patch("main.supabase.auth.get_user")
 def test_stats_page_shows_recall_and_deck_composition(mock_get_user, client, db_conn):
@@ -1457,7 +1457,7 @@ def test_export_cards_on_an_empty_deck_is_a_header_only_file(mock_get_user, clie
 def test_export_cards_requires_login(client):
     response = client.get("/api/export-cards", follow_redirects=False)
     assert response.status_code == 303
-    assert response.headers["location"] == "/auth"
+    assert response.headers["location"] == "/auth?next=%2Fapi%2Fexport-cards"
 
 @patch("main.supabase.auth.get_user")
 def test_settings_offers_the_export(mock_get_user, client, db_conn):
