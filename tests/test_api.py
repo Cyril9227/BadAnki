@@ -282,7 +282,35 @@ def test_plain_form_validation_error_renders_html(mock_get_user, client, db_conn
 def test_login_redirect_is_not_turned_into_a_page(client):
     response = client.get("/review", headers={"Accept": "text/html"}, follow_redirects=False)
     assert response.status_code == 303
-    assert response.headers["location"] == "/auth"
+    assert response.headers["location"] == "/auth?next=%2Freview"
+
+def test_login_redirect_remembers_the_page_and_only_same_site_paths_are_honoured(client):
+    """A shared /card link lands on the card after login, not on home; a
+    crafted next= never leaves the site or loops back into /auth."""
+    response = client.get("/review?tag=maths", follow_redirects=False)
+    assert response.headers["location"] == "/auth?next=%2Freview%3Ftag%3Dmaths"
+    # API routes keep the plain redirect: nothing to return to.
+    assert client.get("/api/review/next", follow_redirects=False).headers["location"] == "/auth"
+
+    from main import _safe_next
+    assert _safe_next("/card/12") == "/card/12"
+    assert _safe_next("/review?tag=maths") == "/review?tag=maths"
+    for bad in ("https://evil.example", "//evil.example", "/\\evil.example", "/auth?next=/x", "/logout", "", None, "/a b"):
+        assert _safe_next(bad) == "/"
+
+@patch("main.supabase.auth.sign_in_with_password")
+def test_auth_login_redirects_to_next(mock_sign_in, client, db_conn):
+    csrf_token = get_csrf_token(client)
+    mock_auth_user = MagicMock()
+    mock_auth_user.id = uuid.uuid4()
+    mock_auth_user.email = "nextuser@example.com"
+    mock_sign_in.return_value = MagicMock(user=mock_auth_user, session=MagicMock(access_token="fake-token"))
+    response = client.post(
+        "/auth",
+        data={"email": "nextuser@example.com", "password": "password123", "action": "login", "next": "/card/12"},
+        headers={"X-CSRF-Token": csrf_token},
+    )
+    assert response.json()["redirect_url"] == "/card/12"
 # --- Odd-input hardening: none of these may be a 500 ---
 def test_webhook_with_non_ascii_secret_is_forbidden_not_a_crash(client):
     response = client.post("/webhook/é", json={"update_id": 1})

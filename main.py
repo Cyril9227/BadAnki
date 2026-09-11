@@ -492,6 +492,7 @@ class ReviewUndo(BaseModel):
 class AuthCallback(BaseModel):
     access_token: str = Field(..., min_length=1, max_length=8192)
     refresh_token: str | None = Field(default=None, max_length=8192)
+    next: str | None = Field(default=None, max_length=2048)  # see _safe_next
 
 class PasswordResetConfirm(BaseModel):
     access_token: str = Field(..., min_length=1, max_length=8192)
@@ -839,12 +840,31 @@ async def logout(request: Request):
     response.delete_cookie("csrf_token", path="/", secure=secure_cookie, samesite="lax")
     return response
 
+def _safe_next(target: Optional[str]) -> str:
+    """Where to land after login. Only a same-site path qualifies: anything
+    with a scheme or host (including protocol-relative //host and the
+    backslash variants browsers normalise) would be an open redirect, and
+    the auth pages themselves would loop."""
+    if (not target or not target.startswith("/") or target.startswith("//")
+            or "\\" in target or any(c.isspace() for c in target)
+            or target.startswith(("/auth", "/logout"))):
+        return "/"
+    return target
+
+
 async def get_current_active_user(request: Request):
     if not request.state.user:
         if getattr(request.state, "auth_resolution_failed", False):
             raise HTTPException(status_code=503, detail="Authentication service is temporarily unavailable.")
-        # Redirect to the unified auth page if user is not authenticated
-        raise HTTPException(status_code=303, headers={"Location": "/auth"})
+        # Redirect to the unified auth page. A page GET remembers where it
+        # was headed, so a shared link (Telegram's /card/{id}) lands there
+        # after login instead of on the home page.
+        location = "/auth"
+        if request.method == "GET" and not request.url.path.startswith("/api/"):
+            target = request.url.path + (f"?{request.url.query}" if request.url.query else "")
+            if _safe_next(target) != "/":
+                location = f"/auth?next={quote(target, safe='')}"
+        raise HTTPException(status_code=303, headers={"Location": location})
     return request.state.user
 
 # --- Input Validation Helpers ---
@@ -1281,6 +1301,7 @@ async def handle_auth(
     email: str = Form(...),
     password: str = Form(...),
     action: str = Form("login"), # Can be "login" or "register"
+    next_url: str = Form("", alias="next"),  # where the visitor was headed, see _safe_next
     conn: psycopg2.extensions.connection = Depends(get_db)
 ):
     """
@@ -1307,7 +1328,7 @@ async def handle_auth(
             _auth_cache_put(session.access_token, str(session.user.id), session.user.email)
         response = JSONResponse(content={
             "success": True,
-            "redirect_url": "/"
+            "redirect_url": _safe_next(next_url)
         })
         _set_session_cookies(response, request, session.access_token, getattr(session, "refresh_token", None))
         set_flash_cookie(response, request, f"success:{flash_message}")
@@ -1406,7 +1427,7 @@ async def auth_callback(
 
         # Set the session cookies to log the user in. The refresh token keeps
         # the session alive after the ~1h access token expires.
-        response = JSONResponse(content={"success": True, "redirect_url": "/"})
+        response = JSONResponse(content={"success": True, "redirect_url": _safe_next(data.next)})
         _set_session_cookies(response, request, data.access_token, data.refresh_token)
         set_flash_cookie(response, request, "success:Logged in successfully!")
         return response
