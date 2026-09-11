@@ -63,6 +63,8 @@ pytest                     # run the tests
 
 Create the database by running `database.sql` in the Supabase SQL Editor (it creates the tables and RLS policies), and add a `.env` file with the variables below.
 
+**Upgrading an existing database:** every statement in `database.sql` is `IF NOT EXISTS`-guarded, so after pulling you can re-run the whole file in the SQL Editor, or apply just the new statement (for example the `ALTER TABLE cards ADD COLUMN ... tags` line behind Themes). A feature whose column is missing is hidden rather than broken, and appears within a minute of the column being added.
+
 ## Environment Variables
 
 The same set is used locally (`.env`) and in the Vercel project settings:

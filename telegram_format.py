@@ -7,6 +7,8 @@ import re
 import telegramify_markdown
 from telegram.helpers import escape_markdown
 
+from parsing import CLOZE_PATTERN
+
 logger = logging.getLogger(__name__)
 
 # Fenced code blocks and inline code spans are split out first so that math
@@ -64,10 +66,15 @@ def render_markdown_v2(text: str) -> str:
         return escape_markdown(text, version=2)
 
 
-# Mirrors the web app's cloze pattern (layout.html: CLOZE_PATTERN). Detection
-# is content-based, like the web's isClozeText — the card_type column is not
-# guaranteed to exist.
-_CLOZE = re.compile(r"\{\{c\d+::([^}]+)\}\}")
+# One cloze pattern for the whole Python side (parsing.CLOZE_PATTERN, which
+# mirrors layout.html's CLOZE_PATTERN). Detection is content-based, like the
+# web's isClozeText — the card_type column is not guaranteed to exist.
+_CLOZE = CLOZE_PATTERN
+
+# Inside a blank, inline math or code converts to a Telegram code entity, and
+# telegramify drops the ||spoiler|| around code — the answer would print in
+# plain sight with no error to trigger the fallback.
+_SPOILER_UNSAFE_BLANK = re.compile(r"[`$]|\\[\(\[]")
 
 
 def is_cloze(text: str) -> bool:
@@ -101,10 +108,14 @@ def render_cloze_markdown_v2(text: str, reveal: bool = False) -> str:
     an in-place ||spoiler|| — tapping the blank reveals it, which is the cloze
     experience. The failure fallback is the plain cloze renderer (not raw
     escaped text, which would print the {{...}} markup and leak the answers).
+    A blank holding inline math or code takes the plain path up front: the
+    rich conversion would silently strip its spoiler (see _SPOILER_UNSAFE_BLANK).
     """
     def replace(match):
         return match.group(1) if reveal else f"||{match.group(1)}||"
 
+    if not reveal and any(_SPOILER_UNSAFE_BLANK.search(m.group(1)) for m in _CLOZE.finditer(text)):
+        return cloze_plain_markdown_v2(text, reveal)
     try:
         return telegramify_markdown.markdownify(
             _normalize_math_delimiters(_CLOZE.sub(replace, text)), latex_escape=True
