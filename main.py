@@ -288,8 +288,12 @@ async def webhook(request: Request, secret: str):
         return Response(status_code=200)
         
     except Exception as e:
+        # Acknowledge anyway. Telegram retries a non-2xx update for up to a
+        # day, so a bug in one command would replay that same update over
+        # and over and hold back everything queued behind it. The traceback
+        # is logged (and Sentry gets it); the user simply retries.
         logger.error(f"Error processing webhook update: {e}", exc_info=True)
-        return Response(status_code=500)
+        return Response(status_code=200)
     finally:
         if bot_app and initialized:
             try:

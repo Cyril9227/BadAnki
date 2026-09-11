@@ -288,6 +288,13 @@ def test_webhook_with_non_ascii_secret_is_forbidden_not_a_crash(client):
     response = client.post("/webhook/é", json={"update_id": 1})
     assert response.status_code == 403
 
+def test_webhook_acknowledges_an_update_whose_processing_fails(client):
+    """Telegram retries any non-2xx for up to a day, so a crash while handling
+    one update must still be answered 200 or that update replays forever."""
+    with patch("main.get_bot_application", return_value=MagicMock()):  # await on a MagicMock raises
+        response = client.post("/webhook/testsecret", json={"update_id": 7})
+    assert response.status_code == 200
+
 def test_trigger_scheduler_with_non_ascii_secret_is_forbidden_not_a_crash(client):
     response = client.get("/api/trigger-scheduler", headers={b"X-Scheduler-Secret": "sécret".encode("latin-1")})
     assert response.status_code == 403
