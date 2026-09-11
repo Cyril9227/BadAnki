@@ -1018,6 +1018,8 @@
                         body: JSON.stringify({
                             access_token: session.access_token,
                             refresh_token: session.refresh_token,
+                            // Set by auth.html's redirectTo; the server validates it.
+                            next: new URLSearchParams(window.location.search).get('next') || null,
                         }),
                     });
 

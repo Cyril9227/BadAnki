@@ -37,6 +37,7 @@
                     <form id="auth-form" method="post" action="/auth">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <input type="hidden" id="action" name="action" value="login">
+                        <input type="hidden" id="next" name="next" value="">
                         <div class="mb-3">
                             <label for="email" class="form-label">Email</label>
                             <input type="email" class="form-control" id="email" name="email" required autocomplete="email">
@@ -69,12 +70,24 @@
 
     const supabase = createClient('{{ supabase_url }}', '{{ supabase_key }}');
 
+    // ?next= is where the visitor was headed when login got in the way (a
+    // shared /card link, say). The server decides whether it is safe to
+    // honour; the page only carries it: through the form for passwords, and
+    // through Supabase's redirectTo for OAuth. If that URL is not on the
+    // project's allow-list Supabase falls back to the site URL, i.e. today's
+    // behaviour, so nothing breaks when it isn't.
+    const nextUrl = new URLSearchParams(window.location.search).get('next') || '';
+    document.getElementById('next').value = nextUrl;
+    const oauthOptions = nextUrl
+        ? { redirectTo: window.location.origin + '/auth?next=' + encodeURIComponent(nextUrl) }
+        : {};
+
     document.getElementById('google-login').addEventListener('click', async () => {
-        await supabase.auth.signInWithOAuth({ provider: 'google' });
+        await supabase.auth.signInWithOAuth({ provider: 'google', options: oauthOptions });
     });
 
     document.getElementById('github-login').addEventListener('click', async () => {
-        await supabase.auth.signInWithOAuth({ provider: 'github' });
+        await supabase.auth.signInWithOAuth({ provider: 'github', options: oauthOptions });
     });
 
     const form = document.getElementById('auth-form');
