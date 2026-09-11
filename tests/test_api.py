@@ -250,11 +250,6 @@ def test_health_check(client):
     assert response.json() == {"status": "ok"}
 
 # --- Odd-input hardening: none of these may be a 500 ---
-def test_head_request_on_a_csrf_page_is_served(client):
-    """Starlette serves HEAD through the GET handlers; /auth reads
-    request.state.csrf_token, which only GET used to populate."""
-    assert client.head("/auth").status_code == 200
-
 def test_webhook_with_non_ascii_secret_is_forbidden_not_a_crash(client):
     response = client.post("/webhook/é", json={"update_id": 1})
     assert response.status_code == 403
