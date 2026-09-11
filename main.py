@@ -1594,6 +1594,8 @@ async def view_course(request: Request, course_path: str, conn: psycopg2.extensi
         "content": body,
         "course_path": course_path,
         "available_providers": _available_providers(user),
+        "tags_enabled": crud.has_card_tags(conn),
+        "theme_options": crud.get_card_theme_options_for_user(conn, user.auth_user_id),
         "csrf_token": request.state.csrf_token
     })
 
@@ -2015,6 +2017,7 @@ async def new_card_form(request: Request, card_type: str = "basic", conn: psycop
         "card_type": card_type if card_type in ("basic", "cloze") else "basic",
         "available_providers": _available_providers(user),
         "tags_enabled": crud.has_card_tags(conn),
+        "theme_options": crud.get_card_theme_options_for_user(conn, user.auth_user_id),
     })
 
 @app.post("/new")
@@ -2036,6 +2039,7 @@ async def edit_card_form(request: Request, card_id: int, conn: psycopg2.extensio
     return templates.TemplateResponse(request, "edit_card.html", {
         "card": card,
         "tags_enabled": crud.has_card_tags(conn),
+        "theme_options": crud.get_card_theme_options_for_user(conn, user.auth_user_id),
         "csrf_token": csrf_token,
     })
 

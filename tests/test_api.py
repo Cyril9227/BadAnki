@@ -1662,6 +1662,25 @@ def test_card_themes_round_trip(mock_get_user, client, db_conn):
     assert 'data-tags="maths"' in auth_client.get("/manage").text
 
 @patch("main.supabase.auth.get_user")
+def test_theme_picker_offers_card_themes_and_course_tags(mock_get_user, client, db_conn):
+    """The picker's options are the user's existing card themes plus their
+    course tags, on both the new and the edit form."""
+    auth_client, user_id, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="picker@example.com")
+    auth_client.post("/new", data={"question": "Q1", "answer": "A", "tags": "maths"},
+                     headers={"X-CSRF-Token": csrf_token}, follow_redirects=False)
+    auth_client.post("/api/course-content", json={"path": "waves.md", "content": "---\ntags: [Physics]\n---\n# Waves"},
+                     headers={"X-CSRF-Token": csrf_token})
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT id FROM cards WHERE user_id = %s", (str(user_id),))
+        card_id = cur.fetchone()["id"]
+
+    options = 'id="theme-options">["maths", "physics"]</script>'
+    new_page = auth_client.get("/new").text
+    assert options in new_page
+    assert 'id="batch-tags-input"' in new_page  # the generation modal's batch picker
+    assert options in auth_client.get(f"/edit-card/{card_id}").text
+
+@patch("main.supabase.auth.get_user")
 def test_themed_review_narrows_the_same_due_queue(mock_get_user, client, db_conn):
     """A theme filters what is due — it never surfaces cards that aren't due,
     so the schedule is untouched."""

@@ -211,6 +211,7 @@
     <div id="raw-content" style="display: none;">{{ content | e }}</div>
 
 {% include 'partials/card_generation_modal.html' %}
+{% if tags_enabled %}{% include 'partials/theme_picker.html' %}{% endif %}
 <input type="hidden" id="csrf-token" value="{{ csrf_token }}">
 {% endblock %}
 

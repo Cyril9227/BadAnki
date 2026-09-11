@@ -1,0 +1,187 @@
+{# Theme picker: a Notion-style multi-select that builds itself around any
+   `<input data-theme-picker>` that precedes this include. Progressive
+   enhancement — the text field stays the form's value carrier (comma-
+   separated, exactly what the server parses) and is hidden once the picker
+   takes over; without JS it works as before. Include once per page, after
+   the last such input. Expects `theme_options`: the user's card themes and
+   course tags, sorted. Each carrier gets `carrier.themePicker` with get()/set()
+   for code that drives it (the generation modal). #}
+<script type="application/json" id="theme-options">{{ (theme_options or []) | tojson }}</script>
+<style>
+    .theme-picker { position: relative; }
+    .theme-picker-control {
+        display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem;
+        min-height: calc(1.5em + 0.75rem + 2px); padding: 0.25rem 0.5rem; cursor: text;
+    }
+    .theme-picker-control:focus-within {
+        border-color: rgba(var(--primary-rgb), 0.5);
+        box-shadow: 0 0 0 0.25rem rgba(var(--primary-rgb), 0.25);
+    }
+    .theme-chip {
+        display: inline-flex; align-items: center; gap: 0.125rem;
+        padding: 0.25rem 0.25rem 0.25rem 0.65rem; font-size: 0.875rem; font-weight: 500;
+    }
+    .theme-chip button {
+        border: 0; background: transparent; color: inherit; opacity: 0.75;
+        width: 1.5rem; height: 1.5rem; padding: 0; border-radius: 50%; line-height: 1; font-size: 1.1rem;
+    }
+    .theme-chip button:hover, .theme-chip button:focus-visible { opacity: 1; background: rgba(255, 255, 255, 0.2); outline: none; }
+    .theme-picker-input {
+        flex: 1 1 8rem; min-width: 6rem; border: 0; outline: 0; background: transparent; color: inherit;
+        padding: 0.25rem 0; font-size: 1rem; /* 16px: iOS does not zoom the page on focus */
+    }
+    .theme-picker-menu { left: 0; right: 0; top: 100%; margin-top: 0.25rem; max-height: 40vh; overflow-y: auto; }
+    .theme-picker-menu .dropdown-item { padding: 0.6rem 1rem; } /* finger-sized rows */
+</style>
+<script>
+(function () {
+    'use strict';
+    if (window.themePicker) return;
+    // Mirrors MAX_CARD_TAGS / MAX_CARD_TAG_LEN in main.py; the server enforces both regardless.
+    var MAX_TAGS = 10, MAX_LEN = 40;
+    // Same normalisation as sanitize_tags on the server, so a typed theme
+    // matches the stored one it will become.
+    var clean = function (s) { return String(s || '').trim().toLowerCase().slice(0, MAX_LEN); };
+
+    window.themePicker = function (carrier, options) {
+        var base = carrier.id || 'themes';
+        var selected = [];
+        var highlighted = 0;
+
+        var wrapper = document.createElement('div'); wrapper.className = 'theme-picker';
+        var control = document.createElement('div'); control.className = 'form-control theme-picker-control';
+        var field = document.createElement('input');
+        field.type = 'text'; field.className = 'theme-picker-input'; field.id = base + '-picker';
+        field.autocomplete = 'off'; field.maxLength = MAX_LEN;
+        field.setAttribute('autocapitalize', 'none'); field.setAttribute('enterkeyhint', 'done');
+        field.setAttribute('role', 'combobox'); field.setAttribute('aria-autocomplete', 'list');
+        field.setAttribute('aria-expanded', 'false'); field.setAttribute('aria-controls', base + '-menu');
+        var menu = document.createElement('ul'); menu.className = 'dropdown-menu theme-picker-menu';
+        menu.id = base + '-menu'; menu.setAttribute('role', 'listbox');
+
+        carrier.type = 'hidden';
+        carrier.parentNode.insertBefore(wrapper, carrier);
+        control.appendChild(field); wrapper.appendChild(control); wrapper.appendChild(menu);
+        var label = carrier.id ? document.querySelector('label[for="' + carrier.id + '"]') : null;
+        if (label) label.htmlFor = field.id;
+
+        function sync() { carrier.value = selected.join(', '); }
+        // Existing themes that match what is typed, then "Create" for a new one.
+        function candidates() {
+            var q = clean(field.value);
+            var list = options.filter(function (o) { return selected.indexOf(o) === -1 && (!q || o.indexOf(q) !== -1); })
+                              .map(function (o) { return { value: o }; });
+            if (q && options.indexOf(q) === -1 && selected.indexOf(q) === -1) list.push({ value: q, create: true });
+            return list;
+        }
+        function close() {
+            menu.classList.remove('show'); menu.textContent = '';
+            field.setAttribute('aria-expanded', 'false'); field.removeAttribute('aria-activedescendant');
+        }
+        function renderMenu() {
+            var list = candidates();
+            if (!list.length || document.activeElement !== field) { close(); return; }
+            highlighted = Math.min(highlighted, list.length - 1);
+            menu.textContent = '';
+            list.forEach(function (item, i) {
+                var li = document.createElement('li');
+                var btn = document.createElement('button');
+                btn.type = 'button'; btn.id = base + '-option-' + i;
+                btn.className = 'dropdown-item' + (i === highlighted ? ' active' : '');
+                btn.setAttribute('role', 'option'); btn.setAttribute('aria-selected', i === highlighted ? 'true' : 'false');
+                if (item.create) {
+                    btn.appendChild(document.createTextNode('Create '));
+                    var name = document.createElement('strong'); name.textContent = item.value; btn.appendChild(name);
+                } else {
+                    btn.textContent = item.value;
+                }
+                // pointerdown, not click: keep focus in the field so blur never fires first.
+                btn.addEventListener('pointerdown', function (e) { e.preventDefault(); });
+                btn.addEventListener('click', function () { add(item.value); });
+                li.appendChild(btn); menu.appendChild(li);
+            });
+            menu.classList.add('show');
+            field.setAttribute('aria-expanded', 'true');
+            field.setAttribute('aria-activedescendant', base + '-option-' + highlighted);
+            var active = menu.children[highlighted];
+            if (active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest' });
+        }
+        function renderChips() {
+            Array.prototype.forEach.call(control.querySelectorAll('.theme-chip'), function (c) { c.remove(); });
+            selected.forEach(function (tag) {
+                var chip = document.createElement('span'); chip.className = 'badge rounded-pill text-bg-secondary theme-chip';
+                chip.appendChild(document.createTextNode(tag));
+                var x = document.createElement('button'); x.type = 'button'; x.textContent = '×';
+                x.setAttribute('aria-label', 'Remove ' + tag);
+                x.addEventListener('click', function () { remove(tag); field.focus(); });
+                chip.appendChild(x);
+                control.insertBefore(chip, field);
+            });
+            var full = selected.length >= MAX_TAGS;
+            field.disabled = full;
+            field.placeholder = full ? 'Up to ' + MAX_TAGS + ' themes' : (selected.length ? '' : 'Add a theme…');
+            sync();
+        }
+        function add(tag) {
+            tag = clean(tag);
+            if (tag && selected.indexOf(tag) === -1 && selected.length < MAX_TAGS) selected.push(tag);
+            field.value = ''; highlighted = 0;
+            renderChips(); renderMenu();
+        }
+        function remove(tag) {
+            selected = selected.filter(function (t) { return t !== tag; });
+            renderChips(); renderMenu();
+        }
+        function set(tags) {
+            selected = [];
+            (tags || []).forEach(function (t) { t = clean(t); if (t && selected.indexOf(t) === -1 && selected.length < MAX_TAGS) selected.push(t); });
+            field.value = ''; highlighted = 0;
+            renderChips(); renderMenu();
+        }
+
+        field.addEventListener('focus', function () { highlighted = 0; renderMenu(); });
+        // Leaving the field keeps what was typed — on a phone the next tap is
+        // usually the Save button, and that theme must not be lost.
+        field.addEventListener('blur', function () { if (clean(field.value)) add(field.value); else close(); });
+        field.addEventListener('input', function () {
+            // Commas still work, and a pasted "maths, physics" becomes two chips.
+            if (field.value.indexOf(',') !== -1) {
+                var parts = field.value.split(',');
+                parts.slice(0, -1).forEach(add);
+                field.value = parts[parts.length - 1];
+            }
+            highlighted = 0; renderMenu();
+        });
+        field.addEventListener('keydown', function (e) {
+            var list = candidates();
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (!list.length) return;
+                if (!menu.classList.contains('show')) highlighted = 0;
+                else highlighted = (highlighted + (e.key === 'ArrowDown' ? 1 : list.length - 1)) % list.length;
+                renderMenu();
+            } else if (e.key === 'Enter') {
+                e.preventDefault(); // picks a theme; never submits the form from here
+                if (list.length) add(list[Math.min(highlighted, list.length - 1)].value);
+                else field.value = ''; // typed a theme that is already selected
+            } else if (e.key === 'Escape' && menu.classList.contains('show')) {
+                e.preventDefault(); close();
+            } else if (e.key === 'Backspace' && !field.value && selected.length) {
+                remove(selected[selected.length - 1]);
+            }
+        });
+        control.addEventListener('click', function (e) { if (e.target === control) field.focus(); });
+        if (carrier.form) carrier.form.addEventListener('submit', function () { if (clean(field.value)) add(field.value); });
+
+        set(carrier.value.split(','));
+        carrier.themePicker = { get: function () { return selected.slice(); }, set: set };
+        return carrier.themePicker;
+    };
+
+    var optionsEl = document.getElementById('theme-options');
+    var options = optionsEl ? JSON.parse(optionsEl.textContent || '[]') : [];
+    Array.prototype.forEach.call(document.querySelectorAll('input[data-theme-picker]'), function (el) {
+        if (!el.themePicker) window.themePicker(el, options);
+    });
+})();
+</script>
