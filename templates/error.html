@@ -1,0 +1,17 @@
+{% extends "layout.html" %}
+
+{% block title %}{{ heading }} - Bad Anki{% endblock %}
+
+{% block content %}
+<div class="card text-center mx-auto p-4 p-md-5" style="max-width: 32rem;">
+    <p class="display-6 fw-bold mb-1" aria-hidden="true">{{ status_code }}</p>
+    <h1 class="h4 mb-3">{{ heading }}</h1>
+    <p class="text-body-secondary mb-4">{{ detail }}</p>
+    <div class="d-grid gap-2 d-sm-flex justify-content-sm-center">
+        <a href="/" class="btn btn-primary">Home</a>
+        {% if request.state.user %}
+        <a href="/review" class="btn btn-outline-secondary">Review</a>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
