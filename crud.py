@@ -6,6 +6,7 @@ import logging
 import os
 import posixpath
 import random
+import time
 import frontmatter
 import psycopg2
 from datetime import date, datetime, timedelta
@@ -782,25 +783,39 @@ def get_random_card_for_user(conn, auth_user_id: str):
         )
         return cursor.fetchone()
 
+# (table, column) -> (present, probed_at). A column that is there stays there,
+# so a hit is final; a miss is re-probed after _COLUMN_RECHECK_SECS so that
+# applying a migration shows up on warm serverless instances within a minute
+# instead of at the next redeploy.
 _column_presence: dict = {}
+_COLUMN_RECHECK_SECS = 60
 
 def _has_column(conn, table: str, column: str) -> bool:
-    """Whether a column exists, probed once per process.
+    """Whether a column exists, probed once per process while it is there
+    and once a minute while it is not.
 
     Two additive columns have shipped ahead of their migration now
     (cards.card_type, cards.tags), so this is the shared probe rather than a
     global per column.
     """
     key = (table, column)
-    if key not in _column_presence:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                "SELECT 1 FROM information_schema.columns"
-                " WHERE table_name = %s AND column_name = %s",
-                (table, column),
-            )
-            _column_presence[key] = cursor.fetchone() is not None
-    return _column_presence[key]
+    state = _column_presence.get(key)
+    if state is not None and (state[0] or time.monotonic() - state[1] < _COLUMN_RECHECK_SECS):
+        return state[0]
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT 1 FROM information_schema.columns"
+            " WHERE table_name = %s AND column_name = %s",
+            (table, column),
+        )
+        present = cursor.fetchone() is not None
+    if not present and state is None:
+        # Once per process: the reason a feature is hidden belongs in the
+        # deploy's logs, not only in a PR description.
+        logger.warning("Column %s.%s is missing; the feature it backs stays hidden"
+                       " until database.sql is applied", table, column)
+    _column_presence[key] = (present, time.monotonic())
+    return present
 
 def _check_card_type_column(conn):
     return _has_column(conn, "cards", "card_type")
