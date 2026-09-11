@@ -313,14 +313,18 @@ def test_command_handlers_ignore_edited_messages(monkeypatch):
     handlers = [h for h in app.handlers[0] if isinstance(h, CommandHandler)]
     assert len(handlers) == 7
 
+    # check_update reads message.get_bot().username, which a real bot only
+    # knows after initialize() has called getMe — stand one in.
+    from unittest.mock import MagicMock
+    bot = MagicMock(username="testbot")
+
     def message():
         msg = Message(
             message_id=1, date=datetime.now(), chat=Chat(id=1, type="private"),
             from_user=User(id=1, first_name="a", is_bot=False),
             text="/start", entities=[MessageEntity(type="bot_command", offset=0, length=6)],
         )
-        # check_update calls message.get_bot(), which needs a bot attached.
-        msg.set_bot(app.bot)
+        msg.set_bot(bot)
         return msg
 
     start = next(h for h in handlers if "start" in h.commands)
