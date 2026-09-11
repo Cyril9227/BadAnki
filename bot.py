@@ -393,6 +393,9 @@ async def random_card(update: Update, context: ContextTypes.DEFAULT_TYPE, user, 
 # One-line question previews in /list stay short enough that several dozen
 # cards fit in a single Telegram message.
 LIST_PREVIEW_LEN = 64
+# About two messages per page. Listing a whole 5k-card deck at once would be
+# ~75 messages in a burst, which trips Telegram's per-chat flood limit part-way.
+LIST_PAGE_SIZE = 100
 
 
 def _card_preview(question: str) -> str:
@@ -405,17 +408,29 @@ def _card_preview(question: str) -> str:
 
 @linked_command
 async def list_cards(update: Update, context: ContextTypes.DEFAULT_TYPE, user, conn):
-    """Lists every card as "card <id>: <preview>", each line linking to the
-    card's web page. IDs are the ones /card takes, in id order."""
+    """Lists cards as "card <id>: <preview>", LIST_PAGE_SIZE per page, each
+    line linking to the card's web page. IDs are the ones /card takes, in id
+    order; `/list 3` shows the third page."""
     cards = get_card_list_for_user(conn, user['auth_user_id'])
     if not cards:
         await update.message.reply_text("You have no cards in your deck.")
         return
 
+    pages = (len(cards) + LIST_PAGE_SIZE - 1) // LIST_PAGE_SIZE
+    page = 1
+    if context.args and context.args[0].isdecimal():
+        page = min(max(int(context.args[0]), 1), pages)
+    start = (page - 1) * LIST_PAGE_SIZE
+
     lines = []
-    for card in cards:
+    for card in cards[start:start + LIST_PAGE_SIZE]:
         label = escape_markdown(f"card {card['id']}: {_card_preview(card['question'])}", version=2)
         lines.append(f"[{label}]({_card_url(card['id'])})")
+    if pages > 1:
+        footer = f"Page {page} of {pages}"
+        if page < pages:
+            footer += f" · /list {page + 1} for the next"
+        lines.append(escape_markdown(footer, version=2))
 
     # Send in as few messages as the 4096-char limit allows.
     chunk = ""

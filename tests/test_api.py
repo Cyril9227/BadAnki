@@ -1645,6 +1645,36 @@ def test_scheduler_db_failure_is_not_reported_as_success():
         with pytest.raises(RuntimeError):
             scheduler.get_users_with_due_cards()
 
+def test_scheduler_send_retries_once_after_a_flood_wait():
+    """Sends go out concurrently, so a big user base can hit Telegram's global
+    rate; a RetryAfter is waited out once rather than counted as a failure."""
+    import scheduler
+    from telegram.error import RetryAfter
+    from unittest.mock import AsyncMock
+    bot_mock = MagicMock()
+    bot_mock.send_message = AsyncMock(side_effect=[RetryAfter(3), None])
+    with patch("scheduler.asyncio.sleep", new=AsyncMock()) as sleep:
+        asyncio.run(scheduler._send(bot_mock, 1, "hi"))
+    assert bot_mock.send_message.await_count == 2
+    assert sleep.await_args.args[0] >= 3
+
+def test_scheduler_treats_a_blocked_bot_as_churn_not_an_error(caplog):
+    """A user who blocked the bot is skipped quietly: counted in the summary,
+    but not logged at error level like a real delivery problem."""
+    import logging
+    import scheduler
+    from telegram.error import Forbidden
+    from unittest.mock import AsyncMock
+    bot_mock = MagicMock()
+    bot_mock.send_message = AsyncMock(side_effect=Forbidden("bot was blocked by the user"))
+    with patch("scheduler.get_users_with_due_cards", return_value=[(4248, 3, None)]), \
+         patch("scheduler.Bot", return_value=bot_mock), \
+         patch("scheduler.TELEGRAM_BOT_TOKEN", "123:token"):
+        with caplog.at_level(logging.INFO, logger="scheduler"):
+            result = asyncio.run(scheduler.run_scheduler())
+    assert "Failed for 1 users" in result
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+
 def test_trigger_scheduler_invalid_secret(client):
     """Test the scheduler endpoint with an invalid secret."""
     response = client.get("/api/trigger-scheduler", headers={"X-Scheduler-Secret": "wrongsecret"})
@@ -1834,6 +1864,31 @@ def test_telegram_due_reports_the_waiting_count(pg_container, db_conn):
     assert len(sent) == 1
     assert "2 cards due" in sent[0]
     assert "/review" in sent[0]
+
+def test_telegram_list_is_paginated(pg_container, db_conn, monkeypatch):
+    """Listing a big deck in one go is dozens of messages in a burst, which
+    trips Telegram's flood limit; /list pages instead and /list N continues."""
+    user_id = create_test_user(db_conn, email="tglist@example.com")
+    _link_telegram(db_conn, user_id, 4247)
+    for i in range(1, 6):
+        create_test_card(db_conn, user_id, f"Question{i}", "A")
+    monkeypatch.setattr(bot, "LIST_PAGE_SIZE", 2)
+
+    update, sent = _fake_telegram_update(4247)
+    asyncio.run(bot.list_cards(update, MagicMock(args=[])))
+    assert len(sent) == 1
+    assert "Question1" in sent[0] and "Question2" in sent[0] and "Question3" not in sent[0]
+    assert "Page 1 of 3" in sent[0] and "/list 2" in sent[0]
+
+    update, sent = _fake_telegram_update(4247)
+    asyncio.run(bot.list_cards(update, MagicMock(args=["3"])))
+    assert "Question5" in sent[0] and "Question4" not in sent[0]
+    assert "Page 3 of 3" in sent[0] and "/list 4" not in sent[0]
+
+    # An out-of-range page clamps to the last one rather than replying with nothing.
+    update, sent = _fake_telegram_update(4247)
+    asyncio.run(bot.list_cards(update, MagicMock(args=["99"])))
+    assert "Page 3 of 3" in sent[0]
 
 def test_telegram_due_when_nothing_is_waiting(pg_container, db_conn):
     user_id = create_test_user(db_conn, email="tgdueclear@example.com")
