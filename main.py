@@ -27,7 +27,7 @@ from psycopg2.pool import PoolError
 # this module is imported to serve a page view that will never touch them.
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
 from fastapi.exception_handlers import http_exception_handler
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
@@ -218,6 +218,8 @@ def should_resolve_user_for_request(request: Request) -> bool:
     path = request.url.path
     if (
         path == "/health"
+        or path == "/favicon.ico"
+        or path == "/robots.txt"
         or path == "/logout"
         or path == "/auth/callback"
         or path == "/api/cron"
@@ -1532,6 +1534,18 @@ async def change_password(
 async def health_check():
     """A simple endpoint to keep the service alive."""
     return {"status": "ok"}
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    """Browsers and link previews ask for this path regardless of <link rel=icon>."""
+    return FileResponse("static/favicon.ico", media_type="image/x-icon")
+
+
+@app.get("/robots.txt", include_in_schema=False)
+async def robots():
+    """Public pages may be indexed; the machine endpoints have nothing to index."""
+    return PlainTextResponse("User-agent: *\nDisallow: /api/\nDisallow: /webhook/\nDisallow: /render/\n")
 
 
 @app.get("/", response_class=HTMLResponse)

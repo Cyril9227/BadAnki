@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#ffffff">
+    <meta name="description" content="Bad Anki: spaced-repetition flashcards generated from your own course notes, with Telegram reminders.">
     <title>{% block title %}Bad Anki{% endblock %}</title>
 
     <!-- Apply the saved or system-preferred theme before first paint to avoid a
@@ -789,7 +790,7 @@
 
             <!-- Theme toggle + user dropdown -->
             <div class="d-flex align-items-center">
-                <button type="button" class="nav-link theme-toggle-btn" aria-label="Toggle dark mode">
+                <button type="button" class="nav-link theme-toggle-btn" aria-label="Dark mode" aria-pressed="false">
                     {{ icon('sun', 18, 'theme-icon-sun') }}
                     {{ icon('moon', 18, 'theme-icon-moon') }}
                 </button>
@@ -949,11 +950,18 @@
         // and CSS derives the toggle icon from data-bs-theme — the click
         // handler only has to flip the attribute and persist the choice.
         const html = document.documentElement;
-        document.querySelectorAll('.theme-toggle-btn').forEach(btn => {
+        const toggles = document.querySelectorAll('.theme-toggle-btn');
+        // The button is a switch: aria-pressed tells assistive tech which way
+        // it currently points, since the icon alone is decorative.
+        const reflectTheme = () => toggles.forEach(btn =>
+            btn.setAttribute('aria-pressed', html.getAttribute('data-bs-theme') === 'dark' ? 'true' : 'false'));
+        reflectTheme();
+        toggles.forEach(btn => {
             btn.addEventListener('click', () => {
                 const theme = html.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark';
                 html.setAttribute('data-bs-theme', theme);
                 localStorage.setItem('theme', theme);
+                reflectTheme();
                 const themeMeta = document.querySelector('meta[name="theme-color"]');
                 if (themeMeta) themeMeta.setAttribute('content', theme === 'dark' ? '#121212' : '#ffffff');
             });
