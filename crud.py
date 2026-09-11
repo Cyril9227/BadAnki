@@ -535,6 +535,28 @@ def get_due_tag_counts_for_user(conn, auth_user_id: str):
         return []
 
 
+def get_card_theme_options_for_user(conn, auth_user_id: str) -> list:
+    """Every theme the picker can offer: the user's existing card themes plus
+    their course tags, since a generated batch inherits the latter and a
+    hand-made card usually belongs with one of them. Sorted; [] without the
+    column, like the rest of the feature."""
+    if not has_card_tags(conn):
+        return []
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT DISTINCT tag FROM cards, unnest(tags) AS tag WHERE user_id = %s",
+                (auth_user_id,),
+            )
+            themes = {row[0] for row in cursor.fetchall()}
+    except Exception as e:
+        logger.info("Card tags unavailable: %s", e)
+        _rollback_quietly(conn)
+        return []
+    themes.update(get_all_tags_for_user(conn, auth_user_id))
+    return sorted(themes)
+
+
 def get_review_state_for_user(conn, auth_user_id: str, exclude_ids=None, tag=None):
     """Everything one turn of the review loop needs, in a single round trip.
 
