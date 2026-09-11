@@ -474,6 +474,9 @@ class ApiKeys(BaseModel):
     anthropic_api_key: str | None = Field(default=None, max_length=MAX_SECRET_INPUT_LEN)
     openai_api_key: str | None = Field(default=None, max_length=MAX_SECRET_INPUT_LEN)
 
+class RemoveApiKey(BaseModel):
+    provider: Literal["gemini", "anthropic", "openai"]
+
 class ReviewUndo(BaseModel):
     # Echo of the `previous` scheduling values returned by the rating call.
     # Only ever applied to the caller's own cards, so at worst a user
@@ -1796,6 +1799,16 @@ async def api_save_api_keys(data: ApiKeys, conn: psycopg2.extensions.connection 
     anthropic_key = _resolve(data.anthropic_api_key, user.anthropic_api_key)
     openai_key = _resolve(data.openai_api_key, user.openai_api_key)
     crud.save_api_keys_for_user(conn, user.auth_user_id, gemini_key, anthropic_key, openai_key)
+    return {"success": True}
+
+@app.post("/api/remove-api-key")
+async def api_remove_api_key(data: RemoveApiKey, conn: psycopg2.extensions.connection = Depends(get_db), user: User = Depends(get_current_active_user)):
+    """Forget one stored key. A blank field on the save form means "keep", so
+    this is the only way to drop a key — including the Gemini key seeded at
+    signup, after which that provider leaves the generation menu."""
+    keys = {provider: _provider_key(user, provider) for provider in LLM_PROVIDERS}
+    keys[data.provider] = None
+    crud.save_api_keys_for_user(conn, user.auth_user_id, keys["gemini"], keys["anthropic"], keys["openai"])
     return {"success": True}
 
 # --- Tag-based Views ---

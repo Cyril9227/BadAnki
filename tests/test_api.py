@@ -1474,6 +1474,32 @@ def test_delete_account_surfaces_admin_failure(mock_delete, mock_get_user, clien
 
 # --- Secrets & API Keys Tests ---
 @patch("main.supabase.auth.get_user")
+def test_remove_api_key_forgets_only_that_provider(mock_get_user, client, db_conn):
+    """Blank-on-save keeps a key, so removal is its own call; Settings shows
+    Remove only for configured providers."""
+    from key_encryption import decrypt_secret
+    auth_client, user_id, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="remove_key@example.com")
+    auth_client.post("/api/save-api-keys",
+                     json={"gemini_api_key": "g", "anthropic_api_key": "a", "openai_api_key": "o"},
+                     headers={"X-CSRF-Token": csrf_token})
+    page = auth_client.get("/settings").text
+    assert 'data-remove-key="anthropic"' in page and 'hidden data-remove-key="anthropic"' not in page
+
+    response = auth_client.post("/api/remove-api-key", json={"provider": "anthropic"},
+                                headers={"X-CSRF-Token": csrf_token})
+    assert response.status_code == 200
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT gemini_api_key, anthropic_api_key, openai_api_key FROM profiles WHERE auth_user_id = %s", (user_id,))
+        row = cur.fetchone()
+    assert row["anthropic_api_key"] is None
+    assert decrypt_secret(row["gemini_api_key"]) == "g"
+    assert decrypt_secret(row["openai_api_key"]) == "o"
+    assert 'hidden data-remove-key="anthropic"' in auth_client.get("/settings").text
+
+    assert auth_client.post("/api/remove-api-key", json={"provider": "mistral"},
+                            headers={"X-CSRF-Token": csrf_token}).status_code == 422
+
+@patch("main.supabase.auth.get_user")
 def test_save_api_keys(mock_get_user, client, db_conn):
     auth_client, user_id, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="api_key_user@example.com")
     keys = {"gemini_api_key": "gemini_key", "anthropic_api_key": "anthropic_key", "openai_api_key": "openai_key"}

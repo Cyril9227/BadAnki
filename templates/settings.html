@@ -18,35 +18,26 @@
             <form id="api-keys-form" autocomplete="off">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
+                {% set providers = [('gemini', 'Google Gemini', 'Gemini', gemini_key_set),
+                                    ('anthropic', 'Anthropic', 'Anthropic', anthropic_key_set),
+                                    ('openai', 'OpenAI', 'OpenAI', openai_key_set)] %}
+                {% for provider, name, short, configured in providers %}
                 <div class="mb-3">
-                    <label for="gemini_api_key" class="form-label d-flex align-items-center gap-2">
-                        Google Gemini API Key
-                        <span id="gemini-key-badge" class="badge {{ 'bg-success' if gemini_key_set else 'bg-secondary' }}">{{ 'Configured' if gemini_key_set else 'Not set' }}</span>
-                    </label>
-                    <input type="password" id="gemini_api_key" name="gemini_api_key"
+                    <div class="d-flex align-items-center gap-2 mb-2">
+                        <label for="{{ provider }}_api_key" class="form-label d-flex align-items-center gap-2 mb-0">
+                            {{ name }} API Key
+                            <span id="{{ provider }}-key-badge" class="badge {{ 'bg-success' if configured else 'bg-secondary' }}">{{ 'Configured' if configured else 'Not set' }}</span>
+                        </label>
+                        {# A blank field on save means "keep", so this is the only way to forget a key. #}
+                        <button type="button" class="btn btn-link btn-sm p-0 ms-auto text-danger"
+                                {% if not configured %}hidden {% endif %}data-remove-key="{{ provider }}" data-name="{{ short }}">Remove</button>
+                    </div>
+                    <input type="password" id="{{ provider }}_api_key" name="{{ provider }}_api_key"
                            class="form-control" autocomplete="new-password"
-                           placeholder="{{ 'Enter a new key to replace, or leave blank to keep' if gemini_key_set else 'Enter your Gemini API key' }}">
+                           data-empty-placeholder="Enter your {{ short }} API key"
+                           placeholder="{{ 'Enter a new key to replace, or leave blank to keep' if configured else 'Enter your ' ~ short ~ ' API key' }}">
                 </div>
-
-                <div class="mb-3">
-                    <label for="anthropic_api_key" class="form-label d-flex align-items-center gap-2">
-                        Anthropic API Key
-                        <span id="anthropic-key-badge" class="badge {{ 'bg-success' if anthropic_key_set else 'bg-secondary' }}">{{ 'Configured' if anthropic_key_set else 'Not set' }}</span>
-                    </label>
-                    <input type="password" id="anthropic_api_key" name="anthropic_api_key"
-                           class="form-control" autocomplete="new-password"
-                           placeholder="{{ 'Enter a new key to replace, or leave blank to keep' if anthropic_key_set else 'Enter your Anthropic API key' }}">
-                </div>
-
-                <div class="mb-3">
-                    <label for="openai_api_key" class="form-label d-flex align-items-center gap-2">
-                        OpenAI API Key
-                        <span id="openai-key-badge" class="badge {{ 'bg-success' if openai_key_set else 'bg-secondary' }}">{{ 'Configured' if openai_key_set else 'Not set' }}</span>
-                    </label>
-                    <input type="password" id="openai_api_key" name="openai_api_key"
-                           class="form-control" autocomplete="new-password"
-                           placeholder="{{ 'Enter a new key to replace, or leave blank to keep' if openai_key_set else 'Enter your OpenAI API key' }}">
-                </div>
+                {% endfor %}
 
                 <button id="save-keys-btn" type="submit" class="btn btn-primary">Save API Keys</button>
             </form>
@@ -133,6 +124,48 @@
 </div>
 
 <script>
+// Badge, placeholder and Remove link for one provider, flipped in place.
+function setKeyState(provider, configured) {
+    const badge = document.getElementById(provider + '-key-badge');
+    badge.className = 'badge ' + (configured ? 'bg-success' : 'bg-secondary');
+    badge.textContent = configured ? 'Configured' : 'Not set';
+    const input = document.getElementById(provider + '_api_key');
+    input.placeholder = configured ? 'Enter a new key to replace, or leave blank to keep' : input.dataset.emptyPlaceholder;
+    const remove = document.querySelector('[data-remove-key="' + provider + '"]');
+    remove.hidden = !configured;
+    remove.textContent = 'Remove';
+    remove.classList.remove('fw-semibold');
+}
+
+// Remove is two taps and no dialog: the first turns the link into a
+// question that reverts by itself, the second forgets the key.
+document.querySelectorAll('[data-remove-key]').forEach(btn => {
+    let armed = null;
+    const disarm = () => { clearTimeout(armed); armed = null; btn.textContent = 'Remove'; btn.classList.remove('fw-semibold'); };
+    btn.addEventListener('click', () => {
+        const provider = btn.dataset.removeKey;
+        if (!armed) {
+            btn.textContent = 'Remove key?';
+            btn.classList.add('fw-semibold');
+            armed = setTimeout(disarm, 4000);
+            return;
+        }
+        disarm();
+        btn.disabled = true;
+        window.fetchJson('/api/remove-api-key', {
+            method: 'POST',
+            headers: { 'X-CSRF-Token': window.getCsrfToken() || "{{ csrf_token }}" },
+            body: JSON.stringify({ provider: provider })
+        })
+        .then(() => {
+            setKeyState(provider, false);
+            window.toast('success', btn.dataset.name + ' key removed.');
+        })
+        .catch(error => window.toast('error', error.message || 'Could not remove the key.'))
+        .finally(() => { btn.disabled = false; });
+    });
+});
+
 document.getElementById('api-keys-form').addEventListener('submit', function(event) {
     event.preventDefault();
 
@@ -164,11 +197,7 @@ document.getElementById('api-keys-form').addEventListener('submit', function(eve
     .then(() => {
         // Flip the badges in place — no blocking dialog, no reload.
         ['gemini', 'anthropic', 'openai'].forEach(provider => {
-            if (payload[provider + '_api_key']) {
-                const badge = document.getElementById(provider + '-key-badge');
-                badge.className = 'badge bg-success';
-                badge.textContent = 'Configured';
-            }
+            if (payload[provider + '_api_key']) setKeyState(provider, true);
         });
         this.reset();
         window.toast('success', 'API keys saved!');
