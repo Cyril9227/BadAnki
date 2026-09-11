@@ -283,6 +283,58 @@ def test_login_redirect_is_not_turned_into_a_page(client):
     response = client.get("/review", headers={"Accept": "text/html"}, follow_redirects=False)
     assert response.status_code == 303
     assert response.headers["location"] == "/auth"
+# --- Odd-input hardening: none of these may be a 500 ---
+def test_webhook_with_non_ascii_secret_is_forbidden_not_a_crash(client):
+    response = client.post("/webhook/é", json={"update_id": 1})
+    assert response.status_code == 403
+
+def test_trigger_scheduler_with_non_ascii_secret_is_forbidden_not_a_crash(client):
+    response = client.get("/api/trigger-scheduler", headers={b"X-Scheduler-Secret": "sécret".encode("latin-1")})
+    assert response.status_code == 403
+
+@patch("main.supabase.auth.get_user")
+def test_review_next_ignores_non_decimal_exclude_ids(mock_get_user, client, db_conn):
+    """"²".isdigit() is True but int("²") raises; isdecimal() is the right test."""
+    auth_client, _, _ = authenticate_client(mock_get_user, client, db_conn, email="exclude_user@example.com")
+    response = auth_client.get("/api/review/next?exclude=²,abc,5")
+    assert response.status_code == 200
+    assert response.json()["next_card"] is None
+
+@patch("main.supabase.auth.get_user")
+def test_empty_course_renders_instead_of_404(mock_get_user, client, db_conn):
+    auth_client, _, csrf_token = authenticate_client(mock_get_user, client, db_conn, email="emptycourse@example.com")
+    auth_client.post("/api/course-content", json={"path": "empty.md", "content": ""}, headers={"X-CSRF-Token": csrf_token})
+    assert auth_client.get("/courses/empty.md").status_code == 200
+
+@patch("main.supabase.auth.get_user")
+def test_pool_exhaustion_is_a_503_not_a_500(mock_get_user, client, db_conn):
+    from psycopg2.pool import PoolError
+    auth_client, _, _ = authenticate_client(mock_get_user, client, db_conn, email="poolfull@example.com")
+    with patch("main.get_db_connection", side_effect=PoolError("connection pool exhausted")):
+        response = auth_client.get("/courses")
+    assert response.status_code == 503
+    assert response.headers.get("retry-after") == "2"
+
+@patch("main.supabase.auth.get_user")
+def test_auth_callback_without_an_email_gets_a_synthetic_username(mock_get_user, client, db_conn):
+    """An OAuth provider can withhold the email (GitHub, private address);
+    the profile used to be created as the literal username "None#…"."""
+    auth_user_id = uuid.uuid4()
+    with db_conn.cursor() as cur:
+        cur.execute("INSERT INTO auth.users (id, email) VALUES (%s, NULL)", (str(auth_user_id),))
+        db_conn.commit()
+    mock_get_user.return_value = MagicMock(user=MagicMock(id=str(auth_user_id), email=None))
+    csrf_token = get_csrf_token(client)
+    response = client.post(
+        "/auth/callback",
+        json={"access_token": "oauth-token", "refresh_token": "oauth-refresh"},
+        headers={"X-CSRF-Token": csrf_token},
+    )
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    with db_conn.cursor() as cur:
+        cur.execute("SELECT username FROM profiles WHERE auth_user_id = %s", (str(auth_user_id),))
+        assert cur.fetchone()["username"] == f"user-{str(auth_user_id)[:8]}"
 
 
 
@@ -1149,6 +1201,14 @@ def test_generate_cards_without_a_key_is_a_client_error():
     assert excinfo.value.status_code == 400
     assert "Anthropic" in excinfo.value.detail
 
+def test_generated_cloze_without_a_marker_is_saved_as_basic():
+    from main import _validate_generated_cards
+    cards = _validate_generated_cards([
+        {"question": "No blank here", "answer": "a", "card_type": "cloze"},
+        {"question": r"Half is {{c1::\frac{1}{2}}}", "answer": r"\frac{1}{2}", "card_type": "cloze"},
+    ])
+    assert [c["card_type"] for c in cards] == ["basic", "cloze"]
+
 def test_provider_error_classification():
     from main import _provider_error
 
@@ -1674,7 +1734,8 @@ def test_themes_hide_entirely_without_the_column(mock_get_user, client, db_conn,
     disappears rather than erroring when the migration hasn't run."""
     auth_client, user_id, _ = authenticate_client(mock_get_user, client, db_conn, email="notags@example.com")
     create_test_card(db_conn, user_id, "Only card here", "A")
-    monkeypatch.setitem(crud._column_presence, ("cards", "tags"), False)
+    # Pinned as "missing, probed at +inf" so the once-a-minute re-probe never fires.
+    monkeypatch.setitem(crud._column_presence, ("cards", "tags"), (False, float("inf")))
 
     assert crud.get_due_tag_counts_for_user(db_conn, user_id) == []
     assert 'name="tags"' not in auth_client.get("/new").text

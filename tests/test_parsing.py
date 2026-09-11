@@ -48,3 +48,13 @@ def test_code_fences_are_stripped():
 def test_garbage_still_raises():
     with pytest.raises(json.JSONDecodeError):
         robust_json_loads("not json at all")
+
+
+def test_cloze_pattern_accepts_latex_braces_in_the_blank():
+    from parsing import CLOZE_PATTERN
+    match = CLOZE_PATTERN.search(r"Half: {{c1::\frac{1}{2}}}.")
+    assert match and match.group(1) == r"\frac{1}{2}"
+    nested = CLOZE_PATTERN.search(r"{{c1::\frac{\sqrt{2}}{2}}}")
+    assert nested and nested.group(1) == r"\frac{\sqrt{2}}{2}"
+    assert CLOZE_PATTERN.search("plain {braces} only") is None
+    assert CLOZE_PATTERN.search("{{c1::unbalanced {brace}}") is None

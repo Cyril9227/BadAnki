@@ -219,6 +219,38 @@ def test_cloze_plain_card_message_hides_answers():
     assert "{{c1" not in text
 
 
+LATEX_CLOZE_Q = r"One half is {{c1::\frac{1}{2}}} and root two over two is {{c2::\frac{\sqrt{2}}{2}}}."
+
+
+def test_cloze_blanks_may_contain_balanced_braces():
+    """LaTeX in a blank used to defeat the [^}]+ pattern, so the card was
+    treated as basic and the raw marker (answer included) was printed."""
+    assert is_cloze(LATEX_CLOZE_Q)
+    assert cloze_preview(LATEX_CLOZE_Q) == r"One half is \frac{1}{2} and root two over two is \frac{\sqrt{2}}{2}."
+    assert not is_cloze("{{c1::unbalanced {brace}}")
+
+
+def test_cloze_blank_with_inline_math_stays_hidden():
+    # telegramify turns $x$ into a code entity and drops the spoiler around
+    # code, so the rich path printed the answer; the plain path must win.
+    out = render_cloze_markdown_v2("The variable {{c1::$x$}} is unknown.")
+    assert "||$x$||" in out
+    assert "`" not in out
+
+
+def test_cloze_blank_with_code_stays_hidden():
+    out = render_cloze_markdown_v2("Use {{c1::`dict.get`}} for lookups.")
+    assert "||" in out
+    assert "{{c1" not in out
+    assert "dict" in out  # behind the spoiler, not dropped
+
+
+def test_cloze_blank_with_math_reveals_richly():
+    out = render_cloze_markdown_v2(r"The variable {{c1::$\alpha$}} is unknown.", reveal=True)
+    assert "||" not in out
+    assert "α" in out
+
+
 # --- Photo cache helpers ---
 
 class _BrokenConn:

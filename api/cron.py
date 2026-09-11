@@ -12,7 +12,8 @@ class handler(BaseHTTPRequestHandler):
         # Fail closed: without a configured CRON_SECRET nothing may trigger
         # the notification fan-out, regardless of environment.
         authorization = self.headers.get("authorization", "")
-        if not cron_secret or not secrets.compare_digest(authorization, f"Bearer {cron_secret}"):
+        # Bytes: compare_digest raises TypeError on non-ASCII str, i.e. a 500.
+        if not cron_secret or not secrets.compare_digest(authorization.encode(), f"Bearer {cron_secret}".encode()):
             self.send_response(401)
             self.send_header('Content-type', 'text/plain')
             self.end_headers()
