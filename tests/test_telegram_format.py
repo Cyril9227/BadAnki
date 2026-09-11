@@ -314,11 +314,14 @@ def test_command_handlers_ignore_edited_messages(monkeypatch):
     assert len(handlers) == 7
 
     def message():
-        return Message(
+        msg = Message(
             message_id=1, date=datetime.now(), chat=Chat(id=1, type="private"),
             from_user=User(id=1, first_name="a", is_bot=False),
             text="/start", entities=[MessageEntity(type="bot_command", offset=0, length=6)],
         )
+        # check_update calls message.get_bot(), which needs a bot attached.
+        msg.set_bot(app.bot)
+        return msg
 
     start = next(h for h in handlers if "start" in h.commands)
     assert start.check_update(Update(update_id=1, message=message()))
