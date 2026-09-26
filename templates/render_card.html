@@ -77,7 +77,7 @@ window.addEventListener('DOMContentLoaded', function () {
                       'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
                       'a', 'img', 'table', 'thead', 'tbody', 'tr', 'th', 'td',
                       'span', 'div', 'hr', 'sup', 'sub'],
-        ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'id', 'target', 'rel'],
+        ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'id', 'target', 'rel', 'start'],
         ALLOW_DATA_ATTR: false
     }).replace(/\uE000(\d+)\uE001/g, function (_, i) {
         return escapeHtml(stash[Number(i)]);
