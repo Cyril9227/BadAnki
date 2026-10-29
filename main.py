@@ -2001,11 +2001,11 @@ async def undo_review_ajax(
 
 
 def _parse_exclude(exclude: str | None) -> list[int]:
-    """Comma-separated card ids the client has set aside this session."""
+    """Keep the most recent 200 skipped IDs so older cards can cycle back."""
     if not exclude:
         return []
     # isdecimal, not isdigit: "²".isdigit() is True and int("²") raises.
-    return [int(part) for part in exclude.split(",")[:200] if part.strip().isdecimal()]
+    return [int(part) for part in exclude.split(",")[-200:] if part.strip().isdecimal()]
 
 
 @app.get("/api/review/next", response_class=JSONResponse)

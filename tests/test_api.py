@@ -903,6 +903,12 @@ def test_review_records_streak_activity(mock_get_user, client, db_conn):
     assert row["remembered"] == 1
 
 
+def test_parse_exclude_keeps_most_recent_skips():
+    from main import _parse_exclude
+
+    assert _parse_exclude(",".join(str(i) for i in range(1, 202))) == list(range(2, 202))
+
+
 @patch("main.supabase.auth.get_user")
 def test_next_card_respects_exclude(mock_get_user, client, db_conn):
     """Swipe-to-skip: /api/review/next serves the next due card minus the
