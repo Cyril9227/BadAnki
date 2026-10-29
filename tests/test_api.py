@@ -903,6 +903,12 @@ def test_review_records_streak_activity(mock_get_user, client, db_conn):
     assert row["remembered"] == 1
 
 
+def test_parse_exclude_keeps_most_recent_skips():
+    from main import _parse_exclude
+
+    assert _parse_exclude(",".join(str(i) for i in range(1, 202))) == list(range(2, 202))
+
+
 @patch("main.supabase.auth.get_user")
 def test_next_card_respects_exclude(mock_get_user, client, db_conn):
     """Swipe-to-skip: /api/review/next serves the next due card minus the
@@ -1417,15 +1423,14 @@ def test_bulk_delete_cards_scoped_to_owner(mock_get_user, client, db_conn):
 # --- Deck Export Tests ---
 @patch("main.supabase.auth.get_user")
 def test_export_cards_round_trips_the_deck(mock_get_user, client, db_conn):
-    """Export is a backup, so it carries scheduling as well as text, and has
-    to survive content that would break a naive CSV writer."""
+    """Export includes scheduling and themes and preserves CSV special characters."""
     import csv as _csv, io as _io
 
     auth_client, user_id, _ = authenticate_client(mock_get_user, client, db_conn, email="exporter@example.com")
     tricky_q = 'Line one, with a comma\nand a "quoted" second line: $e^{i\\pi}$'
     card_id = create_test_card(db_conn, user_id, tricky_q, "The answer")
     with db_conn.cursor() as cur:
-        cur.execute("UPDATE cards SET card_type = 'cloze', interval = 7 WHERE id = %s", (card_id,))
+        cur.execute("UPDATE cards SET card_type = 'cloze', interval = 7, tags = ARRAY['algebra', 'maths'] WHERE id = %s", (card_id,))
         db_conn.commit()
 
     response = auth_client.get("/api/export-cards")
@@ -1439,6 +1444,7 @@ def test_export_cards_round_trips_the_deck(mock_get_user, client, db_conn):
     assert rows[0]["answer"] == "The answer"
     assert rows[0]["card_type"] == "cloze"
     assert rows[0]["interval"] == "7"
+    assert rows[0]["tags"] == "algebra, maths"
     assert rows[0]["ease_factor"] == "2.5"
     assert rows[0]["due_date"]                  # scheduling rides along
     assert "user_id" not in rows[0]             # same on every row, meaningless outside this DB
@@ -1461,7 +1467,7 @@ def test_export_cards_on_an_empty_deck_is_a_header_only_file(mock_get_user, clie
     auth_client, _, _ = authenticate_client(mock_get_user, client, db_conn, email="exportempty@example.com")
     response = auth_client.get("/api/export-cards")
     assert response.status_code == 200
-    assert response.text.strip() == "id,card_type,question,answer,due_date,interval,ease_factor"
+    assert response.text.strip() == "id,card_type,question,answer,due_date,interval,ease_factor,tags"
 
 def test_export_cards_requires_login(client):
     response = client.get("/api/export-cards", follow_redirects=False)

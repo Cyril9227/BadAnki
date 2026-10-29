@@ -32,6 +32,10 @@
     <h1 class="display-5 fw-bold">Your deck is empty</h1>
     <p class="lead">Create your first card, or generate a whole deck from your course notes.</p>
     {% endif %}
+    <div class="mt-4">
+        <button type="button" id="undo-final-rating" class="btn btn-outline-secondary" hidden>Undo last rating</button>
+        <p id="undo-final-error" class="text-danger mt-2" role="status"></p>
+    </div>
     {% if not tag %}
     <div class="d-grid gap-2 d-sm-flex justify-content-sm-center mt-4">
         <a href="/new" class="btn btn-primary">Create a New Card</a>
@@ -44,4 +48,39 @@
 </div>
 
 {# The leaderboard lives on the home page now. #}
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const key = 'badanki:final-review-undo';
+        const button = document.getElementById('undo-final-rating');
+        let last = null;
+        try {
+            const stored = sessionStorage.getItem(key);
+            sessionStorage.removeItem(key);
+            if (stored) last = JSON.parse(stored);
+        } catch (e) { /* storage unavailable or invalid */ }
+        if (!last || !last.id || !last.previous) return;
+
+        button.hidden = false;
+        button.addEventListener('click', function () {
+            button.disabled = true;
+            const tagQuery = last.tag ? '?tag=' + encodeURIComponent(last.tag) : '';
+            window.fetchJson('/api/review/' + encodeURIComponent(last.id) + '/undo' + tagQuery, {
+                method: 'POST',
+                body: JSON.stringify(last.previous)
+            }).then(function () {
+                window.location.href = '/review' + tagQuery;
+            }).catch(function () {
+                // Allow a retry: a reload would drop the one-shot undo.
+                button.disabled = false;
+                document.getElementById('undo-final-error').textContent = 'Could not undo the last rating. Please check your connection.';
+            });
+        });
+        window.addEventListener('pageshow', function (event) {
+            if (event.persisted) button.hidden = true;
+        });
+    });
+</script>
 {% endblock %}

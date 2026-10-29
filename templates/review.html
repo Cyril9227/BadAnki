@@ -160,6 +160,8 @@
 {% block scripts %}
 <script>
     document.addEventListener('DOMContentLoaded', () => {
+        const finalUndoKey = 'badanki:final-review-undo';
+        try { sessionStorage.removeItem(finalUndoKey); } catch (e) { /* storage unavailable */ }
         const showAnswerBtn = document.getElementById('show-answer-btn');
         const answerSection = document.getElementById('answer-section');
         const reviewForm = document.getElementById('review-form');
@@ -336,6 +338,14 @@
                 announce((announcement || 'Next card.') + (due ? ' ' + due + ' due.' : ''));
             } else {
                 // No cards left to review — let the server render "All Done".
+                const last = sessionHistory[sessionHistory.length - 1];
+                if (last && last.previous) {
+                    try {
+                        sessionStorage.setItem(finalUndoKey, JSON.stringify({
+                            id: last.id, previous: last.previous, tag: REVIEW_TAG
+                        }));
+                    } catch (e) { /* storage unavailable */ }
+                }
                 window.location.href = REVIEW_TAG
                     ? '/review?tag=' + encodeURIComponent(REVIEW_TAG) : '/review';
             }

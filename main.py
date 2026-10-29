@@ -1778,12 +1778,12 @@ async def api_delete_cards(data: CardIds, conn: psycopg2.extensions.connection =
     deleted = crud.delete_cards_for_user(conn, data.ids, user.auth_user_id)
     return {"success": True, "deleted": deleted}
 
-# Question and answer are the deck; the scheduling columns ride along so an
-# export is a restorable backup and not just the text. This tuple is also what
-# leaves user_id out — extrasaction="ignore" below drops every column not
-# named here, and user_id is the same value on every row and means nothing
-# outside this database.
-CARD_EXPORT_COLUMNS = ("id", "card_type", "question", "answer", "due_date", "interval", "ease_factor")
+# Question and answer are the deck; scheduling and themes ride along so the
+# file carries everything a card holds here. This tuple is also what leaves
+# user_id out — extrasaction="ignore" below drops every column not named
+# here, and user_id is the same value on every row and means nothing outside
+# this database.
+CARD_EXPORT_COLUMNS = ("id", "card_type", "question", "answer", "due_date", "interval", "ease_factor", "tags")
 
 
 @app.get("/api/export-cards")
@@ -1798,15 +1798,15 @@ async def export_cards(conn: psycopg2.extensions.connection = Depends(get_db), u
     writer.writeheader()
     for card in cards:
         row = dict(card)
-        # card_type is the one nullable column, and predates the migration that
-        # added it — .get() covers a database that hasn't run that yet. Every
-        # other exported column is NOT NULL (see database.sql). Values
-        # otherwise go out verbatim: prefixing a leading =/+/-/@ would defuse
-        # spreadsheet formula injection, but this is the user's own content
-        # coming back to them, and mangling it would break the round trip that
-        # is the entire point of the export.
+        # card_type and tags were added by later migrations, and .get()
+        # covers a database that hasn't run them; card_type can also be NULL.
+        # Values otherwise go out verbatim: prefixing a leading =/+/-/@ would
+        # defuse spreadsheet formula injection, but this is the user's own
+        # content coming back to them, and prefixing it would alter the
+        # exported text.
         row["card_type"] = row.get("card_type") or "basic"
         row["due_date"] = row["due_date"].isoformat(sep=" ")
+        row["tags"] = ", ".join(row.get("tags") or [])
         writer.writerow(row)
 
     filename = f"badanki-cards-{datetime.now():%Y-%m-%d}.csv"
@@ -2006,11 +2006,11 @@ async def undo_review_ajax(
 
 
 def _parse_exclude(exclude: str | None) -> list[int]:
-    """Comma-separated card ids the client has set aside this session."""
+    """Keep the most recent 200 skipped IDs so older cards can cycle back."""
     if not exclude:
         return []
     # isdecimal, not isdigit: "²".isdigit() is True and int("²") raises.
-    return [int(part) for part in exclude.split(",")[:200] if part.strip().isdecimal()]
+    return [int(part) for part in exclude.split(",")[-200:] if part.strip().isdecimal()]
 
 
 @app.get("/api/review/next", response_class=JSONResponse)
