@@ -246,6 +246,8 @@ async def _send_answer_photo(message, card, conn) -> bool:
     cache_key = _answer_cache_key(card['answer'])
 
     cached_file_id = _get_cached_file_id(conn, cache_key)
+    # End the read transaction before waiting on Telegram or the renderer.
+    conn.commit()
     if cached_file_id:
         sent = await _try_send_photo(message, card, cached_file_id)
         if sent:
