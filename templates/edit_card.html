@@ -119,7 +119,17 @@ document.addEventListener('DOMContentLoaded', function() {
     let answerPreviewTimeout = null;
     questionInput.addEventListener('input', function () {
         clearTimeout(questionPreviewTimeout);
-        questionPreviewTimeout = setTimeout(function () { updateQuestionPreview(true); }, PREVIEW_DEBOUNCE_MS);
+        questionPreviewTimeout = setTimeout(function () {
+            questionPreviewTimeout = null;
+            updateQuestionPreview(true);
+        }, PREVIEW_DEBOUNCE_MS);
+    });
+    questionInput.form.addEventListener('submit', function () {
+        if (questionPreviewTimeout !== null) {
+            clearTimeout(questionPreviewTimeout);
+            questionPreviewTimeout = null;
+            updateQuestionPreview(true);
+        }
     });
     answerInput.addEventListener('input', function () {
         answerEdited = true;

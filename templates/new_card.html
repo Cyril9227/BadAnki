@@ -187,7 +187,10 @@ document.addEventListener('DOMContentLoaded', function () {
     let answerPreviewTimeout = null;
     questionInput.addEventListener('input', function () {
         clearTimeout(questionPreviewTimeout);
-        questionPreviewTimeout = setTimeout(updateQuestionPreview, PREVIEW_DEBOUNCE_MS);
+        questionPreviewTimeout = setTimeout(function () {
+            questionPreviewTimeout = null;
+            updateQuestionPreview();
+        }, PREVIEW_DEBOUNCE_MS);
     });
     answerInput.addEventListener('input', function () {
         answerEdited = true;
@@ -197,6 +200,11 @@ document.addEventListener('DOMContentLoaded', function () {
     cardTypeSelect.addEventListener('change', toggleCardType);
 
     form.addEventListener('submit', function(e) {
+        if (questionPreviewTimeout !== null) {
+            clearTimeout(questionPreviewTimeout);
+            questionPreviewTimeout = null;
+            updateQuestionPreview();
+        }
         const question = questionInput.value.trim();
         const answer = answerInput.value.trim();
         if (!question || !answer) {
