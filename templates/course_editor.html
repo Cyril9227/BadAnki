@@ -596,8 +596,16 @@ document.addEventListener('DOMContentLoaded', function () {
         })
         .then(handleResponse)
         .then(() => {
-            isDirty = false;
-            clearDraft(path);
+            const sameFile = currentFilePathInput.value === path;
+            if (sameFile && markdownEditor.value !== content) {
+                isDirty = true;
+                draftStore.set(draftKey(path), markdownEditor.value);
+                window.toast('success', 'Saved. Newer edits are not saved yet.');
+                loadFileTree();
+                return;
+            }
+            if (sameFile) isDirty = false;
+            draftStore.remove(draftKey(path));
             if (!inPlace) {
                 // Complete the view → edit → save loop on the rendered course.
                 window.location.href = '/courses/' + path.split('/').map(encodeURIComponent).join('/');
