@@ -384,6 +384,26 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     });
 
+    function commitEdit(cardElement) {
+        const index = parseInt(cardElement.dataset.cardIndex, 10);
+        const cardData = generatedCardsData[index];
+        if (!cardData) { cardElement.remove(); refreshApproval(); return; }
+        const newQuestion = cardElement.querySelector('.edit-question').value;
+        const newAnswer = cardElement.querySelector('.edit-answer').value;
+        cardData.question = newQuestion;
+        cardData.answer = newAnswer;
+
+        const questionSpan = cardElement.querySelector('.card-question');
+        const answerSpan = cardElement.querySelector('.card-answer');
+        const questionDisplay = cardData.card_type === 'cloze'
+            ? window.formatClozeForDisplay(newQuestion) : newQuestion;
+        questionSpan.innerHTML = window.safeMarkdownInline(questionDisplay);
+        answerSpan.innerHTML = window.safeMarkdownInline(newAnswer);
+        window.typesetMath([questionSpan, answerSpan]);
+        cardElement.querySelector('.card-content').style.display = 'block';
+        cardElement.querySelector('.edit-form').style.display = 'none';
+    }
+
     cardsModalBody.addEventListener('click', function(e) {
         const target = e.target;
         const cardElement = target.closest('.card');
@@ -408,26 +428,7 @@ document.addEventListener('DOMContentLoaded', function () {
             cardElement.querySelector('.card-content').style.display = 'block';
             cardElement.querySelector('.edit-form').style.display = 'none';
         } else if (target.classList.contains('save-edit-btn')) {
-            if (!cardData) { cardElement.remove(); refreshApproval(); return; }
-            const newQuestion = cardElement.querySelector('.edit-question').value;
-            const newAnswer = cardElement.querySelector('.edit-answer').value;
-
-            cardData.question = newQuestion;
-            cardData.answer = newAnswer;
-
-            const questionSpan = cardElement.querySelector('.card-question');
-            const answerSpan = cardElement.querySelector('.card-answer');
-            // Same rendering as displayGeneratedCards: a cloze card's blanks
-            // show as [...] — an edited one used to come back as raw markup.
-            const questionDisplay = cardData.card_type === 'cloze'
-                ? window.formatClozeForDisplay(newQuestion) : newQuestion;
-            questionSpan.innerHTML = window.safeMarkdownInline(questionDisplay);
-            answerSpan.innerHTML = window.safeMarkdownInline(newAnswer);
-
-            window.typesetMath([questionSpan, answerSpan]);
-
-            cardElement.querySelector('.card-content').style.display = 'block';
-            cardElement.querySelector('.edit-form').style.display = 'none';
+            commitEdit(cardElement);
         }
     });
 
@@ -435,6 +436,9 @@ document.addEventListener('DOMContentLoaded', function () {
     saveCardsBtn.addEventListener('click', function() {
         if (saveInFlight) return;
 
+        cardsModalBody.querySelectorAll('.card').forEach(function (cardElement) {
+            if (cardElement.querySelector('.edit-form').style.display !== 'none') commitEdit(cardElement);
+        });
         const approved = approvedCards();
 
         if (approved.length === 0) {
