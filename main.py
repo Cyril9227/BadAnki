@@ -1778,7 +1778,11 @@ async def api_delete_cards(data: CardIds, conn: psycopg2.extensions.connection =
     deleted = crud.delete_cards_for_user(conn, data.ids, user.auth_user_id)
     return {"success": True, "deleted": deleted}
 
-# Export card content, scheduling and themes without the internal user ID.
+# Question and answer are the deck; scheduling and themes ride along so the
+# file carries everything a card holds here. This tuple is also what leaves
+# user_id out — extrasaction="ignore" below drops every column not named
+# here, and user_id is the same value on every row and means nothing outside
+# this database.
 CARD_EXPORT_COLUMNS = ("id", "card_type", "question", "answer", "due_date", "interval", "ease_factor", "tags")
 
 
@@ -1794,11 +1798,12 @@ async def export_cards(conn: psycopg2.extensions.connection = Depends(get_db), u
     writer.writeheader()
     for card in cards:
         row = dict(card)
-        # card_type and tags can be absent on databases awaiting migrations;
-        # .get() covers both. Values
-        # otherwise go out verbatim: prefixing a leading =/+/-/@ would defuse
-        # spreadsheet formula injection, but this is the user's own content
-        # coming back to them, and prefixing it would alter the exported text.
+        # card_type and tags were added by later migrations, and .get()
+        # covers a database that hasn't run them; card_type can also be NULL.
+        # Values otherwise go out verbatim: prefixing a leading =/+/-/@ would
+        # defuse spreadsheet formula injection, but this is the user's own
+        # content coming back to them, and prefixing it would alter the
+        # exported text.
         row["card_type"] = row.get("card_type") or "basic"
         row["due_date"] = row["due_date"].isoformat(sep=" ")
         row["tags"] = ", ".join(row.get("tags") or [])

@@ -395,6 +395,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
         const questionSpan = cardElement.querySelector('.card-question');
         const answerSpan = cardElement.querySelector('.card-answer');
+        // Same rendering as displayGeneratedCards: a cloze card's blanks
+        // show as [...] — an edited one used to come back as raw markup.
         const questionDisplay = cardData.card_type === 'cloze'
             ? window.formatClozeForDisplay(newQuestion) : newQuestion;
         questionSpan.innerHTML = window.safeMarkdownInline(questionDisplay);
@@ -436,6 +438,8 @@ document.addEventListener('DOMContentLoaded', function () {
     saveCardsBtn.addEventListener('click', function() {
         if (saveInFlight) return;
 
+        // An edit form left open counts as saved: the batch sends what the
+        // user sees, not the model's original text.
         cardsModalBody.querySelectorAll('.card').forEach(function (cardElement) {
             if (cardElement.querySelector('.edit-form').style.display !== 'none') commitEdit(cardElement);
         });

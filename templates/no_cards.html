@@ -73,6 +73,8 @@
             }).then(function () {
                 window.location.href = '/review' + tagQuery;
             }).catch(function () {
+                // Allow a retry: a reload would drop the one-shot undo.
+                button.disabled = false;
                 document.getElementById('undo-final-error').textContent = 'Could not undo the last rating. Please check your connection.';
             });
         });

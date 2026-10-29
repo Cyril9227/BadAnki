@@ -173,7 +173,12 @@ def _get_cached_file_id(conn, cache_key):
     exist yet) must never break the photo flow, but it does require a
     rollback so the aborted transaction can't poison later queries."""
     try:
-        return get_cached_photo_file_id(conn, cache_key)
+        file_id = get_cached_photo_file_id(conn, cache_key)
+        # End the read transaction the command opened: the caller next waits
+        # on Telegram and the renderer. Inside the try, so a dropped
+        # connection degrades to a cache miss instead of failing the card.
+        conn.commit()
+        return file_id
     except Exception as e:
         logger.info(f"Photo cache lookup unavailable: {e}")
         _rollback_quietly(conn)
@@ -246,8 +251,6 @@ async def _send_answer_photo(message, card, conn) -> bool:
     cache_key = _answer_cache_key(card['answer'])
 
     cached_file_id = _get_cached_file_id(conn, cache_key)
-    # End the read transaction before waiting on Telegram or the renderer.
-    conn.commit()
     if cached_file_id:
         sent = await _try_send_photo(message, card, cached_file_id)
         if sent:
